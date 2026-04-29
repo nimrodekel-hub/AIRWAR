@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>משחק מלחמה - הגנה אווירית | רפובליקת טליאריה</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <header>
+        <h1>פיקוד הגנה אווירית</h1>
+        <div class="subtitle">משחק מלחמה: כחול נגד אדום</div>
+        <div class="side-toggle">
+          <button class="side-btn blue active" data-side="blue">🔵 כחול - הגנה</button>
+          <button class="side-btn red" data-side="red">🔴 אדום - התקפה</button>
+        </div>
+      </header>
+
+      <section class="panel" id="blue-panel">
+        <h2>🔵 סוללות נ"מ (כחול)</h2>
+        <div class="btn-grid" id="battery-btns"></div>
+        <h2 style="margin-top:10px">📡 מכ"מים (כחול)</h2>
+        <div class="btn-grid" id="radar-btns"></div>
+      </section>
+
+      <section class="panel" id="red-panel" style="display:none">
+        <h2>🔴 איומים אוויריים (אדום)</h2>
+        <div class="btn-grid" id="threat-btns"></div>
+        <div class="hint">לחץ על איום ואז על המפה כדי להציב נקודת מוצא. האיום יטוס לעבר יעד אסטרטגי.</div>
+      </section>
+
+      <section class="panel">
+        <h2>תרחישים</h2>
+        <div class="control-buttons">
+          <button id="auto-attack" class="scenario">🎯 תכנן התקפה אוטומטית</button>
+          <button id="defense-challenge" class="scenario">🛡 אתגר הגנה</button>
+        </div>
+        <div class="hint" id="scenario-hint">
+          התקפה אוטומטית: המערכת תייצר התקפה שמנסה להתגבר על ההגנה שפרסת.<br>
+          אתגר הגנה: המערכת תייצר התקפה - עליך לפרוס הגנה ולמזער נזק.
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>בקרה</h2>
+        <div class="control-buttons">
+          <button id="simulate" class="primary">▶ הפעל סימולציה</button>
+          <button id="stop" class="warn" style="display:none">■ עצור</button>
+          <button id="delete-mode">🗑 מצב מחיקה</button>
+          <button id="clear-threats">⨯ נקה איומים</button>
+          <button id="reset" class="danger">↺ אפס הכל</button>
+        </div>
+        <div id="mode-status" class="status-line">בחר רכיב להוספה</div>
+      </section>
+
+      <section class="panel" id="results-panel">
+        <h2>תוצאות</h2>
+        <div id="results">
+          <div class="placeholder">טרם בוצעה סימולציה</div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="legend">
+          <div>👆 לחץ על כפתור ואז על המפה להצבה</div>
+          <div>🔄 גרור רכיב כדי להזיז אותו</div>
+          <div>🎯 איומים יטוסו ליעדים אסטרטגיים</div>
+        </div>
+      </section>
+    </aside>
+
+    <main id="map-container">
+      <canvas id="map"></canvas>
+      <div id="tooltip"></div>
+      <div id="banner"></div>
+      <div id="legend-overlay">
+        <div><span class="dot detection"></span>טווח גילוי מכ"ם</div>
+        <div><span class="dot engagement"></span>טווח יירוט סוללה</div>
+        <div><span class="dot threat-path"></span>נתיב איום</div>
+        <div><span class="dot target"></span>יעד אסטרטגי</div>
+      </div>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
