@@ -619,10 +619,28 @@ function drawThreats() {
     else if (t.key === 'helicopter') drawHelo();
     else drawDrone();
     ctx.restore();
+
+    // Prominent serial label (pill with battery color)
+    ctx.font = 'bold 11px ui-monospace, "SF Mono", Menlo, monospace';
+    const tw = ctx.measureText(t.label).width;
+    const padX = 5, padY = 2;
+    const bx = t.x - tw/2 - padX;
+    const by = t.y + 13;
+    const bw = tw + padX*2;
+    const bh = 14 + padY;
+    ctx.fillStyle = 'rgba(8, 12, 22, 0.92)';
+    ctx.strokeStyle = c.color;
+    ctx.lineWidth = 1.5;
+    if (ctx.roundRect) {
+      ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 7); ctx.fill(); ctx.stroke();
+    } else {
+      ctx.fillRect(bx, by, bw, bh); ctx.strokeRect(bx, by, bw, bh);
+    }
     ctx.fillStyle = c.color;
-    ctx.font = 'bold 10px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(t.label, t.x, t.y + 18);
+    ctx.textBaseline = 'middle';
+    ctx.fillText(t.label, t.x, by + bh/2);
+    ctx.textBaseline = 'alphabetic';
   }
 }
 
@@ -873,28 +891,43 @@ function showResultsModal() {
   else if (score >= 0.5) { verdictCls = 'partial'; verdictText = `⚠ הגנה חלקית - ${(score*100).toFixed(0)}% הוגן, ${(100-score*100).toFixed(0)}% נפגע`; }
   else { verdictCls = 'failure'; verdictText = `✗ כישלון - רק ${(score*100).toFixed(0)}% הוגן`; }
 
-  const sorted = [...r.breakdown].sort((a, b) => {
-    if (a.status !== b.status) return a.status === 'destroyed' ? -1 : 1;
-    return a.label.localeCompare(b.label);
-  });
+  const breachers = r.breakdown.filter(b => b.status === 'reached')
+    .sort((a, b) => a.label.localeCompare(b.label));
+  const intercepted = r.breakdown.filter(b => b.status === 'destroyed')
+    .sort((a, b) => a.label.localeCompare(b.label));
 
-  let rows = '';
-  for (const b of sorted) {
-    const cls = b.status === 'destroyed' ? 'destroyed' : 'survived';
-    const badge = b.status === 'destroyed'
-      ? `<span class="badge destroyed">יורט</span>`
-      : `<span class="badge survived">פרץ ליעד</span>`;
-    const detail = b.status === 'destroyed'
-      ? `יורט ע"י <b>${b.hitBy || '-'}</b>${b.firedAt > 1 ? ` (לאחר ${b.firedAt-1} פספוסים)` : ''}`
-      : (b.reason || '-');
-    rows += `
-      <tr class="${cls}">
+  let breachRows = '';
+  for (const b of breachers) {
+    breachRows += `
+      <tr class="survived">
         <td><span class="serial">${b.label}</span></td>
         <td>${b.type}</td>
         <td>${b.target}</td>
-        <td>${badge}</td>
-        <td>${detail}</td>
+        <td class="reason">${b.reason || '-'}</td>
       </tr>`;
+  }
+  if (!breachers.length) {
+    breachRows = `<tr><td colspan="4" style="text-align:center;color:#5fa86b;padding:14px">✓ אף איום לא חדר את ההגנה</td></tr>`;
+  }
+
+  let killRows = '';
+  for (const b of intercepted) {
+    killRows += `
+      <tr class="destroyed">
+        <td><span class="serial">${b.label}</span></td>
+        <td>${b.type}</td>
+        <td>${b.target}</td>
+        <td>${b.hitBy || '-'}${b.firedAt > 1 ? ` <span style="color:#7e91a8">(לאחר ${b.firedAt-1} פספוסים)</span>` : ''}</td>
+      </tr>`;
+  }
+  if (!intercepted.length) {
+    killRows = `<tr><td colspan="4" style="text-align:center;color:#d35f5f;padding:14px">לא יורט אף איום</td></tr>`;
+  }
+
+  const recs = generateRecommendations(r);
+  let recsHtml = '';
+  for (const rec of recs) {
+    recsHtml += `<li>${rec}</li>`;
   }
 
   body.innerHTML = `
@@ -905,7 +938,7 @@ function showResultsModal() {
         <div class="value">${r.killed}/${r.total}</div>
       </div>
       <div class="stat survived">
-        <div class="label">איומים שפרצו</div>
+        <div class="label">איומים שחדרו</div>
         <div class="value">${r.survived}/${r.total}</div>
       </div>
       <div class="stat protected">
@@ -913,21 +946,108 @@ function showResultsModal() {
         <div class="value">${r.protectedValue}/${r.totalValue}</div>
       </div>
     </div>
-    <div class="results-section-title">פירוט לפי איום</div>
+
+    <div class="results-section-title" style="color:#d35f5f">⚠ איומים שחדרו את ההגנה (${breachers.length})</div>
     <table class="results-table">
       <thead>
         <tr>
           <th>מס׳ סידורי</th>
-          <th>סוג</th>
+          <th>סוג איום</th>
           <th>יעד</th>
-          <th>סטטוס</th>
-          <th>פרטים / סיבת אי-יירוט</th>
+          <th>סיבת חדירה</th>
         </tr>
       </thead>
-      <tbody>${rows}</tbody>
+      <tbody>${breachRows}</tbody>
     </table>
+
+    <div class="results-section-title" style="color:#5fa86b">✓ איומים שיורטו (${intercepted.length})</div>
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>מס׳ סידורי</th>
+          <th>סוג איום</th>
+          <th>יעד מקורי</th>
+          <th>סוללה מיירטת</th>
+        </tr>
+      </thead>
+      <tbody>${killRows}</tbody>
+    </table>
+
+    <div class="results-section-title" style="color:#fbbf24">💡 המלצות לשיפור ההגנה</div>
+    <ul class="recommendations">${recsHtml}</ul>
   `;
   modal.classList.add('visible');
+}
+
+function generateRecommendations(r) {
+  const recs = [];
+  const survived = r.breakdown.filter(b => b.status === 'reached');
+
+  if (survived.length === 0) {
+    if (r.killed === r.total) {
+      recs.push('🎯 הגנה מושלמת! כל האיומים יורטו. ניתן לבחון אם אפשר להפחית במשאבים מבלי לפגוע ביעילות.');
+    }
+    return recs;
+  }
+
+  // Group by reason category
+  const outOfRange   = survived.filter(b => b.reason && b.reason.includes('מחוץ לטווח כל הסוללות'));
+  const altMismatch  = survived.filter(b => b.reason && b.reason.includes('גובה'));
+  const notDetected  = survived.filter(b => b.reason && b.reason.includes('לא התגלה'));
+  const allMissed    = survived.filter(b => b.reason && b.reason.includes('פספסו'));
+  const noAmmo       = survived.filter(b => b.reason && b.reason.includes('תחמושת'));
+  const cooldown     = survived.filter(b => b.reason && b.reason.includes('קולדאון'));
+
+  if (outOfRange.length > 0) {
+    const targets = [...new Set(outOfRange.map(b => b.target))];
+    recs.push(`📍 <b>${outOfRange.length} איומים פרצו אזורים ללא כיסוי</b> (יעדים: ${targets.join(', ')}). פרוס סוללה ארוכת טווח (פטריוט / שרביט קסמים / ברק 8) קרוב יותר ליעדים אלה, או הוסף סוללה משלימה.`);
+  }
+
+  if (altMismatch.length > 0) {
+    const types = [...new Set(altMismatch.map(b => b.type))];
+    if (types.includes('מטוס קרב')) {
+      recs.push(`✈ <b>מטוסי קרב חמקו בגובה גבוה.</b> הסוללות שלך מוגבלות לגובה נמוך - הוסף פטריוט או שרביט קסמים שמסוגלים ליירט בגובה 10+ ק"מ.`);
+    }
+    if (types.includes('מסוק תקיפה')) {
+      recs.push(`🚁 <b>מסוקים חמקו בגובה נמוך מאוד.</b> הוסף SA-8 או כיפת ברזל - מערכות שיעילות נגד מטרות בגובה <5 ק"מ.`);
+    }
+    if (types.includes('כטב"ם תוקף')) {
+      recs.push(`◆ <b>כטב"מים חמקו בגובה נמוך.</b> שרביט קסמים אינו אפקטיבי נגדם (גובה מינימום 5 ק"מ). הוסף כיפת ברזל או ברק 8.`);
+    }
+  }
+
+  if (notDetected.length > 0) {
+    recs.push(`📡 <b>${notDetected.length} איומים חמקו ממכ"מים</b> בגלל חתימת מכ"ם נמוכה. הוסף מכ"ם גילוי-נמוך (Short Range) קרוב לציר התקיפה - הוא יעיל יותר נגד מטרות עם RCS קטן.`);
+  }
+
+  if (allMissed.length > 0) {
+    recs.push(`🎯 <b>${allMissed.length} איומים נמלטו אחרי שכל הירי פספס.</b> זה קורה כשהסבירות לפגיעה נמוכה (למשל פטריוט נגד כטב"ם). פרוס מערכת משלימה באותו אזור עם סבירות פגיעה גבוהה יותר נגד הסוג הספציפי - אפקט שכבות.`);
+  }
+
+  if (noAmmo.length > 0) {
+    recs.push(`⚡ <b>${noAmmo.length} איומים פרצו כי הסוללות מיצו תחמושת.</b> סטורציה הצליחה - שכפל סוללות באזורים שמתחת ללחץ, או הוסף מערכת בעלת קצב ירי גבוה (כיפת ברזל - 20 טילים).`);
+  }
+
+  if (cooldown.length > 0) {
+    recs.push(`⏱ <b>${cooldown.length} איומים פרצו בזמן טעינה מחדש של הסוללה.</b> פתרון: הצב סוללה שנייה כגיבוי באותו אזור, כך שכשאחת בקולדאון השנייה תכסה.`);
+  }
+
+  // Target-specific damage
+  const targetDamage = {};
+  survived.forEach(b => { targetDamage[b.target] = (targetDamage[b.target] || 0) + 1; });
+  const hotTargets = Object.entries(targetDamage)
+    .filter(([_, n]) => n >= 2)
+    .sort((a, b) => b[1] - a[1]);
+  if (hotTargets.length) {
+    const [tname, count] = hotTargets[0];
+    recs.push(`🎯 <b>${tname} ספג ${count} פגיעות</b> - היעד הזה נמצא תחת לחץ מיוחד. צור הגנה רב-שכבתית סביבו: מכ"ם גילוי + סוללה ארוכת טווח חיצונית + סוללת point-defense בקרבת היעד.`);
+  }
+
+  if (recs.length === 0) {
+    recs.push(`💡 ההגנה הצליחה ברובה. נסה לחזק נקודתית את האזורים שדרכם פרצו האיומים.`);
+  }
+
+  return recs;
 }
 
 function hideModal() {

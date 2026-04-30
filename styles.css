@@ -84,6 +84,20 @@ html, body {
   border-radius: 3px;
 }
 
+.btn-help {
+  font-size: 11px;
+  color: #b8c8dc;
+  background: rgba(20, 28, 42, 0.8);
+  border: 1px solid #1f2a3d;
+  border-right: 3px solid #4a6b9c;
+  padding: 8px 10px;
+  margin: 2px 0 8px 0;
+  border-radius: 4px;
+  line-height: 1.6;
+}
+
+.btn-help b { color: #5fa8d3; font-weight: 700; }
+
 .control-buttons button.scenario {
   background: #2a4571;
   border-color: #4a6b9c;
@@ -530,6 +544,32 @@ html, body {
 .modal-verdict.success { background: rgba(95, 168, 107, 0.15); color: #5fa86b; border: 1px solid #5fa86b; }
 .modal-verdict.partial { background: rgba(251, 191, 36, 0.15); color: #fbbf24; border: 1px solid #fbbf24; }
 .modal-verdict.failure { background: rgba(211, 95, 95, 0.15); color: #d35f5f; border: 1px solid #d35f5f; }
+
+.results-table .reason {
+  color: #fbb;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.recommendations {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0 0;
+}
+
+.recommendations li {
+  background: #0c1320;
+  border: 1px solid #1f2a3d;
+  border-right: 3px solid #fbbf24;
+  border-radius: 4px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #d6e0f0;
+}
+
+.recommendations li b { color: #fbbf24; }
 
 @media (max-width: 600px) {
   .modal-summary { grid-template-columns: 1fr 1fr; }
