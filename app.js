@@ -104,7 +104,8 @@ const state = {
   results: null,
   lastTs: 0,
   simElapsed: 0,
-  drag: null
+  drag: null,
+  serialCounters: {}      // {uav: 5, fighter: 3, ...}
 };
 
 let canvas, ctx, W, H, tooltip, banner;
@@ -178,6 +179,10 @@ function bindControls() {
   document.getElementById('reset').addEventListener('click', resetAll);
   document.getElementById('auto-attack').addEventListener('click', generateAutoAttack);
   document.getElementById('defense-challenge').addEventListener('click', startDefenseChallenge);
+  document.getElementById('modal-close').addEventListener('click', hideModal);
+  document.getElementById('modal').addEventListener('click', (ev) => {
+    if (ev.target.id === 'modal') hideModal();
+  });
 }
 
 function switchSide(side) {
@@ -294,6 +299,8 @@ function onMouseMove(ev) {
     } else if (c.kind === 'radar') {
       lines.push(`גילוי: ${c.detection} ק"מ`);
     } else if (c.kind === 'threat') {
+      lines[0] = `<b>${c.name} <span style="color:#fbbf24">[${ent.label}]</span></b>`;
+      lines.push(`יעד: ${ent.target}`);
       lines.push(`מהירות: ${c.speed} | גובה: ${c.altitude} ק"מ`);
       lines.push(`סטטוס: ${ent.status === 'destroyed' ? 'הושמד' : ent.status === 'reached' ? 'הגיע ליעד' : 'פעיל'}`);
     }
@@ -325,10 +332,7 @@ function placeAt(key, x, y) {
   const c = CATALOG[key];
   if (c.kind === 'threat') {
     const target = pickTarget();
-    state.threats.push({
-      id: nextId++, key, x, y, sx: x, sy: y,
-      tx: target.x, ty: target.y, status: 'inflight', hitBy: null, target: target.name
-    });
+    state.threats.push(makeThreat(key, x, y, target.x, target.y, target.name));
   } else {
     state.defenses.push({
       id: nextId++, key, x, y,
@@ -336,6 +340,18 @@ function placeAt(key, x, y) {
     });
   }
   if (state.budget) renderBudget();
+}
+
+function makeThreat(key, sx, sy, tx, ty, targetName) {
+  const c = CATALOG[key];
+  state.serialCounters[key] = (state.serialCounters[key] || 0) + 1;
+  const serial = state.serialCounters[key];
+  return {
+    id: nextId++, key, x: sx, y: sy, sx, sy, tx, ty,
+    status: 'inflight', hitBy: null, target: targetName,
+    serial, label: `${c.short}-${serial}`,
+    firedAt: 0, missedBy: []
+  };
 }
 
 function pickTarget() {
@@ -359,12 +375,14 @@ function toggleDelete() {
 
 function clearThreats() {
   state.threats = []; state.missiles = []; state.explosions = [];
+  state.serialCounters = {};
   state.results = null; renderResults();
   setStatus('נוקו האיומים');
 }
 
 function resetAll() {
   state.defenses = []; state.threats = []; state.missiles = []; state.explosions = [];
+  state.serialCounters = {};
   state.results = null; state.budget = null; state.challengeMode = null;
   state.mode = 'idle'; state.placeKey = null;
   hideBanner();
@@ -602,9 +620,9 @@ function drawThreats() {
     else drawDrone();
     ctx.restore();
     ctx.fillStyle = c.color;
-    ctx.font = '9px sans-serif';
+    ctx.font = 'bold 10px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(c.short, t.x, t.y + 18);
+    ctx.fillText(t.label, t.x, t.y + 18);
   }
 }
 
@@ -750,6 +768,7 @@ function tick(dt) {
           target.hitBy = m.battery;
           state.explosions.push({ x: target.x, y: target.y, r: 18, t: 0, dur: 0.8 });
         } else {
+          target.missedBy.push(m.battery);
           state.explosions.push({ x: m.x + (Math.random()-0.5)*10, y: m.y + (Math.random()-0.5)*10, r: 8, t: 0, dur: 0.4 });
         }
       }
@@ -809,8 +828,8 @@ function fireMissile(d, t) {
   const c = CATALOG[d.key];
   const tc = CATALOG[t.key];
   d.cd = c.reload; d.ammo--;
-  // intercept point: lead the target a bit
-  const flightTime = Math.hypot(t.x - d.x, t.y - d.y) / 350; // 350 px/s missile
+  t.firedAt++;
+  const flightTime = Math.hypot(t.x - d.x, t.y - d.y) / 350;
   const lx = Math.min(W, Math.max(0, t.x + (t.tx - t.sx) / Math.hypot(t.tx - t.sx, t.ty - t.sy) * tc.speed * flightTime));
   const ly = Math.min(H, Math.max(0, t.y + (t.ty - t.sy) / Math.hypot(t.tx - t.sx, t.ty - t.sy) * tc.speed * flightTime));
   const hit = Math.random() < (c.pHit[t.key] || 0.5);
@@ -828,7 +847,6 @@ function finishSim() {
   computeResults();
   renderResults();
 
-  // Banner for challenge modes
   if (state.challengeMode === 'defense-challenge' && state.results) {
     const score = state.results.protectedValue / state.results.totalValue;
     if (score >= 0.85) showBanner(`ניצחון! הגנת על ${(score*100).toFixed(0)}% מהערך האסטרטגי`, 'success');
@@ -840,13 +858,86 @@ function finishSim() {
     else showBanner(`הגנה החזיקה: ${state.results.killed}/${state.results.total} יורטו`, 'success');
   }
   setStatus('סימולציה הסתיימה');
+  showResultsModal();
+}
+
+function showResultsModal() {
+  if (!state.results) return;
+  const r = state.results;
+  const modal = document.getElementById('modal');
+  const body = document.getElementById('modal-body');
+
+  const score = r.protectedValue / r.totalValue;
+  let verdictCls, verdictText;
+  if (score >= 0.85) { verdictCls = 'success'; verdictText = `🛡 הגנה מצוינת - ${(score*100).toFixed(0)}% מהערך האסטרטגי הוגן`; }
+  else if (score >= 0.5) { verdictCls = 'partial'; verdictText = `⚠ הגנה חלקית - ${(score*100).toFixed(0)}% הוגן, ${(100-score*100).toFixed(0)}% נפגע`; }
+  else { verdictCls = 'failure'; verdictText = `✗ כישלון - רק ${(score*100).toFixed(0)}% הוגן`; }
+
+  const sorted = [...r.breakdown].sort((a, b) => {
+    if (a.status !== b.status) return a.status === 'destroyed' ? -1 : 1;
+    return a.label.localeCompare(b.label);
+  });
+
+  let rows = '';
+  for (const b of sorted) {
+    const cls = b.status === 'destroyed' ? 'destroyed' : 'survived';
+    const badge = b.status === 'destroyed'
+      ? `<span class="badge destroyed">יורט</span>`
+      : `<span class="badge survived">פרץ ליעד</span>`;
+    const detail = b.status === 'destroyed'
+      ? `יורט ע"י <b>${b.hitBy || '-'}</b>${b.firedAt > 1 ? ` (לאחר ${b.firedAt-1} פספוסים)` : ''}`
+      : (b.reason || '-');
+    rows += `
+      <tr class="${cls}">
+        <td><span class="serial">${b.label}</span></td>
+        <td>${b.type}</td>
+        <td>${b.target}</td>
+        <td>${badge}</td>
+        <td>${detail}</td>
+      </tr>`;
+  }
+
+  body.innerHTML = `
+    <div class="modal-verdict ${verdictCls}">${verdictText}</div>
+    <div class="modal-summary">
+      <div class="stat killed">
+        <div class="label">איומים שיורטו</div>
+        <div class="value">${r.killed}/${r.total}</div>
+      </div>
+      <div class="stat survived">
+        <div class="label">איומים שפרצו</div>
+        <div class="value">${r.survived}/${r.total}</div>
+      </div>
+      <div class="stat protected">
+        <div class="label">ערך אסטרטגי הוגן</div>
+        <div class="value">${r.protectedValue}/${r.totalValue}</div>
+      </div>
+    </div>
+    <div class="results-section-title">פירוט לפי איום</div>
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>מס׳ סידורי</th>
+          <th>סוג</th>
+          <th>יעד</th>
+          <th>סטטוס</th>
+          <th>פרטים / סיבת אי-יירוט</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+  modal.classList.add('visible');
+}
+
+function hideModal() {
+  document.getElementById('modal').classList.remove('visible');
 }
 
 function computeResults() {
   const total = state.threats.length;
   const killed = state.threats.filter(t => t.status === 'destroyed').length;
   const survived = total - killed;
-  // strategic damage
   const reachedByTarget = {};
   let totalValue = TARGETS.reduce((s, t) => s + t.value, 0);
   let damagedValue = 0;
@@ -863,12 +954,64 @@ function computeResults() {
     byTarget: reachedByTarget,
     totalValue, protectedValue: totalValue - damagedValue,
     breakdown: state.threats.map(t => ({
+      label: t.label,
       type: CATALOG[t.key].name,
       target: t.target,
       status: t.status,
-      hitBy: t.hitBy
+      hitBy: t.hitBy,
+      reason: t.status === 'reached' ? diagnoseFailure(t) : null,
+      firedAt: t.firedAt,
+      missedBy: t.missedBy
     }))
   };
+}
+
+function diagnoseFailure(t) {
+  if (t.firedAt > 0) {
+    const list = t.missedBy.length ? ` (${[...new Set(t.missedBy)].join(', ')})` : '';
+    return `נורו ${t.firedAt} טילי יירוט - כולם פספסו${list}`;
+  }
+  const tc = CATALOG[t.key];
+  let inRangeBatteries = [];
+  let altMatched = false;
+  let detectedOnPath = false;
+
+  for (const d of state.defenses) {
+    const c = CATALOG[d.key];
+    if (c.kind !== 'battery') continue;
+    if (!segmentIntersectsCircle(t.sx, t.sy, t.tx, t.ty, d.x, d.y, c.maxRange)) continue;
+    inRangeBatteries.push({ d, c });
+    if (tc.altitude >= c.minAlt && tc.altitude <= c.maxAlt) altMatched = true;
+  }
+
+  for (const d of state.defenses) {
+    const c = CATALOG[d.key];
+    const range = c.kind === 'radar' ? c.detection : c.maxRange;
+    const effective = range * (0.6 + 0.4 * tc.rcs);
+    if (segmentIntersectsCircle(t.sx, t.sy, t.tx, t.ty, d.x, d.y, effective)) {
+      detectedOnPath = true; break;
+    }
+  }
+
+  if (inRangeBatteries.length === 0) return 'מחוץ לטווח כל הסוללות - אין כיסוי';
+  if (!altMatched) {
+    const altInfo = inRangeBatteries.map(({c}) => `${c.short}(${c.minAlt}-${c.maxAlt})`).join(', ');
+    return `גובה טיסה ${tc.altitude} ק"מ מחוץ לתחום סוללות בטווח: ${altInfo}`;
+  }
+  if (!detectedOnPath) return 'לא התגלה ע"י אף מכ"ם - חתימת מכ"ם נמוכה';
+  // Had a chance - must be ammo/cooldown
+  const noAmmo = inRangeBatteries.some(({d, c}) => d.ammo <= 0);
+  if (noAmmo) return 'הסוללות בטווח מיצו תחמושת';
+  return 'הסוללות לא הספיקו להגיב (קולדאון בין ירי)';
+}
+
+function segmentIntersectsCircle(x1, y1, x2, y2, cx, cy, r) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len2 = dx*dx + dy*dy || 1;
+  let k = ((cx - x1) * dx + (cy - y1) * dy) / len2;
+  k = Math.max(0, Math.min(1, k));
+  const px = x1 + k * dx, py = y1 + k * dy;
+  return Math.hypot(px - cx, py - cy) <= r;
 }
 
 function renderResults() {
@@ -890,11 +1033,13 @@ function renderResults() {
     <ul>`;
   for (const b of r.breakdown) {
     const cls = b.status === 'destroyed' ? 'destroyed' : 'survived';
-    const txt = b.status === 'destroyed' ? `יורט ע"י ${b.hitBy || '-'}` : `הגיע ל${b.target}`;
-    html += `<li class="${cls}"><span>${b.type} → ${b.target}</span><span>${txt}</span></li>`;
+    const txt = b.status === 'destroyed' ? `יורט ע"י ${b.hitBy || '-'}` : `→ ${b.target}`;
+    html += `<li class="${cls}"><span><b style="color:#fbbf24">${b.label}</b> ${b.type}</span><span>${txt}</span></li>`;
   }
-  html += '</ul>';
+  html += '</ul><button id="show-modal" style="width:100%;margin-top:8px;padding:6px;background:#2a4571;border:1px solid #4a6b9c;border-radius:4px;color:#d6e0f0;cursor:pointer;font-family:inherit">📋 הצג טבלת תוצאות מפורטת</button>';
   el.innerHTML = html;
+  const btn = document.getElementById('show-modal');
+  if (btn) btn.addEventListener('click', showResultsModal);
 }
 
 // =============================================================
@@ -906,6 +1051,7 @@ function generateAutoAttack() {
     return;
   }
   state.threats = [];
+  state.serialCounters = {};
   state.challengeMode = 'auto-attack';
   state.budget = null;
 
@@ -942,12 +1088,12 @@ function generateAutoAttack() {
       sx = 20 + Math.random() * 200;
       sy = 80 + Math.random() * 600;
     }
-    state.threats.push({
-      id: nextId++, key, x: sx, y: sy, sx, sy,
-      tx: tgt.x + (Math.random() - 0.5) * 20,
-      ty: tgt.y + (Math.random() - 0.5) * 20,
-      status: 'inflight', hitBy: null, target: tgt.name
-    });
+    state.threats.push(makeThreat(
+      key, sx, sy,
+      tgt.x + (Math.random() - 0.5) * 20,
+      tgt.y + (Math.random() - 0.5) * 20,
+      tgt.name
+    ));
   }
   setStatus(`נוצרה התקפה: ${nThreats} איומים מכוונים לחלשות בהגנה`);
   showBanner('תכנית התקפה אוטומטית נוצרה - לחץ "הפעל סימולציה"', '');
@@ -972,12 +1118,12 @@ function startDefenseChallenge() {
     const fromNorth = Math.random() < 0.3;
     if (fromNorth) { sx = 150 + Math.random() * 700; sy = 20 + Math.random() * 50; }
     else           { sx = 20 + Math.random() * 250; sy = 100 + Math.random() * 550; }
-    state.threats.push({
-      id: nextId++, key, x: sx, y: sy, sx, sy,
-      tx: tgt.x + (Math.random() - 0.5) * 30,
-      ty: tgt.y + (Math.random() - 0.5) * 30,
-      status: 'inflight', hitBy: null, target: tgt.name
-    });
+    state.threats.push(makeThreat(
+      key, sx, sy,
+      tgt.x + (Math.random() - 0.5) * 30,
+      tgt.y + (Math.random() - 0.5) * 30,
+      tgt.name
+    ));
   }
   // Set defense budget
   state.budget = {
