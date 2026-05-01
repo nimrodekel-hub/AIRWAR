@@ -870,6 +870,34 @@ html, body {
   text-align: left;
 }
 
+.targets-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 12px 0;
+}
+
+.target-chip {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid;
+}
+
+.target-chip.safe {
+  background: rgba(95, 168, 107, 0.15);
+  border-color: #5fa86b;
+  color: #86efac;
+}
+
+.target-chip.hit {
+  background: rgba(220, 38, 38, 0.20);
+  border-color: #dc2626;
+  color: #fca5a5;
+}
+
 @media (max-width: 600px) {
   .modal-summary { grid-template-columns: 1fr 1fr; }
   .results-table { font-size: 11px; }

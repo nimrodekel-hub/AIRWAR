@@ -162,10 +162,15 @@ function getCountryCenter() {
 // System auto-deploys defense; user has limited threat budget to break through.
 // Defense positions are anchored to target names (or to the country center)
 // so they follow the randomized target layout each game.
+// Each profile carries an explicit win condition (`objective`).
 const ATTACK_DIFFICULTY = {
   easy: {
     label: 'קל',
     threatBudget: { uav: 24, fighter: 8, helicopter: 8 },  // 40 total
+    objective: {
+      text: 'פגע ב<b>בירה (Arian)</b>',
+      check: (hits) => hits.has('Arian (Capital)')
+    },
     defenses: [
       { key: 'ironDome',   anchor: 'Arian (Capital)', dy: 20 },
       { key: 'patriot',    anchor: 'center', dy: 30 },
@@ -175,6 +180,10 @@ const ATTACK_DIFFICULTY = {
   medium: {
     label: 'בינוני',
     threatBudget: { uav: 18, fighter: 6, helicopter: 6 },  // 30 total
+    objective: {
+      text: 'פגע ב-<b>3 יעדים אסטרטגיים שונים</b>',
+      check: (hits) => hits.size >= 3
+    },
     defenses: [
       { key: 'ironDome',   anchor: 'Arian (Capital)' },
       { key: 'ironDome',   anchor: 'Eagle Airbase' },
@@ -187,6 +196,10 @@ const ATTACK_DIFFICULTY = {
   hard: {
     label: 'קשה',
     threatBudget: { uav: 12, fighter: 4, helicopter: 4 },  // 20 total
+    objective: {
+      text: 'פגע ב-<b>4 יעדים אסטרטגיים שונים</b>, או ב<b>בירה + 2 יעדים נוספים</b>',
+      check: (hits) => hits.size >= 4 || (hits.has('Arian (Capital)') && hits.size >= 3)
+    },
     defenses: [
       { key: 'ironDome',   anchor: 'Arian (Capital)' },
       { key: 'ironDome',   anchor: 'Eagle Airbase' },
@@ -202,6 +215,45 @@ const ATTACK_DIFFICULTY = {
       { key: 'medRadar',   anchor: 'Talos', dx: 50, dy: 80 },
       { key: 'shortRadar', anchor: 'Miron', dx: -20, dy: 20 }
     ]
+  }
+};
+
+// ---- Defense-challenge difficulty profiles ----
+// System generates an attack; user places defense within a budget.
+// Each profile carries an explicit win condition (`objective`).
+const DEFENSE_DIFFICULTY = {
+  easy: {
+    label: 'קל',
+    countMin: 8, countMax: 11,
+    jitterX: 150, jitterY: 350, baseY: 200,
+    budget: { ironDome: 4, sa8: 3, barak8: 3, patriot: 2, davidsSling: 2,
+              longRadar: 2, medRadar: 3, shortRadar: 3 },
+    objective: {
+      text: 'הגן על <b>הבירה (Arian)</b> - אסור שתיפגע',
+      check: (hits) => !hits.has('Arian (Capital)')
+    }
+  },
+  medium: {
+    label: 'בינוני',
+    countMin: 14, countMax: 19,
+    jitterX: 230, jitterY: 550, baseY: 100,
+    budget: { ironDome: 3, sa8: 2, barak8: 2, patriot: 1, davidsSling: 1,
+              longRadar: 1, medRadar: 2, shortRadar: 2 },
+    objective: {
+      text: 'הגן על <b>הבירה (Arian)</b> ועל <b>בסיס הנשר (Eagle Airbase)</b>',
+      check: (hits) => !hits.has('Arian (Capital)') && !hits.has('Eagle Airbase')
+    }
+  },
+  hard: {
+    label: 'קשה',
+    countMin: 22, countMax: 29,
+    jitterX: 320, jitterY: 700, baseY: 30,
+    budget: { ironDome: 2, sa8: 1, barak8: 1, patriot: 1, davidsSling: 1,
+              longRadar: 1, medRadar: 1, shortRadar: 1 },
+    objective: {
+      text: 'לפחות <b>4 מ-5 היעדים האסטרטגיים</b> נשארו ללא פגיעה',
+      check: (hits) => hits.size <= 1
+    }
   }
 };
 
@@ -261,6 +313,7 @@ const state = {
   challengeMode: null,    // null | 'attack-challenge' | 'defense-challenge'
   budget: null,           // defense budget (defense-challenge)
   threatBudget: null,     // threat budget (attack-challenge)
+  objective: null,        // { text, check(hits) } - mission win condition
   results: null,
   lastTs: 0,
   simElapsed: 0,
@@ -574,7 +627,7 @@ function refreshButtonStates() {
 function setStatus(text) { document.getElementById('mode-status').textContent = text; }
 
 function showBanner(text, kind) {
-  banner.textContent = text;
+  banner.innerHTML = text;
   banner.className = kind || '';
   banner.style.display = 'block';
 }
@@ -840,6 +893,7 @@ function resetAll() {
   state.results = null;
   state.budget = null;
   state.threatBudget = null;
+  state.objective = null;
   state.attackChallenge = false;
   state.challengeDifficulty = null;
   state.challengeMode = null;
@@ -1887,17 +1941,19 @@ function finishSim() {
   computeResults();
   renderResults();
 
-  if (state.challengeMode === 'defense-challenge' && state.results) {
-    const score = state.results.protectedValue / state.results.totalValue;
-    if (score >= 0.85) showBanner(`ניצחון! הגנת על ${(score*100).toFixed(0)}% מהערך האסטרטגי`, 'success');
-    else if (score >= 0.5) showBanner(`הגנה חלקית: ${(score*100).toFixed(0)}% הצלחה`, '');
-    else showBanner(`כשלון - רק ${(score*100).toFixed(0)}% מהיעדים הוגנו`, 'failure');
-  } else if (state.challengeMode === 'attack-challenge' && state.results) {
-    const breachRate = state.results.survived / Math.max(1, state.results.total);
-    const damageRate = 1 - state.results.protectedValue / state.results.totalValue;
-    if (damageRate >= 0.6) showBanner(`התקפה הצליחה! פגעת ב-${(damageRate*100).toFixed(0)}% מהערך האסטרטגי`, 'success');
-    else if (damageRate >= 0.3) showBanner(`התקפה חלקית: ${(damageRate*100).toFixed(0)}% נזק`, '');
-    else showBanner(`התקפה נכשלה: רק ${(damageRate*100).toFixed(0)}% נזק לאויב`, 'failure');
+  if (state.results && state.results.objectiveMet !== null) {
+    const ok = state.results.objectiveMet;
+    if (state.challengeMode === 'attack-challenge') {
+      showBanner(ok
+        ? `🏆 <u>משימת התקפה הושגה!</u><br><span style="font-size:12px;font-weight:400">${state.results.objectiveText}</span>`
+        : `✗ <u>משימת התקפה נכשלה</u><br><span style="font-size:12px;font-weight:400">לא הושגו תנאי הניצחון: ${state.results.objectiveText}</span>`,
+        ok ? 'success' : 'failure');
+    } else if (state.challengeMode === 'defense-challenge') {
+      showBanner(ok
+        ? `🏆 <u>משימת הגנה הושגה!</u><br><span style="font-size:12px;font-weight:400">${state.results.objectiveText}</span>`
+        : `✗ <u>משימת הגנה נכשלה</u><br><span style="font-size:12px;font-weight:400">תנאי הניצחון לא הושג: ${state.results.objectiveText}</span>`,
+        ok ? 'success' : 'failure');
+    }
   } else if (state.challengeMode === 'auto-attack' && state.results) {
     const breachRate = state.results.survived / state.results.total;
     if (breachRate >= 0.5) showBanner(`התקפה הצליחה: ${state.results.survived} איומים פרצו`, 'failure');
@@ -1913,11 +1969,32 @@ function showResultsModal() {
   const modal = document.getElementById('modal');
   const body = document.getElementById('modal-body');
 
+  const isAttack = state.challengeMode === 'attack-challenge';
   const score = r.protectedValue / r.totalValue;
+  const damageScore = 1 - score;
+
+  // Build the verdict from the explicit mission objective when one is defined
   let verdictCls, verdictText;
-  if (score >= 0.85) { verdictCls = 'success'; verdictText = `🛡 הגנה מצוינת - ${(score*100).toFixed(0)}% מהערך האסטרטגי הוגן`; }
-  else if (score >= 0.5) { verdictCls = 'partial'; verdictText = `⚠ הגנה חלקית - ${(score*100).toFixed(0)}% הוגן, ${(100-score*100).toFixed(0)}% נפגע`; }
-  else { verdictCls = 'failure'; verdictText = `✗ כישלון - רק ${(score*100).toFixed(0)}% הוגן`; }
+  if (r.objectiveMet !== null && r.objectiveText) {
+    if (isAttack) {
+      verdictCls = r.objectiveMet ? 'success' : 'failure';
+      const headline = r.objectiveMet
+        ? `🏆 משימת התקפה הושגה - ניצחת את ההגנה!`
+        : `✗ משימת התקפה נכשלה - ההגנה החזיקה`;
+      verdictText = `${headline}<br><span style="font-size:12px;font-weight:400;color:#7e91a8">תנאי ניצחון: ${r.objectiveText}</span>`;
+    } else {
+      verdictCls = r.objectiveMet ? 'success' : 'failure';
+      const headline = r.objectiveMet
+        ? `🏆 משימת הגנה הושגה - הצלחת לבלום את התקיפה!`
+        : `✗ משימת הגנה נכשלה - היעד שהוגדר נפגע`;
+      verdictText = `${headline}<br><span style="font-size:12px;font-weight:400;color:#7e91a8">תנאי ניצחון: ${r.objectiveText}</span>`;
+    }
+  } else {
+    // Free play - keep the protected-value verdict
+    if (score >= 0.85) { verdictCls = 'success'; verdictText = `🛡 הגנה מצוינת - ${(score*100).toFixed(0)}% מהערך האסטרטגי הוגן`; }
+    else if (score >= 0.5) { verdictCls = 'partial'; verdictText = `⚠ הגנה חלקית - ${(score*100).toFixed(0)}% הוגן`; }
+    else { verdictCls = 'failure'; verdictText = `✗ כישלון - רק ${(score*100).toFixed(0)}% הוגן`; }
+  }
 
   const breachers = r.breakdown.filter(b => b.status === 'reached')
     .sort((a, b) => a.label.localeCompare(b.label));
@@ -1974,59 +2051,133 @@ function showResultsModal() {
   else if (efficiency >= 0.7) { effClass = 'partial'; effLabel = 'ביצוע סביר'; }
   else { effClass = 'failure'; effLabel = 'יש מקום לשיפור משמעותי'; }
 
-  const benchmarkHtml = `
-    <div class="results-section-title" style="color:#a78bfa">📊 השוואה אל מול האופטימום האובייקטיבי</div>
-    <div class="benchmark-grid">
-      <div class="benchmark-row">
-        <div class="bench-label">הביצוע שלך</div>
-        <div class="bench-bar"><div class="bench-fill yours" style="width:${(r.protectedValue/r.totalValue*100).toFixed(0)}%"></div></div>
-        <div class="bench-num">${r.killed}/${r.total} | ${r.protectedValue}/${r.totalValue}</div>
+  // Benchmark from attacker's perspective (damage % achieved vs maximum the
+  // defense allowed) when in attack mode; from defender's perspective otherwise
+  let benchmarkHtml;
+  if (isAttack) {
+    const yourDamage = r.totalValue - r.protectedValue;
+    const bestPossibleDamage = r.totalValue - best.bestProtectedValue;
+    // For the attacker the "best" = least the defense could intercept
+    // i.e. maximum damage given current attack threats vs deployed defense
+    // computeBestPossible models defender-optimal play. So attacker-best = how
+    // much damage even an optimal defense couldn't prevent.
+    const attackerEff = bestPossibleDamage > 0
+      ? Math.min(1, yourDamage / Math.max(1, r.totalValue - best.bestProtectedValue))
+      : (yourDamage > 0 ? 1 : 0);
+    const yourPct = (yourDamage / r.totalValue * 100).toFixed(0);
+    const bestPct = (bestPossibleDamage / r.totalValue * 100).toFixed(0);
+    benchmarkHtml = `
+      <div class="results-section-title" style="color:#a78bfa">📊 הביצוע ההתקפי שלך אל מול אופטימום</div>
+      <div class="benchmark-grid">
+        <div class="benchmark-row">
+          <div class="bench-label">נזק שגרמת</div>
+          <div class="bench-bar"><div class="bench-fill yours" style="width:${yourPct}%;background:linear-gradient(90deg,#7c2d12,#dc2626)"></div></div>
+          <div class="bench-num">${r.survived}/${r.total} פרצו | ${yourDamage}/${r.totalValue} נזק</div>
+        </div>
+        <div class="benchmark-row">
+          <div class="bench-label">נזק תיאורטי מקסימלי</div>
+          <div class="bench-bar"><div class="bench-fill best" style="width:${bestPct}%;background:linear-gradient(90deg,#92400e,#f59e0b)"></div></div>
+          <div class="bench-num">${r.total - best.bestKilled}/${r.total} פרצו | ${bestPossibleDamage}/${r.totalValue} נזק</div>
+        </div>
       </div>
-      <div class="benchmark-row">
-        <div class="bench-label">המקסימום האפשרי</div>
-        <div class="bench-bar"><div class="bench-fill best" style="width:${(best.bestProtectedValue/best.totalValue*100).toFixed(0)}%"></div></div>
-        <div class="bench-num">${best.bestKilled}/${r.total} | ${best.bestProtectedValue}/${best.totalValue}</div>
+      <div class="modal-verdict partial" style="margin-top:10px">
+        🎯 גרמת ל-<b>${(attackerEff*100).toFixed(0)}%</b> מהנזק האפשרי לפי תכנון התקפה אופטימלי<br>
+        <span style="font-size:11px;font-weight:400;color:#7e91a8">המקסימום מתאר את הנזק שאפילו הקצאה אופטימלית של ההגנה לא הייתה יכולה למנוע מול האיומים שבחרת ומיקומם.</span>
       </div>
-    </div>
-    <div class="modal-verdict ${effClass}" style="margin-top:10px">
-      🎯 השגת <b>${effPercent}%</b> מהאופטימום - ${effLabel}<br>
-      <span style="font-size:11px;font-weight:400;color:#7e91a8">המקסימום מחושב לפי הפריסה הנוכחית, ללא החטאות סטטיסטיות, עם הקצאה אופטימלית של מיירטים. מה שמעבר אינו ניתן להשגה ללא שינוי בפריסה / משאבים.</span>
-    </div>
-  `;
+    `;
+  } else {
+    benchmarkHtml = `
+      <div class="results-section-title" style="color:#a78bfa">📊 הביצוע ההגנתי שלך אל מול אופטימום</div>
+      <div class="benchmark-grid">
+        <div class="benchmark-row">
+          <div class="bench-label">הביצוע שלך</div>
+          <div class="bench-bar"><div class="bench-fill yours" style="width:${(r.protectedValue/r.totalValue*100).toFixed(0)}%"></div></div>
+          <div class="bench-num">${r.killed}/${r.total} | ${r.protectedValue}/${r.totalValue}</div>
+        </div>
+        <div class="benchmark-row">
+          <div class="bench-label">המקסימום האפשרי</div>
+          <div class="bench-bar"><div class="bench-fill best" style="width:${(best.bestProtectedValue/best.totalValue*100).toFixed(0)}%"></div></div>
+          <div class="bench-num">${best.bestKilled}/${r.total} | ${best.bestProtectedValue}/${best.totalValue}</div>
+        </div>
+      </div>
+      <div class="modal-verdict ${effClass}" style="margin-top:10px">
+        🎯 השגת <b>${effPercent}%</b> מהאופטימום - ${effLabel}<br>
+        <span style="font-size:11px;font-weight:400;color:#7e91a8">המקסימום מחושב לפי הפריסה הנוכחית, ללא החטאות סטטיסטיות, עם הקצאה אופטימלית של מיירטים.</span>
+      </div>
+    `;
+  }
+
+  // Hit-targets summary line - which strategic targets actually got struck
+  const hitList = TARGETS.map(t => ({
+    name: t.name, value: t.value,
+    hit: r.hitTargets && r.hitTargets.has(t.name)
+  }));
+  const hitTargetsHtml = hitList.map(t =>
+    `<span class="target-chip ${t.hit ? 'hit' : 'safe'}">${t.hit ? '💥' : '✓'} ${t.name}</span>`
+  ).join('');
+
+  // Three top summary cards differ by mode so the framing matches the player role
+  const summaryCardsHtml = isAttack
+    ? `
+        <div class="stat survived" style="border-color:#dc2626">
+          <div class="label">איומים שפרצו</div>
+          <div class="value">${r.survived}/${r.total}</div>
+        </div>
+        <div class="stat killed">
+          <div class="label">איומים שאבדו</div>
+          <div class="value">${r.killed}/${r.total}</div>
+        </div>
+        <div class="stat protected" style="border-color:#dc2626">
+          <div class="label">נזק שגרמת</div>
+          <div class="value" style="color:#dc2626">${r.totalValue - r.protectedValue}/${r.totalValue}</div>
+        </div>`
+    : `
+        <div class="stat killed">
+          <div class="label">איומים שיורטו</div>
+          <div class="value">${r.killed}/${r.total}</div>
+        </div>
+        <div class="stat survived">
+          <div class="label">איומים שחדרו</div>
+          <div class="value">${r.survived}/${r.total}</div>
+        </div>
+        <div class="stat protected">
+          <div class="label">ערך אסטרטגי הוגן</div>
+          <div class="value">${r.protectedValue}/${r.totalValue}</div>
+        </div>`;
+
+  // Section labels depend on the player's role
+  const breachLabel = isAttack
+    ? `🎯 התקפות מוצלחות שלך (${breachers.length})`
+    : `⚠ איומים שחדרו את ההגנה (${breachers.length})`;
+  const interceptLabel = isAttack
+    ? `💀 איומים שאבדו לאש האויב (${intercepted.length})`
+    : `✓ איומים שיורטו (${intercepted.length})`;
+  const recsTitle = isAttack ? 'המלצות לשיפור ההתקפה' : 'המלצות לשיפור ההגנה';
 
   body.innerHTML = `
     <div class="modal-verdict ${verdictCls}">${verdictText}</div>
-    <div class="modal-summary">
-      <div class="stat killed">
-        <div class="label">איומים שיורטו</div>
-        <div class="value">${r.killed}/${r.total}</div>
-      </div>
-      <div class="stat survived">
-        <div class="label">איומים שחדרו</div>
-        <div class="value">${r.survived}/${r.total}</div>
-      </div>
-      <div class="stat protected">
-        <div class="label">ערך אסטרטגי הוגן</div>
-        <div class="value">${r.protectedValue}/${r.totalValue}</div>
-      </div>
-    </div>
+
+    <div class="results-section-title" style="color:${isAttack ? '#dc2626' : '#5fa8d3'}">🎯 יעדים אסטרטגיים</div>
+    <div class="targets-status">${hitTargetsHtml}</div>
+
+    <div class="modal-summary">${summaryCardsHtml}</div>
 
     ${benchmarkHtml}
 
-    <div class="results-section-title" style="color:#d35f5f">⚠ איומים שחדרו את ההגנה (${breachers.length})</div>
+    <div class="results-section-title" style="color:${isAttack ? '#5fa86b' : '#d35f5f'}">${breachLabel}</div>
     <table class="results-table">
       <thead>
         <tr>
           <th>מס׳ סידורי</th>
           <th>סוג איום</th>
           <th>יעד</th>
-          <th>סיבת חדירה</th>
+          <th>${isAttack ? 'איך עברת את ההגנה' : 'סיבת חדירה'}</th>
         </tr>
       </thead>
       <tbody>${breachRows}</tbody>
     </table>
 
-    <div class="results-section-title" style="color:#5fa86b">✓ איומים שיורטו (${intercepted.length})</div>
+    <div class="results-section-title" style="color:${isAttack ? '#d35f5f' : '#5fa86b'}">${interceptLabel}</div>
     <table class="results-table">
       <thead>
         <tr>
@@ -2039,7 +2190,7 @@ function showResultsModal() {
       <tbody>${killRows}</tbody>
     </table>
 
-    <div class="results-section-title" style="color:#fbbf24">💡 ${state.challengeMode === 'attack-challenge' ? 'המלצות לשיפור ההתקפה' : 'המלצות לשיפור ההגנה'}</div>
+    <div class="results-section-title" style="color:#fbbf24">💡 ${recsTitle}</div>
     <ul class="recommendations">${recsHtml}</ul>
   `;
   modal.classList.add('visible');
@@ -2265,20 +2416,26 @@ function computeResults() {
   const killed = state.threats.filter(t => t.status === 'destroyed').length;
   const survived = total - killed;
   const reachedByTarget = {};
+  const hitTargets = new Set();
   let totalValue = TARGETS.reduce((s, t) => s + t.value, 0);
   let damagedValue = 0;
   for (const t of state.threats) {
     if (t.status === 'reached') {
       reachedByTarget[t.target] = (reachedByTarget[t.target] || 0) + 1;
+      hitTargets.add(t.target);
       const tg = TARGETS.find(x => x.name === t.target);
       if (tg) damagedValue += tg.value;
     }
   }
   damagedValue = Math.min(damagedValue, totalValue);
+  const objectiveMet = state.objective ? !!state.objective.check(hitTargets) : null;
   state.results = {
     total, killed, survived,
     byTarget: reachedByTarget,
+    hitTargets,
     totalValue, protectedValue: totalValue - damagedValue,
+    objectiveMet,
+    objectiveText: state.objective ? state.objective.text : null,
     breakdown: state.threats.map(t => ({
       label: t.label,
       type: CATALOG[t.key].name,
@@ -2447,6 +2604,7 @@ function startAttackChallenge(difficulty) {
   state.challengeMode = 'attack-challenge';
   state.challengeDifficulty = difficulty;
   state.threatBudget = { ...profile.threatBudget };
+  state.objective = profile.objective;
 
   // System auto-deploys defenses according to the difficulty profile.
   // Anchors are resolved against the *current* (randomized) target layout.
@@ -2469,8 +2627,13 @@ function startAttackChallenge(difficulty) {
   renderBudget();
 
   const total = profile.threatBudget.uav + profile.threatBudget.fighter + profile.threatBudget.helicopter;
-  showBanner(`🎯 אתגר התקפה ${profile.label} - ${total} איומים זמינים. בחר סוג, לחץ מחוץ לגבולות, ולחץ על יעד.`, '');
-  setStatus(`אתגר התקפה ${profile.label} פעיל - בחר סוג איום מהתפריט`);
+  showBanner(
+    `🎯 <u>משימת התקפה - ${profile.label}</u><br>` +
+    `<span style="color:#fbbf24">תנאי ניצחון:</span> ${profile.objective.text}<br>` +
+    `<span style="font-size:12px;font-weight:400">תקציב: ${total} איומים | בחר סוג, לחץ מחוץ לגבולות, ואז על יעד</span>`,
+    ''
+  );
+  setStatus(`משימת התקפה ${profile.label} - בחר סוג איום מהתפריט`);
 }
 
 // =============================================================
@@ -2537,34 +2700,9 @@ function startDefenseChallenge(difficulty = 'medium') {
   resetAll();
   state.challengeMode = 'defense-challenge';
   state.challengeDifficulty = difficulty;
-
-  // Difficulty profiles - threat count, geographic spread of origins, defense budget
-  const profile = {
-    easy: {
-      countMin: 8, countMax: 11,
-      jitterX: 150, jitterY: 350,
-      baseY: 200,
-      label: 'קל',
-      budget: { ironDome: 4, sa8: 3, barak8: 3, patriot: 2, davidsSling: 2,
-                longRadar: 2, medRadar: 3, shortRadar: 3 }
-    },
-    medium: {
-      countMin: 14, countMax: 19,
-      jitterX: 230, jitterY: 550,
-      baseY: 100,
-      label: 'בינוני',
-      budget: { ironDome: 3, sa8: 2, barak8: 2, patriot: 1, davidsSling: 1,
-                longRadar: 1, medRadar: 2, shortRadar: 2 }
-    },
-    hard: {
-      countMin: 22, countMax: 29,
-      jitterX: 320, jitterY: 700,
-      baseY: 30,
-      label: 'קשה',
-      budget: { ironDome: 2, sa8: 1, barak8: 1, patriot: 1, davidsSling: 1,
-                longRadar: 1, medRadar: 1, shortRadar: 1 }
-    }
-  }[difficulty];
+  const profile = DEFENSE_DIFFICULTY[difficulty];
+  if (!profile) return;
+  state.objective = profile.objective;
 
   const attackSize = profile.countMin + Math.floor(Math.random() * (profile.countMax - profile.countMin));
   for (let i = 0; i < attackSize; i++) {
@@ -2593,8 +2731,13 @@ function startDefenseChallenge(difficulty = 'medium') {
 
   state.budget = profile.budget;
   switchSide('blue');
-  setStatus(`אתגר הגנה ${profile.label}: ${attackSize} איומים, פרוס במסגרת התקציב`);
-  showBanner(`🛡 אתגר הגנה ${profile.label} - ${attackSize} איומים מתקרבים. פרוס במסגרת התקציב.`, '');
+  setStatus(`משימת הגנה ${profile.label}: ${attackSize} איומים, פרוס במסגרת התקציב`);
+  showBanner(
+    `🛡 <u>משימת הגנה - ${profile.label}</u><br>` +
+    `<span style="color:#fbbf24">תנאי ניצחון:</span> ${profile.objective.text}<br>` +
+    `<span style="font-size:12px;font-weight:400">איומים מתקרבים: ${attackSize} | פרוס במסגרת התקציב</span>`,
+    ''
+  );
   renderBudget();
 }
 
