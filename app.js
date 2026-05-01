@@ -37,7 +37,7 @@ const CATALOG = {
     kind: 'battery', name: 'Patriot PAC-3', short: 'PAT',
     minRange: 3, maxRange: 160, minAlt: 0, maxAlt: 24,
     color: '#f59e0b', ammo: 4, reload: 0.7,
-    hitRate: 0.75,
+    hitRate: 0.65,
     reactionTime: 1.5,
     missileSpeed: 220, realSpeed: 'Mach 2.5 (slowest)',
     desc: 'Long-range system, struggles with slow/small targets'
@@ -46,7 +46,7 @@ const CATALOG = {
     kind: 'battery', name: "David's Sling", short: 'DSL',
     minRange: 40, maxRange: 300, minAlt: 5, maxAlt: 30,
     color: '#ef4444', ammo: 5, reload: 0.8,
-    hitRate: 0.80,
+    hitRate: 0.70,
     reactionTime: 1,
     missileSpeed: 280, realSpeed: 'Mach 3 (slow)',
     desc: 'Long-range interception, medium-to-high altitude'
@@ -241,7 +241,7 @@ function makeBtn(k) {
   const c = CATALOG[k];
   let rangeText;
   if (c.kind === 'battery') {
-    rangeText = `${c.minRange}-${c.maxRange} km • <span class="kp-badge">KP ${(c.hitRate*100).toFixed(0)}%</span> <span class="rt-badge">RT ${c.reactionTime}s</span><br><span class="speed-line">Missile: ${c.realSpeed}</span>`;
+    rangeText = `${c.minRange}-${c.maxRange} km • Alt ${c.minAlt}-${c.maxAlt} km<br><span class="kp-badge">KP ${(c.hitRate*100).toFixed(0)}%</span> <span class="rt-badge">RT ${c.reactionTime}s</span> <span class="speed-line">${c.realSpeed}</span>`;
   } else if (c.kind === 'radar') {
     rangeText = `Detection ${c.detection} km`;
   } else {
