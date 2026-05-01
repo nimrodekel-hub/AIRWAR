@@ -4,76 +4,76 @@
 // =============================================================
 
 const CATALOG = {
-  // ---- סוללות ----
+  // ---- Batteries ----
   ironDome: {
-    kind: 'battery', name: 'כיפת ברזל', short: 'IRN',
+    kind: 'battery', name: 'Iron Dome', short: 'IRN',
     minRange: 4, maxRange: 70, minAlt: 0, maxAlt: 10,
     color: '#3b82f6', ammo: 20, reload: 1.2,
-    pHit: { uav: 0.92, helicopter: 0.88, fighter: 0.55 },
-    desc: 'יירוט קצר טווח, יעיל מאוד נגד כטב"מים ורקטות'
+    hitRate: 0.90, missileSpeed: 250, realSpeed: 'Mach 2.2 (~750 m/s)',
+    desc: 'Short-range interception, highly effective against UAVs and rockets'
   },
   sa8: {
-    kind: 'battery', name: 'SA-8 גקו', short: 'SA8',
+    kind: 'battery', name: 'SA-8 Gecko', short: 'SA8',
     minRange: 1.5, maxRange: 15, minAlt: 0, maxAlt: 5,
     color: '#10b981', ammo: 8, reload: 5,
-    pHit: { uav: 0.65, helicopter: 0.85, fighter: 0.50 },
-    desc: 'נ"מ ניידת קצרת טווח, גובה נמוך'
+    hitRate: 0.65, missileSpeed: 180, realSpeed: 'Mach 2 (~660 m/s)',
+    desc: 'Mobile short-range SAM, low-altitude'
   },
   barak8: {
-    kind: 'battery', name: 'ברק 8', short: 'BRK',
+    kind: 'battery', name: 'Barak-8', short: 'BRK',
     minRange: 0.5, maxRange: 100, minAlt: 0, maxAlt: 16,
     color: '#8b5cf6', ammo: 16, reload: 4,
-    pHit: { uav: 0.80, helicopter: 0.88, fighter: 0.85 },
-    desc: 'מערכת רב-שכבתית לטווח בינוני-ארוך'
+    hitRate: 0.85, missileSpeed: 300, realSpeed: 'Mach 4 (~1300 m/s)',
+    desc: 'Multi-layered medium-to-long range system'
   },
   patriot: {
-    kind: 'battery', name: 'פטריוט PAC-3', short: 'PAT',
+    kind: 'battery', name: 'Patriot PAC-3', short: 'PAT',
     minRange: 3, maxRange: 160, minAlt: 0, maxAlt: 24,
     color: '#f59e0b', ammo: 16, reload: 6,
-    pHit: { uav: 0.40, helicopter: 0.75, fighter: 0.85 },
-    desc: 'מערכת ארוכת טווח, מתקשה במטרות איטיות וקטנות'
+    hitRate: 0.75, missileSpeed: 400, realSpeed: 'Mach 5 (~1700 m/s)',
+    desc: 'Long-range system, struggles with slow/small targets'
   },
   davidsSling: {
-    kind: 'battery', name: 'שרביט קסמים', short: 'DSL',
+    kind: 'battery', name: "David's Sling", short: 'DSL',
     minRange: 40, maxRange: 300, minAlt: 5, maxAlt: 30,
     color: '#ef4444', ammo: 12, reload: 8,
-    pHit: { uav: 0.30, helicopter: 0.50, fighter: 0.90 },
-    desc: 'יירוט טווח ארוך, גובה בינוני-גבוה'
+    hitRate: 0.80, missileSpeed: 450, realSpeed: 'Mach 7 (~2400 m/s)',
+    desc: 'Long-range interception, medium-to-high altitude'
   },
-  // ---- מכ"מים ----
+  // ---- Radars ----
   longRadar: {
-    kind: 'radar', name: 'מכ"ם טווח ארוך', short: 'LR',
+    kind: 'radar', name: 'Long-Range Radar', short: 'LR',
     detection: 350, color: '#06b6d4',
-    desc: 'גילוי 350 ק"מ, רואה מטרות גדולות'
+    desc: '350 km detection range, sees large targets'
   },
   medRadar: {
-    kind: 'radar', name: 'מכ"ם טווח בינוני', short: 'MR',
+    kind: 'radar', name: 'Medium-Range Radar', short: 'MR',
     detection: 180, color: '#0ea5e9',
-    desc: 'גילוי 180 ק"מ, מאוזן'
+    desc: '180 km detection range, balanced'
   },
   shortRadar: {
-    kind: 'radar', name: 'מכ"ם גילוי נמוך', short: 'SR',
+    kind: 'radar', name: 'Short-Range Radar', short: 'SR',
     detection: 100, color: '#0891b2',
-    desc: 'גילוי 100 ק"מ, רואה מטרות קטנות בגובה נמוך'
+    desc: '100 km detection, sees small low-altitude targets'
   },
-  // ---- איומים ----
+  // ---- Threats ----
   uav: {
-    kind: 'threat', name: 'כטב"ם תוקף', short: 'UAV',
+    kind: 'threat', name: 'Attack UAV', short: 'UAV',
     speed: 35, altitude: 2, rcs: 0.4,
     color: '#fbbf24', icon: '◆',
-    desc: 'איטי, נמוך, חתימה קטנה'
+    desc: 'Slow, low altitude, small radar signature'
   },
   fighter: {
-    kind: 'threat', name: 'מטוס קרב', short: 'FTR',
+    kind: 'threat', name: 'Fighter Jet', short: 'FTR',
     speed: 110, altitude: 10, rcs: 1.0,
     color: '#dc2626', icon: '▲',
-    desc: 'מהיר, גובה גבוה'
+    desc: 'Fast, high altitude'
   },
   helicopter: {
-    kind: 'threat', name: 'מסוק תקיפה', short: 'HEL',
+    kind: 'threat', name: 'Attack Helicopter', short: 'HEL',
     speed: 45, altitude: 0.8, rcs: 0.7,
     color: '#a855f7', icon: '✚',
-    desc: 'נמוך מאוד, מתחמק ממכ"מים'
+    desc: 'Very low altitude, evades radars'
   }
 };
 
@@ -81,14 +81,22 @@ const BATTERY_KEYS = ['ironDome', 'sa8', 'barak8', 'patriot', 'davidsSling'];
 const RADAR_KEYS = ['longRadar', 'medRadar', 'shortRadar'];
 const THREAT_KEYS = ['uav', 'fighter', 'helicopter'];
 
-// ---- מטרות אסטרטגיות במדינה ----
+// ---- Strategic targets ----
 const TARGETS = [
-  { name: 'אריאן (בירה)', x: 720, y: 410, value: 5, capital: true },
-  { name: 'טאלוס',        x: 560, y: 230, value: 3 },
-  { name: 'מירון',        x: 920, y: 340, value: 3 },
-  { name: 'פלאיון',       x: 660, y: 600, value: 2 },
-  { name: 'בסיס "נשר"',   x: 800, y: 510, value: 4, airbase: true }
+  { name: 'Arian (Capital)', x: 720, y: 410, value: 5, capital: true },
+  { name: 'Talos',           x: 560, y: 230, value: 3 },
+  { name: 'Miron',           x: 920, y: 340, value: 3 },
+  { name: 'Plaion',          x: 660, y: 600, value: 2 },
+  { name: 'Eagle Airbase',   x: 800, y: 510, value: 4, airbase: true }
 ];
+
+// ---- Miss reason labels (Hebrew UI) ----
+const REASON_LABEL = {
+  'statistical': 'החטאה סטטיסטית',
+  'tangent':     'חציה משיקית (ניצב לסוללה)',
+  'flight-time': 'זמן מעוף לא מספיק',
+  'out-of-range':'יציאה מטווח היירוט'
+};
 
 // ---- מצב כללי ----
 const state = {
@@ -144,21 +152,106 @@ function buildButtons() {
 
 function makeBtn(k) {
   const c = CATALOG[k];
-  const b = document.createElement('button');
-  b.dataset.key = k;
   let rangeText;
-  if (c.kind === 'battery') rangeText = `טווח ${c.minRange}-${c.maxRange} ק"מ • גובה ≤${c.maxAlt}`;
+  if (c.kind === 'battery') rangeText = `${c.minRange}-${c.maxRange} ק"מ • פגיעה ${(c.hitRate*100).toFixed(0)}%`;
   else if (c.kind === 'radar') rangeText = `גילוי ${c.detection} ק"מ`;
   else rangeText = `מהירות ${c.speed} • גובה ${c.altitude} ק"מ`;
-  b.innerHTML = `
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'btn-row';
+
+  const main = document.createElement('button');
+  main.dataset.key = k;
+  main.innerHTML = `
     <span class="icon" style="color:${c.color}">${iconFor(k)}</span>
     <span class="info">
       <span class="name">${c.name}</span>
       <span class="range">${rangeText}</span>
     </span>`;
-  b.title = c.desc;
-  b.addEventListener('click', () => selectPlace(k));
-  return b;
+  main.title = c.desc;
+  main.addEventListener('click', () => selectPlace(k));
+
+  const info = document.createElement('button');
+  info.className = 'info-btn';
+  info.innerHTML = 'ⓘ';
+  info.title = 'פרטי מערכת';
+  info.addEventListener('click', (ev) => { ev.stopPropagation(); showInfoModal(k); });
+
+  wrapper.appendChild(main);
+  wrapper.appendChild(info);
+  return wrapper;
+}
+
+function showInfoModal(key) {
+  const c = CATALOG[key];
+  document.getElementById('info-title').textContent = c.name;
+  const body = document.getElementById('info-body');
+
+  let rows = `<tr><td>תיאור</td><td>${c.desc}</td></tr>`;
+
+  if (c.kind === 'battery') {
+    rows += `
+      <tr><td>סוג</td><td>סוללת נ"מ קרקע-אוויר</td></tr>
+      <tr><td>טווח יירוט</td><td>${c.minRange} - ${c.maxRange} ק"מ</td></tr>
+      <tr><td>תקרת גובה</td><td>${c.minAlt} - ${c.maxAlt} ק"מ</td></tr>
+      <tr><td>מהירות מיירט</td><td>${c.realSpeed}</td></tr>
+      <tr><td>שיעור פגיעה סטטיסטי</td><td><b style="color:#5fa86b;font-size:15px">${(c.hitRate*100).toFixed(0)}%</b></td></tr>
+      <tr><td>מצבור תחמושת</td><td>${c.ammo} מיירטים</td></tr>
+      <tr><td>זמן טעינה בין ירי</td><td>${c.reload} שניות</td></tr>
+    `;
+  } else if (c.kind === 'radar') {
+    rows += `
+      <tr><td>סוג</td><td>מכ"ם גילוי וכיוון</td></tr>
+      <tr><td>טווח גילוי נומינלי</td><td>${c.detection} ק"מ</td></tr>
+      <tr><td>הערה</td><td>הטווח האפקטיבי משתנה לפי חתימת המכ"ם של האיום (RCS)</td></tr>
+    `;
+  } else {
+    rows += `
+      <tr><td>סוג</td><td>איום אווירי</td></tr>
+      <tr><td>מהירות (סקלת המשחק)</td><td>${c.speed} px/s</td></tr>
+      <tr><td>גובה טיסה</td><td>${c.altitude} ק"מ</td></tr>
+      <tr><td>חתימת מכ"ם (RCS)</td><td>${c.rcs} ${c.rcs < 0.5 ? '(נמוכה - קשה לאתר)' : c.rcs < 0.8 ? '(בינונית)' : '(גבוהה)'}</td></tr>
+    `;
+  }
+
+  let html = `
+    <div class="info-card" style="border-right-color:${c.color}">
+      <table class="info-table">${rows}</table>
+    </div>
+  `;
+
+  if (c.kind === 'battery') {
+    html += `
+      <div class="info-failure-list">
+        <h4>4 סיבות אפשריות לכשלון יירוט:</h4>
+        <ul>
+          <li><b>החטאה סטטיסטית</b> - לפי שיעור פגיעה ${(c.hitRate*100).toFixed(0)}% (${(100 - c.hitRate*100).toFixed(0)}% פספוסים בממוצע)</li>
+          <li><b>זמן מעוף לא מספיק</b> - האיום מקדים להגיע ליעד לפני שהמיירט מגיע אליו (תלוי במהירות המיירט: ${c.realSpeed})</li>
+          <li><b>יציאה מטווח</b> - האיום עוזב את כיסוי הסוללה (${c.maxRange} ק"מ) במהלך מעוף הטיל</li>
+          <li><b>חציה משיקית</b> - האיום נע בניצב לציר הסוללה ברגע היירוט (עד 15° מהניצב)</li>
+        </ul>
+      </div>
+    `;
+  } else if (c.kind === 'threat') {
+    html += `
+      <div class="info-failure-list">
+        <h4>טיפ טקטי:</h4>
+        <ul>
+          ${c.altitude < 3 ? '<li>גובה נמוך - השתמש ב-Iron Dome / SA-8 / Barak-8 (David\'s Sling אינו אפקטיבי בגובה < 5 ק"מ)</li>' : ''}
+          ${c.altitude >= 8 ? '<li>גובה גבוה - השתמש ב-Patriot / David\'s Sling (Barak-8 אפקטיבי גם הוא)</li>' : ''}
+          ${c.rcs < 0.5 ? '<li>RCS נמוך - חתימה קטנה, מכ"מים גדולים יתקשו לאתר. השתמש ב-Short-Range Radar שיעיל יותר נגד מטרות קטנות</li>' : ''}
+          ${c.speed > 100 ? '<li>מהירות גבוהה - הגיע ליעד מהר. דרושות סוללות עם מיירט מהיר (David\'s Sling - Mach 7) או פריסה קרובה לציר הטיסה</li>' : ''}
+        </ul>
+      </div>
+    `;
+  }
+
+  body.innerHTML = html;
+  document.getElementById('info-modal').classList.add('visible');
+}
+
+function hideInfoModal() {
+  document.getElementById('info-modal').classList.remove('visible');
 }
 
 function iconFor(k) {
@@ -182,6 +275,10 @@ function bindControls() {
   document.getElementById('modal-close').addEventListener('click', hideModal);
   document.getElementById('modal').addEventListener('click', (ev) => {
     if (ev.target.id === 'modal') hideModal();
+  });
+  document.getElementById('info-close').addEventListener('click', hideInfoModal);
+  document.getElementById('info-modal').addEventListener('click', (ev) => {
+    if (ev.target.id === 'info-modal') hideInfoModal();
   });
 }
 
@@ -215,7 +312,7 @@ function selectPlace(key) {
 }
 
 function refreshButtonStates() {
-  document.querySelectorAll('.btn-grid button').forEach(b => {
+  document.querySelectorAll('.btn-grid button[data-key]').forEach(b => {
     b.classList.toggle('active', state.mode === 'placing' && b.dataset.key === state.placeKey);
   });
   canvas.classList.toggle('placing', state.mode === 'placing');
@@ -473,10 +570,10 @@ function drawCountry() {
   ctx.fillStyle = 'rgba(95, 168, 211, 0.35)';
   ctx.font = 'bold 28px serif';
   ctx.textAlign = 'center';
-  ctx.fillText('רפובליקת טליאריה', 720, 160);
+  ctx.fillText('Republic of Taliaria', 720, 160);
   ctx.font = '12px sans-serif';
   ctx.fillStyle = 'rgba(95, 168, 211, 0.5)';
-  ctx.fillText('TALIARIA', 720, 178);
+  ctx.fillText('Air Defense Command', 720, 178);
 }
 
 function drawTargets() {
@@ -786,7 +883,7 @@ function tick(dt) {
           target.hitBy = m.battery;
           state.explosions.push({ x: target.x, y: target.y, r: 18, t: 0, dur: 0.8 });
         } else {
-          target.missedBy.push(m.battery);
+          target.missedBy.push({ battery: m.battery, reason: m.reason });
           state.explosions.push({ x: m.x + (Math.random()-0.5)*10, y: m.y + (Math.random()-0.5)*10, r: 8, t: 0, dur: 0.4 });
         }
       }
@@ -847,14 +944,61 @@ function fireMissile(d, t) {
   const tc = CATALOG[t.key];
   d.cd = c.reload; d.ammo--;
   t.firedAt++;
-  const flightTime = Math.hypot(t.x - d.x, t.y - d.y) / 350;
-  const lx = Math.min(W, Math.max(0, t.x + (t.tx - t.sx) / Math.hypot(t.tx - t.sx, t.ty - t.sy) * tc.speed * flightTime));
-  const ly = Math.min(H, Math.max(0, t.y + (t.ty - t.sy) / Math.hypot(t.tx - t.sx, t.ty - t.sy) * tc.speed * flightTime));
-  const hit = Math.random() < (c.pHit[t.key] || 0.5);
+
+  // Threat velocity unit vector (along its straight path to target)
+  const fdx = t.tx - t.sx, fdy = t.ty - t.sy;
+  const flen = Math.hypot(fdx, fdy) || 1;
+  const tvx = fdx / flen, tvy = fdy / flen;
+  const threatSpeed = tc.speed;
+  const missileSpeed = c.missileSpeed;
+
+  // Iterative lead-pursuit intercept solution
+  let T = Math.hypot(t.x - d.x, t.y - d.y) / missileSpeed;
+  let ipx = t.x, ipy = t.y;
+  for (let i = 0; i < 6; i++) {
+    ipx = t.x + tvx * threatSpeed * T;
+    ipy = t.y + tvy * threatSpeed * T;
+    T = Math.hypot(ipx - d.x, ipy - d.y) / missileSpeed;
+  }
+
+  // Time threat will reach its target
+  const threatTimeToTarget = Math.hypot(t.tx - t.x, t.ty - t.y) / threatSpeed;
+
+  let outcome;  // 'hit' | 'flight-time' | 'out-of-range' | 'tangent' | 'statistical'
+
+  // Rule 1: missile flight time exceeds threat's remaining time → too late
+  if (T > threatTimeToTarget) {
+    outcome = 'flight-time';
+    // Visualize chase even though it fails: missile stops where threat would have been
+    ipx = t.x + tvx * threatSpeed * threatTimeToTarget;
+    ipy = t.y + tvy * threatSpeed * threatTimeToTarget;
+  }
+  // Rule 2: predicted intercept point exits engagement envelope
+  else if (Math.hypot(ipx - d.x, ipy - d.y) > c.maxRange) {
+    outcome = 'out-of-range';
+  }
+  // Rule 3: tangent crossing - threat moving (near-)perpendicular to battery LOS at intercept
+  else {
+    const btx = ipx - d.x, bty = ipy - d.y;
+    const blen = Math.hypot(btx, bty) || 1;
+    const cosAng = (btx / blen) * tvx + (bty / blen) * tvy;
+    if (Math.abs(cosAng) < 0.15) {
+      outcome = 'tangent';
+    }
+    // Rule 4: statistical hit-rate roll
+    else if (Math.random() < c.hitRate) {
+      outcome = 'hit';
+    } else {
+      outcome = 'statistical';
+    }
+  }
+
   state.missiles.push({
     sx: d.x, sy: d.y, x: d.x, y: d.y,
-    tx: lx, ty: ly, t: 0, dur: Math.max(0.6, flightTime),
-    hit, threatId: t.id, battery: c.name, resolved: false
+    tx: ipx, ty: ipy, t: 0, dur: Math.max(0.4, T),
+    hit: outcome === 'hit',
+    reason: outcome,
+    threatId: t.id, battery: c.name, resolved: false
   });
 }
 
@@ -912,12 +1056,17 @@ function showResultsModal() {
 
   let killRows = '';
   for (const b of intercepted) {
+    let priorMisses = '';
+    if (b.firedAt > 1 && b.missedBy && b.missedBy.length) {
+      const reasons = [...new Set(b.missedBy.map(m => REASON_LABEL[m.reason] || m.reason))];
+      priorMisses = ` <span style="color:#7e91a8;font-size:10px">(לאחר ${b.firedAt-1} פספוסים: ${reasons.join(', ')})</span>`;
+    }
     killRows += `
       <tr class="destroyed">
         <td><span class="serial">${b.label}</span></td>
         <td>${b.type}</td>
         <td>${b.target}</td>
-        <td>${b.hitBy || '-'}${b.firedAt > 1 ? ` <span style="color:#7e91a8">(לאחר ${b.firedAt-1} פספוסים)</span>` : ''}</td>
+        <td>${b.hitBy || '-'}${priorMisses}</td>
       </tr>`;
   }
   if (!intercepted.length) {
@@ -985,54 +1134,59 @@ function generateRecommendations(r) {
 
   if (survived.length === 0) {
     if (r.killed === r.total) {
-      recs.push('🎯 הגנה מושלמת! כל האיומים יורטו. ניתן לבחון אם אפשר להפחית במשאבים מבלי לפגוע ביעילות.');
+      recs.push('🎯 <b>הגנה מושלמת!</b> כל האיומים יורטו. ניתן לבחון אם אפשר להפחית במשאבים מבלי לפגוע ביעילות.');
     }
     return recs;
   }
 
-  // Group by reason category
-  const outOfRange   = survived.filter(b => b.reason && b.reason.includes('מחוץ לטווח כל הסוללות'));
-  const altMismatch  = survived.filter(b => b.reason && b.reason.includes('גובה'));
-  const notDetected  = survived.filter(b => b.reason && b.reason.includes('לא התגלה'));
-  const allMissed    = survived.filter(b => b.reason && b.reason.includes('פספסו'));
-  const noAmmo       = survived.filter(b => b.reason && b.reason.includes('תחמושת'));
-  const cooldown     = survived.filter(b => b.reason && b.reason.includes('קולדאון'));
+  // High-level: how many had no engagement at all
+  const noCoverage  = survived.filter(b => b.reason && b.reason.includes('מחוץ לטווח כל הסוללות'));
+  const altMismatch = survived.filter(b => b.reason && b.reason.includes('גובה'));
+  const notDetected = survived.filter(b => b.reason && b.reason.includes('לא התגלה'));
 
-  if (outOfRange.length > 0) {
-    const targets = [...new Set(outOfRange.map(b => b.target))];
-    recs.push(`📍 <b>${outOfRange.length} איומים פרצו אזורים ללא כיסוי</b> (יעדים: ${targets.join(', ')}). פרוס סוללה ארוכת טווח (פטריוט / שרביט קסמים / ברק 8) קרוב יותר ליעדים אלה, או הוסף סוללה משלימה.`);
+  // Aggregate miss-reasons across survivors that *were* engaged but missed
+  const reasonCount = { statistical: 0, tangent: 0, 'flight-time': 0, 'out-of-range': 0 };
+  for (const b of survived) {
+    if (b.missedBy && b.missedBy.length) {
+      for (const m of b.missedBy) {
+        if (reasonCount[m.reason] != null) reasonCount[m.reason]++;
+      }
+    }
+  }
+
+  if (noCoverage.length > 0) {
+    const targets = [...new Set(noCoverage.map(b => b.target))];
+    recs.push(`📍 <b>${noCoverage.length} איומים פרצו ללא כיסוי כלל</b> (יעדים: ${targets.join(', ')}). פרוס סוללה ארוכת טווח (Patriot / David's Sling / Barak-8) קרוב יותר ליעדים אלה.`);
   }
 
   if (altMismatch.length > 0) {
     const types = [...new Set(altMismatch.map(b => b.type))];
-    if (types.includes('מטוס קרב')) {
-      recs.push(`✈ <b>מטוסי קרב חמקו בגובה גבוה.</b> הסוללות שלך מוגבלות לגובה נמוך - הוסף פטריוט או שרביט קסמים שמסוגלים ליירט בגובה 10+ ק"מ.`);
-    }
-    if (types.includes('מסוק תקיפה')) {
-      recs.push(`🚁 <b>מסוקים חמקו בגובה נמוך מאוד.</b> הוסף SA-8 או כיפת ברזל - מערכות שיעילות נגד מטרות בגובה <5 ק"מ.`);
-    }
-    if (types.includes('כטב"ם תוקף')) {
-      recs.push(`◆ <b>כטב"מים חמקו בגובה נמוך.</b> שרביט קסמים אינו אפקטיבי נגדם (גובה מינימום 5 ק"מ). הוסף כיפת ברזל או ברק 8.`);
-    }
+    if (types.includes('Fighter Jet')) recs.push(`✈ <b>מטוסי קרב חמקו בגובה גבוה.</b> הוסף Patriot או David's Sling שמסוגלים ליירט בגובה 10+ ק"מ.`);
+    if (types.includes('Attack Helicopter')) recs.push(`🚁 <b>מסוקים חמקו בגובה נמוך מאוד.</b> הוסף SA-8 Gecko או Iron Dome - יעילים בגובה <5 ק"מ.`);
+    if (types.includes('Attack UAV')) recs.push(`◆ <b>כטב"מים חמקו בגובה נמוך.</b> David's Sling אינו אפקטיבי נגדם (גובה מינ' 5 ק"מ). פרוס Iron Dome או Barak-8.`);
   }
 
   if (notDetected.length > 0) {
-    recs.push(`📡 <b>${notDetected.length} איומים חמקו ממכ"מים</b> בגלל חתימת מכ"ם נמוכה. הוסף מכ"ם גילוי-נמוך (Short Range) קרוב לציר התקיפה - הוא יעיל יותר נגד מטרות עם RCS קטן.`);
+    recs.push(`📡 <b>${notDetected.length} איומים חמקו ממכ"מים</b> בגלל חתימת מכ"ם נמוכה. הוסף Short-Range Radar קרוב לציר התקיפה - יעיל יותר נגד RCS קטן.`);
   }
 
-  if (allMissed.length > 0) {
-    recs.push(`🎯 <b>${allMissed.length} איומים נמלטו אחרי שכל הירי פספס.</b> זה קורה כשהסבירות לפגיעה נמוכה (למשל פטריוט נגד כטב"ם). פרוס מערכת משלימה באותו אזור עם סבירות פגיעה גבוהה יותר נגד הסוג הספציפי - אפקט שכבות.`);
+  if (reasonCount['tangent'] > 0) {
+    recs.push(`📐 <b>${reasonCount['tangent']} פספוסים מ"חציה משיקית"</b> - האיומים נעו בניצב לסוללה ברגע היירוט (עד 15° מהניצב). הצב סוללות באופן ש<u>ציר הירי שלהן יהיה לכיוון התקדמות האיום</u>, לא לרוחבו. למשל: סוללה צפונית-מערבית עם איום שמגיע ממערב היא חשופה לחציה משיקית.`);
   }
 
-  if (noAmmo.length > 0) {
-    recs.push(`⚡ <b>${noAmmo.length} איומים פרצו כי הסוללות מיצו תחמושת.</b> סטורציה הצליחה - שכפל סוללות באזורים שמתחת ללחץ, או הוסף מערכת בעלת קצב ירי גבוה (כיפת ברזל - 20 טילים).`);
+  if (reasonCount['flight-time'] > 0) {
+    recs.push(`⏱ <b>${reasonCount['flight-time']} פספוסים מ"זמן מעוף לא מספיק"</b> - הסוללה ירתה אך האיום הקדים להגיע ליעד. פרוס סוללות <u>קרוב יותר לציר התקיפה</u> (לא רק קרוב ליעד), או השתמש במיירט מהיר יותר (David's Sling - Mach 7).`);
   }
 
-  if (cooldown.length > 0) {
-    recs.push(`⏱ <b>${cooldown.length} איומים פרצו בזמן טעינה מחדש של הסוללה.</b> פתרון: הצב סוללה שנייה כגיבוי באותו אזור, כך שכשאחת בקולדאון השנייה תכסה.`);
+  if (reasonCount['out-of-range'] > 0) {
+    recs.push(`🎯 <b>${reasonCount['out-of-range']} פספוסים מ"יציאה מטווח"</b> - האיום עזב את כיסוי הסוללה במהלך מעוף הטיל. הוסף סוללה במורד הציר (יעד-צד) שתתפוס את האיום בשלב מאוחר יותר.`);
   }
 
-  // Target-specific damage
+  if (reasonCount['statistical'] > 0) {
+    recs.push(`🎲 <b>${reasonCount['statistical']} פספוסים סטטיסטיים</b> - בתחום השונות הנורמלית של הסוללה. פתרון: <u>הגנה רב-שכבתית</u> - שתי סוללות שיורות אחת אחרי השנייה כפי שאחוזי ההצלחה מתרבים (90%+90% = 99% פגיעה משולבת).`);
+  }
+
+  // Target-specific damage hotspot
   const targetDamage = {};
   survived.forEach(b => { targetDamage[b.target] = (targetDamage[b.target] || 0) + 1; });
   const hotTargets = Object.entries(targetDamage)
@@ -1040,7 +1194,7 @@ function generateRecommendations(r) {
     .sort((a, b) => b[1] - a[1]);
   if (hotTargets.length) {
     const [tname, count] = hotTargets[0];
-    recs.push(`🎯 <b>${tname} ספג ${count} פגיעות</b> - היעד הזה נמצא תחת לחץ מיוחד. צור הגנה רב-שכבתית סביבו: מכ"ם גילוי + סוללה ארוכת טווח חיצונית + סוללת point-defense בקרבת היעד.`);
+    recs.push(`🔥 <b>${tname} ספג ${count} פגיעות</b> - יעד תחת לחץ מיוחד. צור הגנה רב-שכבתית סביבו: מכ"ם גילוי + סוללה ארוכת טווח חיצונית + סוללת Point-Defense (Iron Dome) בקרבת היעד.`);
   }
 
   if (recs.length === 0) {
@@ -1088,8 +1242,19 @@ function computeResults() {
 
 function diagnoseFailure(t) {
   if (t.firedAt > 0) {
-    const list = t.missedBy.length ? ` (${[...new Set(t.missedBy)].join(', ')})` : '';
-    return `נורו ${t.firedAt} טילי יירוט - כולם פספסו${list}`;
+    // Group misses by reason
+    const byReason = {};
+    for (const miss of t.missedBy) {
+      const key = miss.reason;
+      if (!byReason[key]) byReason[key] = [];
+      byReason[key].push(miss.battery);
+    }
+    const parts = [];
+    for (const reason of Object.keys(byReason)) {
+      const batteries = [...new Set(byReason[reason])].join(', ');
+      parts.push(`<b>${REASON_LABEL[reason] || reason}</b> [${batteries}]`);
+    }
+    return `נורו ${t.firedAt} טילי יירוט וכולם פספסו: ${parts.join(' • ')}`;
   }
   const tc = CATALOG[t.key];
   let inRangeBatteries = [];
@@ -1258,8 +1423,7 @@ function startDefenseChallenge() {
 
 function renderBudget() {
   if (!state.budget) return;
-  // Append budget info to button labels
-  document.querySelectorAll('#battery-btns button, #radar-btns button').forEach(b => {
+  document.querySelectorAll('#battery-btns button[data-key], #radar-btns button[data-key]').forEach(b => {
     const k = b.dataset.key;
     const used = state.defenses.filter(d => d.key === k).length;
     const max = state.budget[k] || 0;
