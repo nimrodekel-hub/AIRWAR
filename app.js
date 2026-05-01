@@ -114,7 +114,7 @@ const LAND_POLYGON = [
 const ATTACK_DIFFICULTY = {
   easy: {
     label: 'קל',
-    threatBudget: { uav: 12, fighter: 4, helicopter: 4 },  // 20 total
+    threatBudget: { uav: 24, fighter: 8, helicopter: 8 },  // 40 total
     defenses: [
       { key: 'ironDome',   x: 720, y: 430 }, // capital point defense
       { key: 'patriot',    x: 700, y: 470 }, // mid-country
@@ -123,7 +123,7 @@ const ATTACK_DIFFICULTY = {
   },
   medium: {
     label: 'בינוני',
-    threatBudget: { uav: 9, fighter: 3, helicopter: 3 },   // 15 total
+    threatBudget: { uav: 18, fighter: 6, helicopter: 6 },  // 30 total
     defenses: [
       { key: 'ironDome',   x: 720, y: 410 },
       { key: 'ironDome',   x: 800, y: 510 }, // airbase
@@ -135,7 +135,7 @@ const ATTACK_DIFFICULTY = {
   },
   hard: {
     label: 'קשה',
-    threatBudget: { uav: 6, fighter: 2, helicopter: 2 },   // 10 total
+    threatBudget: { uav: 12, fighter: 4, helicopter: 4 },  // 20 total
     defenses: [
       { key: 'ironDome',   x: 720, y: 410 }, // capital
       { key: 'ironDome',   x: 800, y: 510 }, // airbase
