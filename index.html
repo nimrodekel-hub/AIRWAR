@@ -4,14 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>משחק מלחמה - הגנה אווירית | רפובליקת טליאריה</title>
-  <link rel="stylesheet" href="styles.css?v=20260501d">
+  <link rel="stylesheet" href="styles.css?v=20260501e">
 </head>
 <body>
   <div id="app">
     <aside id="sidebar">
       <header>
         <h1>פיקוד הגנה אווירית</h1>
-        <div class="subtitle">משחק מלחמה: כחול נגד אדום <span class="version-tag">v20260501d</span></div>
+        <div class="subtitle">משחק מלחמה: כחול נגד אדום <span class="version-tag">v20260501e</span></div>
         <div class="side-toggle">
           <button class="side-btn blue active" data-side="blue">🔵 כחול - הגנה</button>
           <button class="side-btn red" data-side="red">🔴 אדום - התקפה</button>
@@ -43,14 +43,20 @@
             3️⃣ לחץ "הפעל סימולציה" וראה כמה איומים ההגנה שלך הצליחה לעצור.
           </div>
 
-          <button id="defense-challenge" class="scenario">🛡 אתגר הגנה</button>
+          <div class="difficulty-row">
+            <span class="diff-label">🛡 אתגר הגנה - בחר רמת קושי:</span>
+            <div class="diff-buttons">
+              <button class="diff-btn easy" data-diff="easy">קל</button>
+              <button class="diff-btn medium" data-diff="medium">בינוני</button>
+              <button class="diff-btn hard" data-diff="hard">קשה</button>
+            </div>
+          </div>
           <div class="btn-help">
             <b>מטרה:</b> להגן על המדינה במשאבים מוגבלים.<br>
             <b>איך משחקים:</b><br>
-            1️⃣ לחץ על הכפתור - המערכת תייצר התקפה אקראית של 14-20 איומים מכיוונים שונים.<br>
-            2️⃣ תקבל תקציב הגנה מוגבל (תג כתום על הכפתורים מראה כמה נשאר לך מכל סוג).<br>
-            3️⃣ פרוס בחוכמה את הסוללות והמכ"מים על המפה.<br>
-            4️⃣ לחץ "הפעל סימולציה" וקבל ציון לפי % הערך האסטרטגי שהוגן.
+            1️⃣ בחר רמת קושי - <b>קל</b> (~9 איומים, תקציב גדול), <b>בינוני</b> (~16 איומים), <b>קשה</b> (~25 איומים, פיזור רחב, פחות סוללות).<br>
+            2️⃣ פרוס בחוכמה את הסוללות והמכ"מים על המפה (תג כתום מראה כמה נותר מכל סוג).<br>
+            3️⃣ לחץ "הפעל סימולציה" וקבל ציון לפי % הערך האסטרטגי שהוגן.
           </div>
         </div>
       </section>
@@ -117,6 +123,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260501d"></script>
+  <script src="app.js?v=20260501e"></script>
 </body>
 </html>

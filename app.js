@@ -9,7 +9,7 @@ const CATALOG = {
   ironDome: {
     kind: 'battery', name: 'Iron Dome', short: 'IRN',
     minRange: 4, maxRange: 70, minAlt: 0, maxAlt: 10,
-    color: '#3b82f6', ammo: 12, reload: 0.4,
+    color: '#3b82f6', ammo: 8, reload: 0.4,
     hitRate: 0.90,
     reactionTime: 1,
     missileSpeed: 600, realSpeed: 'Mach 7 (fastest)',
@@ -17,7 +17,7 @@ const CATALOG = {
   },
   sa8: {
     kind: 'battery', name: 'SA-8 Gecko', short: 'SA8',
-    minRange: 1.5, maxRange: 15, minAlt: 0, maxAlt: 5,
+    minRange: 1.5, maxRange: 30, minAlt: 0, maxAlt: 5,
     color: '#10b981', ammo: 3, reload: 0.6,
     hitRate: 0.65,
     reactionTime: 1.5,
@@ -118,6 +118,7 @@ const state = {
   threats: [],            // {id, key, x, y, sx, sy, tx, ty, status, hitBy}
   missiles: [],           // {sx, sy, x, y, tx, ty, t, dur, hit, threatId}
   explosions: [],
+  targetHits: [],         // {type, x, y, t, dur, ...} effects when threats reach targets
   challengeMode: null,    // null | 'auto-attack' | 'defense-challenge'
   budget: null,           // {ironDome:1,...} for defense-challenge
   results: null,
@@ -297,7 +298,9 @@ function bindControls() {
   document.getElementById('clear-threats').addEventListener('click', clearThreats);
   document.getElementById('reset').addEventListener('click', resetAll);
   document.getElementById('auto-attack').addEventListener('click', generateAutoAttack);
-  document.getElementById('defense-challenge').addEventListener('click', startDefenseChallenge);
+  document.querySelectorAll('.diff-btn').forEach(btn => {
+    btn.addEventListener('click', () => startDefenseChallenge(btn.dataset.diff));
+  });
   document.getElementById('modal-close').addEventListener('click', hideModal);
   document.getElementById('modal').addEventListener('click', (ev) => {
     if (ev.target.id === 'modal') hideModal();
@@ -538,14 +541,14 @@ function findTargetAt(x, y) {
 }
 
 function clearThreats() {
-  state.threats = []; state.missiles = []; state.explosions = [];
+  state.threats = []; state.missiles = []; state.explosions = []; state.targetHits = [];
   state.serialCounters = {};
   state.results = null; renderResults();
   setStatus('נוקו האיומים');
 }
 
 function resetAll() {
-  state.defenses = []; state.threats = []; state.missiles = []; state.explosions = [];
+  state.defenses = []; state.threats = []; state.missiles = []; state.explosions = []; state.targetHits = [];
   state.serialCounters = {};
   state.results = null; state.budget = null; state.challengeMode = null;
   state.mode = 'idle'; state.placeKey = null;
@@ -576,6 +579,7 @@ function draw() {
   drawThreats();
   drawMissiles();
   drawExplosions();
+  drawTargetHits();
   drawHUD();
 }
 
@@ -733,16 +737,34 @@ function drawDefenses() {
     // Reaction-time preparation indicator: pulsing ring that fills as launch nears
     if (d.prepareTarget != null && state.simElapsed < d.prepareUntil) {
       const progress = 1 - (d.prepareUntil - state.simElapsed) / c.reactionTime;
+      // Detect "extended" mode: target currently outside this battery's range
+      const tgt = state.threats.find(x => x.id === d.prepareTarget);
+      const extended = tgt && Math.hypot(tgt.x - d.x, tgt.y - d.y) > c.maxRange;
+      const haloCol = extended ? '#06b6d4' : '#fbbf24';
+      const haloFaint = extended ? 'rgba(6, 182, 212, 0.4)' : 'rgba(251, 191, 36, 0.4)';
+
       ctx.beginPath();
       ctx.arc(d.x, d.y, 18, -Math.PI/2, -Math.PI/2 + Math.PI*2*progress);
-      ctx.strokeStyle = '#fbbf24';
+      ctx.strokeStyle = haloCol;
       ctx.lineWidth = 3;
       ctx.stroke();
       ctx.beginPath();
       ctx.arc(d.x, d.y, 22 + Math.sin(state.simElapsed * 8) * 2, 0, Math.PI*2);
-      ctx.strokeStyle = 'rgba(251, 191, 36, 0.4)';
+      ctx.strokeStyle = haloFaint;
       ctx.lineWidth = 1.5;
       ctx.stroke();
+
+      // Dashed line battery → tracked threat when in extended mode
+      if (extended && tgt) {
+        ctx.beginPath();
+        ctx.moveTo(d.x, d.y);
+        ctx.lineTo(tgt.x, tgt.y);
+        ctx.strokeStyle = 'rgba(6, 182, 212, 0.5)';
+        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
     }
 
     ctx.save();
@@ -917,6 +939,135 @@ function drawExplosions() {
   }
 }
 
+function triggerTargetHit(t) {
+  if (t.key === 'helicopter') {
+    // Paratroopers / soldiers descending and running outward
+    const peopleCount = 4 + Math.floor(Math.random() * 3);
+    const people = [];
+    for (let i = 0; i < peopleCount; i++) {
+      const angle = (i / peopleCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.6;
+      people.push({
+        angle,
+        distance: 0,
+        speed: 14 + Math.random() * 10,
+        bob: 0
+      });
+    }
+    state.targetHits.push({
+      type: 'paratroopers',
+      x: t.x, y: t.y,
+      people, t: 0, dur: 4
+    });
+  } else {
+    // Explosion - fighter is bigger than UAV
+    state.targetHits.push({
+      type: 'explosion',
+      x: t.x, y: t.y,
+      r: t.key === 'fighter' ? 36 : 24,
+      t: 0, dur: 2.0
+    });
+  }
+}
+
+function drawTargetHits() {
+  for (const e of state.targetHits) {
+    if (e.type === 'explosion') {
+      drawTargetExplosion(e);
+    } else if (e.type === 'paratroopers') {
+      drawParatroopers(e);
+    }
+  }
+}
+
+function drawTargetExplosion(e) {
+  const k = e.t / e.dur;
+  const fade = 1 - k;
+  // Outer shockwave
+  ctx.beginPath();
+  ctx.arc(e.x, e.y, e.r * (1 + k * 2.2), 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(251, 100, 30, ${fade * 0.4})`;
+  ctx.fill();
+  // Hot core
+  ctx.beginPath();
+  ctx.arc(e.x, e.y, e.r * (0.3 + k * 1.2), 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(255, 200, 80, ${fade * 0.85})`;
+  ctx.fill();
+  // White-hot center
+  ctx.beginPath();
+  ctx.arc(e.x, e.y, e.r * 0.4 * fade, 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(255, 255, 240, ${fade})`;
+  ctx.fill();
+  // Smoke ring after main blast
+  if (k > 0.4) {
+    const smokeFade = (1 - k) * 0.5;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, e.r * (1.2 + k * 1.5), 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(40, 40, 40, ${smokeFade})`;
+    ctx.lineWidth = 4;
+    ctx.stroke();
+  }
+  // Debris specks
+  if (k < 0.6) {
+    ctx.fillStyle = `rgba(80, 60, 40, ${fade})`;
+    for (let i = 0; i < 8; i++) {
+      const ang = (i / 8) * Math.PI * 2;
+      const d = e.r * (0.5 + k * 2);
+      ctx.beginPath();
+      ctx.arc(e.x + Math.cos(ang) * d, e.y + Math.sin(ang) * d, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+function drawParatroopers(e) {
+  const fade = e.t / e.dur > 0.85 ? 1 - (e.t / e.dur - 0.85) / 0.15 : 1;
+  // Smoke from helo touchdown
+  if (e.t < 1.2) {
+    const smokeFade = 1 - e.t / 1.2;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, 12 + e.t * 8, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(120, 100, 80, ${smokeFade * 0.4})`;
+    ctx.fill();
+  }
+  // Each soldier figure
+  for (const p of e.people) {
+    const px = e.x + Math.cos(p.angle) * p.distance;
+    const py = e.y + Math.sin(p.angle) * p.distance + (p.bob || 0);
+    drawSoldier(px, py, fade);
+  }
+}
+
+function drawSoldier(x, y, alpha) {
+  const a = alpha != null ? alpha : 1;
+  ctx.save();
+  ctx.globalAlpha = a;
+  // Helmet
+  ctx.fillStyle = '#3a4a35';
+  ctx.beginPath();
+  ctx.arc(x, y - 5, 1.8, 0, Math.PI * 2);
+  ctx.fill();
+  // Body / uniform
+  ctx.strokeStyle = '#2d3b28';
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(x, y - 3);
+  ctx.lineTo(x, y + 1);
+  ctx.stroke();
+  // Arms (slight asymmetric for run motion)
+  ctx.beginPath();
+  ctx.moveTo(x - 2, y - 1);
+  ctx.lineTo(x + 2, y - 2);
+  ctx.stroke();
+  // Legs spread (running)
+  ctx.beginPath();
+  ctx.moveTo(x, y + 1);
+  ctx.lineTo(x - 1.8, y + 4);
+  ctx.moveTo(x, y + 1);
+  ctx.lineTo(x + 1.8, y + 4);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawHUD() {
   if (state.mode === 'sim') {
     ctx.fillStyle = 'rgba(95, 168, 211, 0.9)';
@@ -942,7 +1093,7 @@ function startSim() {
   }
   state.mode = 'sim';
   state.simElapsed = 0;
-  state.missiles = []; state.explosions = [];
+  state.missiles = []; state.explosions = []; state.targetHits = [];
   // reset threats and defenses
   for (const t of state.threats) {
     t.x = t.sx; t.y = t.sy; t.status = 'inflight'; t.hitBy = null;
@@ -979,6 +1130,7 @@ function tick(dt) {
     const step = c.speed * dt;
     if (dist <= step) {
       t.x = t.tx; t.y = t.ty;
+      if (t.status !== 'reached') triggerTargetHit(t);
       t.status = 'reached';
     } else {
       t.x += (dx / dist) * step;
@@ -1043,6 +1195,20 @@ function tick(dt) {
   for (const e of state.explosions) e.t += dt;
   state.explosions = state.explosions.filter(e => e.t < e.dur);
 
+  // 5b. Update target-hit effects (explosions on target / paratroopers)
+  for (const e of state.targetHits) {
+    e.t += dt;
+    if (e.type === 'paratroopers') {
+      for (const p of e.people) {
+        // Run for the first portion of the duration, then settle
+        if (e.t < e.dur * 0.7) p.distance += p.speed * dt;
+        // Bobbing for run animation
+        p.bob = Math.sin(e.t * 12 + p.angle * 5) * 1.2;
+      }
+    }
+  }
+  state.targetHits = state.targetHits.filter(e => e.t < e.dur);
+
   // 6. End condition
   const active = state.threats.filter(t => t.status === 'inflight');
   if (active.length === 0 && state.missiles.length === 0) {
@@ -1103,28 +1269,17 @@ function getDetectionInfo(t, d, c, tc) {
   return { organic, externalRadar };
 }
 
-// Predict whether an early-launch missile (under extended radar coverage)
-// would actually intercept inside this battery's max engagement range.
+// Permissive early-engagement gate.  The battery commits as soon as a
+// standalone radar provides coverage AND the threat's path will enter the
+// engagement envelope.  The actual intercept geometry is resolved later
+// inside fireMissile - if the early shot lands outside range it produces an
+// honest 'out-of-range' miss rather than blocking the attempt.
 function canInterceptInsideRange(t, d, c, tc) {
-  const fdx = t.tx - t.sx, fdy = t.ty - t.sy;
-  const flen = Math.hypot(fdx, fdy) || 1;
-  const tvx = fdx / flen, tvy = fdy / flen;
-  // Launch position = current threat position + reactionTime worth of motion
-  const launchX = t.x + tvx * tc.speed * c.reactionTime;
-  const launchY = t.y + tvy * tc.speed * c.reactionTime;
-  // Iterative lead-pursuit intercept
-  let T = Math.hypot(launchX - d.x, launchY - d.y) / c.missileSpeed;
-  let ipx = launchX, ipy = launchY;
-  for (let i = 0; i < 5; i++) {
-    ipx = launchX + tvx * tc.speed * T;
-    ipy = launchY + tvy * tc.speed * T;
-    T = Math.hypot(ipx - d.x, ipy - d.y) / c.missileSpeed;
-  }
-  const interceptDist = Math.hypot(ipx - d.x, ipy - d.y);
-  if (interceptDist < c.minRange || interceptDist > c.maxRange) return false;
-  // Must still be alive at intercept
+  // Threat path must eventually cross the battery's max-range circle
+  if (!segmentIntersectsCircle(t.sx, t.sy, t.tx, t.ty, d.x, d.y, c.maxRange)) return false;
+  // Threat must still be alive long enough for at least the reaction phase
   const remaining = Math.hypot(t.tx - t.x, t.ty - t.y) / tc.speed;
-  if (c.reactionTime + T > remaining) return false;
+  if (c.reactionTime >= remaining) return false;
   return true;
 }
 
@@ -1721,11 +1876,40 @@ function generateAutoAttack() {
 // =============================================================
 // אתגר הגנה
 // =============================================================
-function startDefenseChallenge() {
+function startDefenseChallenge(difficulty = 'medium') {
   resetAll();
   state.challengeMode = 'defense-challenge';
-  // Generate randomized attack
-  const attackSize = 14 + Math.floor(Math.random() * 6);
+  state.challengeDifficulty = difficulty;
+
+  // Difficulty profiles - threat count, geographic spread of origins, defense budget
+  const profile = {
+    easy: {
+      countMin: 8, countMax: 11,
+      jitterX: 150, jitterY: 350,
+      baseY: 200,
+      label: 'קל',
+      budget: { ironDome: 4, sa8: 3, barak8: 3, patriot: 2, davidsSling: 2,
+                longRadar: 2, medRadar: 3, shortRadar: 3 }
+    },
+    medium: {
+      countMin: 14, countMax: 19,
+      jitterX: 230, jitterY: 550,
+      baseY: 100,
+      label: 'בינוני',
+      budget: { ironDome: 3, sa8: 2, barak8: 2, patriot: 1, davidsSling: 1,
+                longRadar: 1, medRadar: 2, shortRadar: 2 }
+    },
+    hard: {
+      countMin: 22, countMax: 29,
+      jitterX: 320, jitterY: 700,
+      baseY: 30,
+      label: 'קשה',
+      budget: { ironDome: 2, sa8: 1, barak8: 1, patriot: 1, davidsSling: 1,
+                longRadar: 1, medRadar: 1, shortRadar: 1 }
+    }
+  }[difficulty];
+
+  const attackSize = profile.countMin + Math.floor(Math.random() * (profile.countMax - profile.countMin));
   for (let i = 0; i < attackSize; i++) {
     const r = Math.random();
     let key;
@@ -1734,9 +1918,14 @@ function startDefenseChallenge() {
     else key = 'uav';
     const tgt = TARGETS[Math.floor(Math.random() * TARGETS.length)];
     let sx, sy;
-    const fromNorth = Math.random() < 0.3;
-    if (fromNorth) { sx = 150 + Math.random() * 700; sy = 20 + Math.random() * 50; }
-    else           { sx = 20 + Math.random() * 250; sy = 100 + Math.random() * 550; }
+    const fromNorth = Math.random() < (difficulty === 'hard' ? 0.4 : 0.3);
+    if (fromNorth) {
+      sx = 150 + Math.random() * (profile.jitterX + 500);
+      sy = 20 + Math.random() * 60;
+    } else {
+      sx = 20 + Math.random() * profile.jitterX;
+      sy = profile.baseY + Math.random() * profile.jitterY;
+    }
     state.threats.push(makeThreat(
       key, sx, sy,
       tgt.x + (Math.random() - 0.5) * 30,
@@ -1744,14 +1933,11 @@ function startDefenseChallenge() {
       tgt.name
     ));
   }
-  // Set defense budget
-  state.budget = {
-    ironDome: 3, sa8: 2, barak8: 2, patriot: 1, davidsSling: 1,
-    longRadar: 1, medRadar: 2, shortRadar: 2
-  };
+
+  state.budget = profile.budget;
   switchSide('blue');
-  setStatus('אתגר הגנה: פרוס את האמצעים שהוקצו לך');
-  showBanner('אתגר הגנה הופעל - פרוס הגנה במסגרת התקציב', '');
+  setStatus(`אתגר הגנה ${profile.label}: ${attackSize} איומים, פרוס במסגרת התקציב`);
+  showBanner(`🛡 אתגר הגנה ${profile.label} - ${attackSize} איומים מתקרבים. פרוס במסגרת התקציב.`, '');
   renderBudget();
 }
 
