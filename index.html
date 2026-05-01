@@ -4,14 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>משחק מלחמה - הגנה אווירית | רפובליקת טליאריה</title>
-  <link rel="stylesheet" href="styles.css?v=20260501k">
+  <link rel="stylesheet" href="styles.css?v=20260501l">
 </head>
 <body>
   <div id="app">
     <aside id="sidebar">
       <header>
         <h1>פיקוד הגנה אווירית</h1>
-        <div class="subtitle">משחק מלחמה: כחול נגד אדום <span class="version-tag">v20260501k</span></div>
+        <div class="subtitle">משחק מלחמה: כחול נגד אדום <span class="version-tag">v20260501l</span></div>
         <div class="side-toggle">
           <button class="side-btn blue active" data-side="blue">🔵 כחול - הגנה</button>
           <button class="side-btn red" data-side="red">🔴 אדום - התקפה</button>
@@ -112,6 +112,15 @@
       <canvas id="map"></canvas>
       <div id="tooltip"></div>
       <div id="banner"></div>
+      <div id="map-controls">
+        <button id="zoom-in" title="הגדל">+</button>
+        <button id="zoom-out" title="הקטן">−</button>
+        <button id="pan-up" title="הזז למעלה">↑</button>
+        <button id="pan-down" title="הזז למטה">↓</button>
+        <button id="pan-left" title="הזז שמאלה">←</button>
+        <button id="pan-right" title="הזז ימינה">→</button>
+        <button id="zoom-reset" title="איפוס תצוגה">⌂</button>
+      </div>
       <div id="legend-overlay">
         <div><span class="dot detection"></span>טווח גילוי מכ"ם</div>
         <div><span class="dot engagement"></span>טווח יירוט סוללה</div>
@@ -141,6 +150,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260501k"></script>
+  <script src="app.js?v=20260501l"></script>
 </body>
 </html>

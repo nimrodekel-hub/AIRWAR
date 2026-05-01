@@ -92,67 +92,131 @@ const BATTERY_KEYS = ['ironDome', 'sa8', 'barak8', 'patriot', 'davidsSling'];
 const RADAR_KEYS = ['longRadar', 'medRadar', 'shortRadar'];
 const THREAT_KEYS = ['uav', 'fighter', 'helicopter'];
 
-// ---- Strategic targets ----
-const TARGETS = [
-  { name: 'Arian (Capital)', x: 720, y: 410, value: 5, capital: true },
-  { name: 'Talos',           x: 560, y: 230, value: 3 },
-  { name: 'Miron',           x: 920, y: 340, value: 3 },
-  { name: 'Plaion',          x: 660, y: 600, value: 2 },
-  { name: 'Eagle Airbase',   x: 800, y: 510, value: 4, airbase: true }
+// ---- Strategic targets - base templates and live (regenerated) array ----
+const BASE_TARGETS = [
+  { name: 'Arian (Capital)', baseX: 720, baseY: 410, value: 5, capital: true },
+  { name: 'Talos',           baseX: 560, baseY: 230, value: 3 },
+  { name: 'Miron',           baseX: 920, baseY: 340, value: 3 },
+  { name: 'Plaion',          baseX: 660, baseY: 600, value: 2 },
+  { name: 'Eagle Airbase',   baseX: 800, baseY: 510, value: 4, airbase: true }
 ];
+const TARGETS = [];
 
-// ---- Country land polygon (used for border check & rendering) ----
-const LAND_POLYGON = [
+// ---- Country land polygon - base template and live (regenerated) array ----
+const BASE_LAND_POLYGON = [
   [430, 90], [560, 70], [690, 95], [820, 80], [930, 130],
   [1010, 200], [1060, 320], [1080, 450], [1040, 570], [960, 660],
   [840, 690], [710, 700], [580, 680], [470, 620], [410, 510],
   [380, 380], [400, 250], [420, 150]
 ];
+const LAND_POLYGON = [];
+
+function regenerateLand() {
+  LAND_POLYGON.length = 0;
+  for (const [x, y] of BASE_LAND_POLYGON) {
+    const dx = (Math.random() - 0.5) * 50;
+    const dy = (Math.random() - 0.5) * 40;
+    LAND_POLYGON.push([Math.round(x + dx), Math.round(y + dy)]);
+  }
+}
+
+function regenerateTargets() {
+  TARGETS.length = 0;
+  for (const tpl of BASE_TARGETS) {
+    let placed = null;
+    for (let i = 0; i < 200; i++) {
+      const x = tpl.baseX + (Math.random() - 0.5) * 90;
+      const y = tpl.baseY + (Math.random() - 0.5) * 80;
+      if (!isInsideCountry(x, y)) continue;
+      let tooClose = false;
+      for (const t of TARGETS) {
+        if (Math.hypot(t.x - x, t.y - y) < 110) { tooClose = true; break; }
+      }
+      if (tooClose) continue;
+      placed = {
+        name: tpl.name, value: tpl.value,
+        capital: tpl.capital, airbase: tpl.airbase,
+        x: Math.round(x), y: Math.round(y)
+      };
+      break;
+    }
+    if (!placed) {
+      placed = {
+        name: tpl.name, value: tpl.value,
+        capital: tpl.capital, airbase: tpl.airbase,
+        x: tpl.baseX, y: tpl.baseY
+      };
+    }
+    TARGETS.push(placed);
+  }
+}
+
+function getCountryCenter() {
+  if (!TARGETS.length) return { x: 720, y: 410 };
+  let sx = 0, sy = 0;
+  for (const t of TARGETS) { sx += t.x; sy += t.y; }
+  return { x: sx / TARGETS.length, y: sy / TARGETS.length };
+}
 
 // ---- Attack-challenge difficulty profiles ----
 // System auto-deploys defense; user has limited threat budget to break through.
+// Defense positions are anchored to target names (or to the country center)
+// so they follow the randomized target layout each game.
 const ATTACK_DIFFICULTY = {
   easy: {
     label: 'קל',
     threatBudget: { uav: 24, fighter: 8, helicopter: 8 },  // 40 total
     defenses: [
-      { key: 'ironDome',   x: 720, y: 430 }, // capital point defense
-      { key: 'patriot',    x: 700, y: 470 }, // mid-country
-      { key: 'medRadar',   x: 700, y: 440 }
+      { key: 'ironDome',   anchor: 'Arian (Capital)', dy: 20 },
+      { key: 'patriot',    anchor: 'center', dy: 30 },
+      { key: 'medRadar',   anchor: 'center' }
     ]
   },
   medium: {
     label: 'בינוני',
     threatBudget: { uav: 18, fighter: 6, helicopter: 6 },  // 30 total
     defenses: [
-      { key: 'ironDome',   x: 720, y: 410 },
-      { key: 'ironDome',   x: 800, y: 510 }, // airbase
-      { key: 'patriot',    x: 700, y: 450 },
-      { key: 'barak8',     x: 600, y: 350 },
-      { key: 'medRadar',   x: 700, y: 400 },
-      { key: 'longRadar',  x: 850, y: 450 }
+      { key: 'ironDome',   anchor: 'Arian (Capital)' },
+      { key: 'ironDome',   anchor: 'Eagle Airbase' },
+      { key: 'patriot',    anchor: 'center', dy: 30 },
+      { key: 'barak8',     anchor: 'Talos', dx: 40, dy: 80 },
+      { key: 'medRadar',   anchor: 'center' },
+      { key: 'longRadar',  anchor: 'Eagle Airbase', dx: 30, dy: -40 }
     ]
   },
   hard: {
     label: 'קשה',
     threatBudget: { uav: 12, fighter: 4, helicopter: 4 },  // 20 total
     defenses: [
-      { key: 'ironDome',   x: 720, y: 410 }, // capital
-      { key: 'ironDome',   x: 800, y: 510 }, // airbase
-      { key: 'ironDome',   x: 560, y: 250 }, // Talos
-      { key: 'sa8',        x: 920, y: 340 }, // Miron
-      { key: 'sa8',        x: 660, y: 600 }, // Plaion
-      { key: 'patriot',    x: 700, y: 380 },
-      { key: 'patriot',    x: 760, y: 480 },
-      { key: 'barak8',     x: 600, y: 450 },
-      { key: 'davidsSling',x: 850, y: 400 },
-      { key: 'longRadar',  x: 700, y: 430 },
-      { key: 'longRadar',  x: 820, y: 460 },
-      { key: 'medRadar',   x: 600, y: 320 },
-      { key: 'shortRadar', x: 900, y: 350 }
+      { key: 'ironDome',   anchor: 'Arian (Capital)' },
+      { key: 'ironDome',   anchor: 'Eagle Airbase' },
+      { key: 'ironDome',   anchor: 'Talos' },
+      { key: 'sa8',        anchor: 'Miron' },
+      { key: 'sa8',        anchor: 'Plaion' },
+      { key: 'patriot',    anchor: 'center', dx: -30, dy: -40 },
+      { key: 'patriot',    anchor: 'center', dx: 40, dy: 60 },
+      { key: 'barak8',     anchor: 'center', dx: -100, dy: 30 },
+      { key: 'davidsSling',anchor: 'center', dx: 80, dy: -20 },
+      { key: 'longRadar',  anchor: 'center', dy: 40 },
+      { key: 'longRadar',  anchor: 'Eagle Airbase', dx: 30, dy: -50 },
+      { key: 'medRadar',   anchor: 'Talos', dx: 50, dy: 80 },
+      { key: 'shortRadar', anchor: 'Miron', dx: -20, dy: 20 }
     ]
   }
 };
+
+function resolveAnchor(item) {
+  const dx = item.dx || 0, dy = item.dy || 0;
+  if (item.anchor === 'center') {
+    const c = getCountryCenter();
+    return { x: c.x + dx, y: c.y + dy };
+  }
+  if (item.anchor) {
+    const tgt = TARGETS.find(t => t.name === item.anchor);
+    if (tgt) return { x: tgt.x + dx, y: tgt.y + dy };
+  }
+  return { x: item.x || 720, y: item.y || 410 };
+}
 
 function pointInPolygon(x, y, poly) {
   let inside = false;
@@ -202,7 +266,8 @@ const state = {
   simElapsed: 0,
   drag: null,
   mouseX: 0, mouseY: 0,
-  serialCounters: {}
+  serialCounters: {},
+  viewport: { offsetX: 0, offsetY: 0, scale: 1 }
 };
 
 let canvas, ctx, W, H, tooltip, banner;
@@ -218,6 +283,8 @@ window.addEventListener('DOMContentLoaded', () => {
   banner = document.getElementById('banner');
   resize();
   window.addEventListener('resize', resize);
+  regenerateLand();
+  regenerateTargets();
   buildButtons();
   bindControls();
   bindCanvas();
@@ -389,6 +456,34 @@ function bindControls() {
     if (ev.target.id === 'info-modal') hideInfoModal();
   });
   document.getElementById('scrubber').addEventListener('input', onScrubberChange);
+  // Viewport controls
+  document.getElementById('zoom-in').addEventListener('click', () => zoomBy(1.25));
+  document.getElementById('zoom-out').addEventListener('click', () => zoomBy(0.8));
+  document.getElementById('pan-left').addEventListener('click', () => panBy(80, 0));
+  document.getElementById('pan-right').addEventListener('click', () => panBy(-80, 0));
+  document.getElementById('pan-up').addEventListener('click', () => panBy(0, 80));
+  document.getElementById('pan-down').addEventListener('click', () => panBy(0, -80));
+  document.getElementById('zoom-reset').addEventListener('click', resetView);
+}
+
+function zoomBy(factor) {
+  const cx = W / 2, cy = H / 2;
+  // World point under the screen center stays under it after the zoom
+  const wx = (cx - state.viewport.offsetX) / state.viewport.scale;
+  const wy = (cy - state.viewport.offsetY) / state.viewport.scale;
+  const newScale = Math.max(0.5, Math.min(3, state.viewport.scale * factor));
+  state.viewport.scale = newScale;
+  state.viewport.offsetX = cx - wx * newScale;
+  state.viewport.offsetY = cy - wy * newScale;
+}
+
+function panBy(dx, dy) {
+  state.viewport.offsetX += dx;
+  state.viewport.offsetY += dy;
+}
+
+function resetView() {
+  state.viewport = { offsetX: 0, offsetY: 0, scale: 1 };
 }
 
 function onScrubberChange(ev) {
@@ -498,7 +593,13 @@ function bindCanvas() {
 
 function getPos(ev) {
   const r = canvas.getBoundingClientRect();
-  return { x: ev.clientX - r.left, y: ev.clientY - r.top };
+  const sx = ev.clientX - r.left;
+  const sy = ev.clientY - r.top;
+  // Convert screen → world coordinates by inverting the viewport transform
+  return {
+    x: (sx - state.viewport.offsetX) / state.viewport.scale,
+    y: (sy - state.viewport.offsetY) / state.viewport.scale
+  };
 }
 
 function onCanvasClick(ev) {
@@ -747,11 +848,16 @@ function resetAll() {
   state.placeStep = null;
   state.placeOrigin = null;
   document.getElementById('scrubber-row').style.display = 'none';
+  // Regenerate the country borders and target locations so each game is fresh
+  regenerateLand();
+  regenerateTargets();
+  // Reset viewport to default
+  state.viewport = { offsetX: 0, offsetY: 0, scale: 1 };
   hideBanner();
   refreshButtonStates();
   renderBudget();
   renderResults();
-  setStatus('המפה אופסה');
+  setStatus('המפה אופסה - מפה ויעדים חדשים');
 }
 
 // =============================================================
@@ -767,6 +873,17 @@ function loop(ts) {
 
 function draw() {
   ctx.clearRect(0, 0, W, H);
+  // Sea always fills the visible canvas regardless of zoom/pan
+  const grad = ctx.createLinearGradient(0, 0, W, H);
+  grad.addColorStop(0, '#0a1628');
+  grad.addColorStop(1, '#050b18');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+  // Apply viewport transform - everything map-related scales and pans together.
+  // HUD (drawn after restore) stays in screen space.
+  ctx.save();
+  ctx.translate(state.viewport.offsetX, state.viewport.offsetY);
+  ctx.scale(state.viewport.scale, state.viewport.scale);
   drawBackground();
   drawCountry();
   drawTargets();
@@ -805,6 +922,7 @@ function draw() {
   }
 
   drawPlacementGuide();
+  ctx.restore();
   drawHUD();
 }
 
@@ -870,27 +988,21 @@ function drawPlacementGuide() {
   }
 }
 
+// Drawn inside the viewport transform - grid + red-zone label move with the map
 function drawBackground() {
-  // Sea
-  const grad = ctx.createLinearGradient(0, 0, W, H);
-  grad.addColorStop(0, '#0a1628');
-  grad.addColorStop(1, '#050b18');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, H);
-
+  const WORLD_W = 1200, WORLD_H = 800;
   // Grid
   ctx.strokeStyle = 'rgba(95, 168, 211, 0.04)';
   ctx.lineWidth = 1;
-  for (let x = 0; x < W; x += 50) {
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  for (let x = 0; x < WORLD_W; x += 50) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD_H); ctx.stroke();
   }
-  for (let y = 0; y < H; y += 50) {
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  for (let y = 0; y < WORLD_H; y += 50) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WORLD_W, y); ctx.stroke();
   }
-
-  // Red zone label
+  // Red zone band & label
   ctx.fillStyle = 'rgba(220, 38, 38, 0.06)';
-  ctx.fillRect(0, 0, 380, H);
+  ctx.fillRect(0, 0, 380, WORLD_H);
   ctx.fillStyle = 'rgba(220, 38, 38, 0.4)';
   ctx.font = 'bold 14px sans-serif';
   ctx.textAlign = 'center';
@@ -2336,10 +2448,12 @@ function startAttackChallenge(difficulty) {
   state.challengeDifficulty = difficulty;
   state.threatBudget = { ...profile.threatBudget };
 
-  // System auto-deploys defenses according to the difficulty profile
+  // System auto-deploys defenses according to the difficulty profile.
+  // Anchors are resolved against the *current* (randomized) target layout.
   for (const item of profile.defenses) {
+    const pos = resolveAnchor(item);
     state.defenses.push({
-      id: nextId++, key: item.key, x: item.x, y: item.y,
+      id: nextId++, key: item.key, x: pos.x, y: pos.y,
       ammo: CATALOG[item.key].ammo, cd: 0,
       prepareTarget: null, prepareUntil: 0
     });
