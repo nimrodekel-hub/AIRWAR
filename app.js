@@ -1055,25 +1055,51 @@ function drawDefenses() {
     const c = CATALOG[d.key];
     const depleted = c.kind === 'battery' && d.ammo <= 0;
 
-    // Reaction-time preparation indicator: pulsing ring that fills as launch nears
+    // Reaction-time preparation indicator: prominent filling ring around the battery
     if (d.prepareTarget != null && state.simElapsed < d.prepareUntil) {
       const progress = 1 - (d.prepareUntil - state.simElapsed) / c.reactionTime;
       // Detect "extended" mode: target currently outside this battery's range
       const tgt = state.threats.find(x => x.id === d.prepareTarget);
       const extended = tgt && Math.hypot(tgt.x - d.x, tgt.y - d.y) > c.maxRange;
       const haloCol = extended ? '#06b6d4' : '#fbbf24';
-      const haloFaint = extended ? 'rgba(6, 182, 212, 0.4)' : 'rgba(251, 191, 36, 0.4)';
 
+      const RING_R = 26;
+
+      // Background full ring (shows where the progress will fill)
       ctx.beginPath();
-      ctx.arc(d.x, d.y, 18, -Math.PI/2, -Math.PI/2 + Math.PI*2*progress);
-      ctx.strokeStyle = haloCol;
-      ctx.lineWidth = 3;
+      ctx.arc(d.x, d.y, RING_R, 0, Math.PI * 2);
+      ctx.strokeStyle = haloCol + '30';
+      ctx.lineWidth = 5;
       ctx.stroke();
+
+      // Filling progress arc
       ctx.beginPath();
-      ctx.arc(d.x, d.y, 22 + Math.sin(state.simElapsed * 8) * 2, 0, Math.PI*2);
-      ctx.strokeStyle = haloFaint;
+      ctx.arc(d.x, d.y, RING_R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+      ctx.strokeStyle = haloCol;
+      ctx.lineWidth = 5;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+      ctx.lineCap = 'butt';
+
+      // Pulsing outer halo
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, RING_R + 6 + Math.sin(state.simElapsed * 8) * 2, 0, Math.PI * 2);
+      ctx.strokeStyle = haloCol + '66';
       ctx.lineWidth = 1.5;
       ctx.stroke();
+
+      // Countdown label above the battery
+      const remaining = (d.prepareUntil - state.simElapsed).toFixed(1);
+      ctx.font = 'bold 11px ui-monospace, monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const txt = `RT ${remaining}s`;
+      const tw = ctx.measureText(txt).width;
+      ctx.fillStyle = 'rgba(8, 12, 22, 0.92)';
+      ctx.fillRect(d.x - tw/2 - 4, d.y - RING_R - 16, tw + 8, 14);
+      ctx.fillStyle = haloCol;
+      ctx.fillText(txt, d.x, d.y - RING_R - 9);
+      ctx.textBaseline = 'alphabetic';
 
       // Dashed line battery → tracked threat when in extended mode
       if (extended && tgt) {
@@ -1599,17 +1625,32 @@ function getDetectionInfo(t, d, c, tc) {
   return { organic, externalRadar };
 }
 
-// Permissive early-engagement gate.  The battery commits as soon as a
-// standalone radar provides coverage AND the threat's path will enter the
-// engagement envelope.  The actual intercept geometry is resolved later
-// inside fireMissile - if the early shot lands outside range it produces an
-// honest 'out-of-range' miss rather than blocking the attempt.
+// Strict early-engagement gate.  The battery commits ONLY if the
+// predicted lead-pursuit intercept point lands inside its engagement
+// envelope (the "missile envelope" - מחוץ לעטפת הטיל המיירט).  This
+// prevents wasting missiles on threats that the radar can see but
+// the missile cannot physically catch in range.
 function canInterceptInsideRange(t, d, c, tc) {
-  // Threat path must eventually cross the battery's max-range circle
-  if (!segmentIntersectsCircle(t.sx, t.sy, t.tx, t.ty, d.x, d.y, c.maxRange)) return false;
-  // Threat must still be alive long enough for at least the reaction phase
+  const fdx = t.tx - t.sx, fdy = t.ty - t.sy;
+  const flen = Math.hypot(fdx, fdy) || 1;
+  const tvx = fdx / flen, tvy = fdy / flen;
+  // Launch position = current threat position + reactionTime worth of motion
+  const launchX = t.x + tvx * tc.speed * c.reactionTime;
+  const launchY = t.y + tvy * tc.speed * c.reactionTime;
+  // Iterative lead-pursuit intercept
+  let T = Math.hypot(launchX - d.x, launchY - d.y) / c.missileSpeed;
+  let ipx = launchX, ipy = launchY;
+  for (let i = 0; i < 6; i++) {
+    ipx = launchX + tvx * tc.speed * T;
+    ipy = launchY + tvy * tc.speed * T;
+    T = Math.hypot(ipx - d.x, ipy - d.y) / c.missileSpeed;
+  }
+  const interceptDist = Math.hypot(ipx - d.x, ipy - d.y);
+  // Predicted intercept point MUST be inside [minRange, maxRange]
+  if (interceptDist < c.minRange || interceptDist > c.maxRange) return false;
+  // Threat must still be alive when missile arrives
   const remaining = Math.hypot(t.tx - t.x, t.ty - t.y) / tc.speed;
-  if (c.reactionTime >= remaining) return false;
+  if (c.reactionTime + T > remaining) return false;
   return true;
 }
 
