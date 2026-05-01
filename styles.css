@@ -289,7 +289,19 @@ html, body {
   display: block;
   font-size: 10px;
   color: #7e91a8;
-  margin-top: 1px;
+  margin-top: 2px;
+}
+
+.kp-badge {
+  display: inline-block;
+  background: #fbbf24;
+  color: #0a0e14;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  margin-right: 4px;
+  font-family: monospace;
 }
 
 .control-buttons {

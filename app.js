@@ -8,35 +8,35 @@ const CATALOG = {
   ironDome: {
     kind: 'battery', name: 'Iron Dome', short: 'IRN',
     minRange: 4, maxRange: 70, minAlt: 0, maxAlt: 10,
-    color: '#3b82f6', ammo: 20, reload: 1.2,
+    color: '#3b82f6', ammo: 20, reload: 0.4,
     hitRate: 0.90, missileSpeed: 250, realSpeed: 'Mach 2.2 (~750 m/s)',
     desc: 'Short-range interception, highly effective against UAVs and rockets'
   },
   sa8: {
     kind: 'battery', name: 'SA-8 Gecko', short: 'SA8',
     minRange: 1.5, maxRange: 15, minAlt: 0, maxAlt: 5,
-    color: '#10b981', ammo: 8, reload: 5,
+    color: '#10b981', ammo: 8, reload: 0.6,
     hitRate: 0.65, missileSpeed: 180, realSpeed: 'Mach 2 (~660 m/s)',
     desc: 'Mobile short-range SAM, low-altitude'
   },
   barak8: {
     kind: 'battery', name: 'Barak-8', short: 'BRK',
     minRange: 0.5, maxRange: 100, minAlt: 0, maxAlt: 16,
-    color: '#8b5cf6', ammo: 16, reload: 4,
+    color: '#8b5cf6', ammo: 16, reload: 0.5,
     hitRate: 0.85, missileSpeed: 300, realSpeed: 'Mach 4 (~1300 m/s)',
     desc: 'Multi-layered medium-to-long range system'
   },
   patriot: {
     kind: 'battery', name: 'Patriot PAC-3', short: 'PAT',
     minRange: 3, maxRange: 160, minAlt: 0, maxAlt: 24,
-    color: '#f59e0b', ammo: 16, reload: 6,
+    color: '#f59e0b', ammo: 16, reload: 0.7,
     hitRate: 0.75, missileSpeed: 400, realSpeed: 'Mach 5 (~1700 m/s)',
     desc: 'Long-range system, struggles with slow/small targets'
   },
   davidsSling: {
     kind: 'battery', name: "David's Sling", short: 'DSL',
     minRange: 40, maxRange: 300, minAlt: 5, maxAlt: 30,
-    color: '#ef4444', ammo: 12, reload: 8,
+    color: '#ef4444', ammo: 12, reload: 0.8,
     hitRate: 0.80, missileSpeed: 450, realSpeed: 'Mach 7 (~2400 m/s)',
     desc: 'Long-range interception, medium-to-high altitude'
   },
@@ -153,9 +153,13 @@ function buildButtons() {
 function makeBtn(k) {
   const c = CATALOG[k];
   let rangeText;
-  if (c.kind === 'battery') rangeText = `${c.minRange}-${c.maxRange} ק"מ • פגיעה ${(c.hitRate*100).toFixed(0)}%`;
-  else if (c.kind === 'radar') rangeText = `גילוי ${c.detection} ק"מ`;
-  else rangeText = `מהירות ${c.speed} • גובה ${c.altitude} ק"מ`;
+  if (c.kind === 'battery') {
+    rangeText = `${c.minRange}-${c.maxRange} km • <span class="kp-badge">KP ${(c.hitRate*100).toFixed(0)}%</span>`;
+  } else if (c.kind === 'radar') {
+    rangeText = `Detection ${c.detection} km`;
+  } else {
+    rangeText = `Speed ${c.speed} • Altitude ${c.altitude} km`;
+  }
 
   const wrapper = document.createElement('div');
   wrapper.className = 'btn-row';
@@ -536,7 +540,7 @@ function drawBackground() {
   ctx.fillStyle = 'rgba(220, 38, 38, 0.4)';
   ctx.font = 'bold 14px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('שטח אדום (איומים)', 190, 30);
+  ctx.fillText('Red Zone (Threat Origin)', 190, 30);
 }
 
 function drawCountry() {
@@ -794,13 +798,13 @@ function drawHUD() {
     ctx.fillStyle = 'rgba(95, 168, 211, 0.9)';
     ctx.font = 'bold 12px sans-serif';
     ctx.textAlign = 'right';
-    ctx.fillText(`זמן סימולציה: ${state.simElapsed.toFixed(1)} שנ`, W - 12, 24);
+    ctx.fillText(`Simulation time: ${state.simElapsed.toFixed(1)} s`, W - 12, 24);
   }
   if (state.budget) {
     ctx.fillStyle = 'rgba(251, 191, 36, 0.9)';
     ctx.font = 'bold 12px sans-serif';
     ctx.textAlign = 'right';
-    ctx.fillText('אתגר הגנה פעיל', W - 12, 44);
+    ctx.fillText('Defense Challenge Active', W - 12, 44);
   }
 }
 
@@ -1134,59 +1138,46 @@ function generateRecommendations(r) {
 
   if (survived.length === 0) {
     if (r.killed === r.total) {
-      recs.push('🎯 <b>הגנה מושלמת!</b> כל האיומים יורטו. ניתן לבחון אם אפשר להפחית במשאבים מבלי לפגוע ביעילות.');
+      recs.push('🎯 <b>הגנה מושלמת!</b> כל האיומים יורטו לפי ה-KP של הסוללות. ניתן לבחון הפחתת משאבים בלי לפגוע בכיסוי.');
     }
     return recs;
   }
 
-  // High-level: how many had no engagement at all
-  const noCoverage  = survived.filter(b => b.reason && b.reason.includes('מחוץ לטווח כל הסוללות'));
-  const altMismatch = survived.filter(b => b.reason && b.reason.includes('גובה'));
-  const notDetected = survived.filter(b => b.reason && b.reason.includes('לא התגלה'));
+  // Count threats per the 4 user-defined reason categories - by scanning b.reason text
+  const counts = { statistical: 0, tangent: 0, 'flight-time': 0, 'out-of-range': 0 };
+  const targetsPerReason = { statistical: [], tangent: [], 'flight-time': [], 'out-of-range': [] };
+  const typesPerReason = { statistical: [], tangent: [], 'flight-time': [], 'out-of-range': [] };
 
-  // Aggregate miss-reasons across survivors that *were* engaged but missed
-  const reasonCount = { statistical: 0, tangent: 0, 'flight-time': 0, 'out-of-range': 0 };
   for (const b of survived) {
-    if (b.missedBy && b.missedBy.length) {
-      for (const m of b.missedBy) {
-        if (reasonCount[m.reason] != null) reasonCount[m.reason]++;
+    if (!b.reason) continue;
+    for (const key of Object.keys(REASON_LABEL)) {
+      if (b.reason.includes(REASON_LABEL[key])) {
+        counts[key]++;
+        targetsPerReason[key].push(b.target);
+        typesPerReason[key].push(b.type);
       }
     }
   }
 
-  if (noCoverage.length > 0) {
-    const targets = [...new Set(noCoverage.map(b => b.target))];
-    recs.push(`📍 <b>${noCoverage.length} איומים פרצו ללא כיסוי כלל</b> (יעדים: ${targets.join(', ')}). פרוס סוללה ארוכת טווח (Patriot / David's Sling / Barak-8) קרוב יותר ליעדים אלה.`);
+  if (counts['out-of-range'] > 0) {
+    const tgts = [...new Set(targetsPerReason['out-of-range'])].join(', ');
+    recs.push(`📍 <b>${counts['out-of-range']} איומים סווגו "יציאה מטווח"</b> (יעדים: ${tgts}). הסיבה: לא היה כיסוי גאומטרי, גובה הטיסה מחוץ לתקרת הסוללה, או שהאיום עזב את הטווח לפני שהמיירט הגיע. <b>פתרון:</b> פרוס סוללה ארוכת טווח (Patriot 160km / David's Sling 300km / Barak-8 100km) קרוב יותר לציר התקיפה.`);
   }
 
-  if (altMismatch.length > 0) {
-    const types = [...new Set(altMismatch.map(b => b.type))];
-    if (types.includes('Fighter Jet')) recs.push(`✈ <b>מטוסי קרב חמקו בגובה גבוה.</b> הוסף Patriot או David's Sling שמסוגלים ליירט בגובה 10+ ק"מ.`);
-    if (types.includes('Attack Helicopter')) recs.push(`🚁 <b>מסוקים חמקו בגובה נמוך מאוד.</b> הוסף SA-8 Gecko או Iron Dome - יעילים בגובה <5 ק"מ.`);
-    if (types.includes('Attack UAV')) recs.push(`◆ <b>כטב"מים חמקו בגובה נמוך.</b> David's Sling אינו אפקטיבי נגדם (גובה מינ' 5 ק"מ). פרוס Iron Dome או Barak-8.`);
+  if (counts['flight-time'] > 0) {
+    const types = [...new Set(typesPerReason['flight-time'])].join(', ');
+    recs.push(`⏱ <b>${counts['flight-time']} פספוסים מ"זמן מעוף לא מספיק"</b> - האיום (${types}) הקדים להגיע ליעד לפני שהמיירט מהסוללה הגיע אליו. <b>פתרון:</b> הצב סוללות <u>קרוב יותר לציר התקיפה</u> (פחות מרחק = פחות זמן מעוף), או השתמש במיירט מהיר יותר (David's Sling Mach 7 / Patriot Mach 5).`);
   }
 
-  if (notDetected.length > 0) {
-    recs.push(`📡 <b>${notDetected.length} איומים חמקו ממכ"מים</b> בגלל חתימת מכ"ם נמוכה. הוסף Short-Range Radar קרוב לציר התקיפה - יעיל יותר נגד RCS קטן.`);
+  if (counts['tangent'] > 0) {
+    recs.push(`📐 <b>${counts['tangent']} פספוסים מ"חציה משיקית"</b> - האיום נע בניצב לציר הסוללה (עד 15° מהניצב) ברגע היירוט, מצב שבו המיירט לא יכול לפצות. <b>פתרון:</b> מקם סוללות כך שציר ההגעה של האיום יתלכד עם קו הראייה של הסוללה ולא יעמוד בניצב לה.`);
   }
 
-  if (reasonCount['tangent'] > 0) {
-    recs.push(`📐 <b>${reasonCount['tangent']} פספוסים מ"חציה משיקית"</b> - האיומים נעו בניצב לסוללה ברגע היירוט (עד 15° מהניצב). הצב סוללות באופן ש<u>ציר הירי שלהן יהיה לכיוון התקדמות האיום</u>, לא לרוחבו. למשל: סוללה צפונית-מערבית עם איום שמגיע ממערב היא חשופה לחציה משיקית.`);
+  if (counts['statistical'] > 0) {
+    recs.push(`🎲 <b>${counts['statistical']} פספוסים סטטיסטיים</b> - בתחום השונות הנורמלית לפי ה-KP של הסוללה (לדוגמה: SA-8 Gecko יחטיא בממוצע 35% מהירויות). <b>פתרון:</b> <u>הגנה רב-שכבתית</u> - שתי סוללות יורות בזו אחר זו על אותו איום מכפילות את הסבירות לפגיעה (90%+90% = 99%).`);
   }
 
-  if (reasonCount['flight-time'] > 0) {
-    recs.push(`⏱ <b>${reasonCount['flight-time']} פספוסים מ"זמן מעוף לא מספיק"</b> - הסוללה ירתה אך האיום הקדים להגיע ליעד. פרוס סוללות <u>קרוב יותר לציר התקיפה</u> (לא רק קרוב ליעד), או השתמש במיירט מהיר יותר (David's Sling - Mach 7).`);
-  }
-
-  if (reasonCount['out-of-range'] > 0) {
-    recs.push(`🎯 <b>${reasonCount['out-of-range']} פספוסים מ"יציאה מטווח"</b> - האיום עזב את כיסוי הסוללה במהלך מעוף הטיל. הוסף סוללה במורד הציר (יעד-צד) שתתפוס את האיום בשלב מאוחר יותר.`);
-  }
-
-  if (reasonCount['statistical'] > 0) {
-    recs.push(`🎲 <b>${reasonCount['statistical']} פספוסים סטטיסטיים</b> - בתחום השונות הנורמלית של הסוללה. פתרון: <u>הגנה רב-שכבתית</u> - שתי סוללות שיורות אחת אחרי השנייה כפי שאחוזי ההצלחה מתרבים (90%+90% = 99% פגיעה משולבת).`);
-  }
-
-  // Target-specific damage hotspot
+  // Target-specific hotspot
   const targetDamage = {};
   survived.forEach(b => { targetDamage[b.target] = (targetDamage[b.target] || 0) + 1; });
   const hotTargets = Object.entries(targetDamage)
@@ -1194,11 +1185,7 @@ function generateRecommendations(r) {
     .sort((a, b) => b[1] - a[1]);
   if (hotTargets.length) {
     const [tname, count] = hotTargets[0];
-    recs.push(`🔥 <b>${tname} ספג ${count} פגיעות</b> - יעד תחת לחץ מיוחד. צור הגנה רב-שכבתית סביבו: מכ"ם גילוי + סוללה ארוכת טווח חיצונית + סוללת Point-Defense (Iron Dome) בקרבת היעד.`);
-  }
-
-  if (recs.length === 0) {
-    recs.push(`💡 ההגנה הצליחה ברובה. נסה לחזק נקודתית את האזורים שדרכם פרצו האיומים.`);
+    recs.push(`🔥 <b>${tname} ספג ${count} פגיעות</b> - יעד תחת לחץ מיוחד. בנה סביבו הגנה רב-שכבתית: מכ"ם גילוי + סוללה ארוכת-טווח חיצונית + Iron Dome כ-point-defense.`);
   }
 
   return recs;
@@ -1240,9 +1227,11 @@ function computeResults() {
   };
 }
 
+// Classify EVERY surviving threat into exactly one of the 4 user-defined miss categories:
+//   statistical | flight-time | out-of-range | tangent
 function diagnoseFailure(t) {
+  // Case A: threat WAS engaged - report grouped miss reasons by battery
   if (t.firedAt > 0) {
-    // Group misses by reason
     const byReason = {};
     for (const miss of t.missedBy) {
       const key = miss.reason;
@@ -1256,38 +1245,74 @@ function diagnoseFailure(t) {
     }
     return `נורו ${t.firedAt} טילי יירוט וכולם פספסו: ${parts.join(' • ')}`;
   }
+
+  // Case B: threat was never engaged - virtual fire from each in-range battery to classify
   const tc = CATALOG[t.key];
-  let inRangeBatteries = [];
-  let altMatched = false;
-  let detectedOnPath = false;
+  const candidates = [];
 
   for (const d of state.defenses) {
     const c = CATALOG[d.key];
     if (c.kind !== 'battery') continue;
-    if (!segmentIntersectsCircle(t.sx, t.sy, t.tx, t.ty, d.x, d.y, c.maxRange)) continue;
-    inRangeBatteries.push({ d, c });
-    if (tc.altitude >= c.minAlt && tc.altitude <= c.maxAlt) altMatched = true;
+    const altOk = tc.altitude >= c.minAlt && tc.altitude <= c.maxAlt;
+    // Check if path enters max engagement range
+    if (!segmentIntersectsCircle(t.sx, t.sy, t.tx, t.ty, d.x, d.y, c.maxRange)) {
+      candidates.push({ battery: c.short, reason: 'out-of-range' });
+      continue;
+    }
+    if (!altOk) {
+      candidates.push({ battery: c.short, reason: 'out-of-range' });
+      continue;
+    }
+    // Path enters range AND altitude OK - simulate a fire at closest approach point
+    const r = closestApproachOnPath(t, d);
+    const ipx = r.x, ipy = r.y;
+    const fdx = t.tx - t.sx, fdy = t.ty - t.sy;
+    const flen = Math.hypot(fdx, fdy) || 1;
+    const tvx = fdx / flen, tvy = fdy / flen;
+    const T = Math.hypot(ipx - d.x, ipy - d.y) / c.missileSpeed;
+    const threatTimeToTarget = Math.hypot(t.tx - ipx, t.ty - ipy) / tc.speed
+                              + Math.hypot(ipx - t.sx, ipy - t.sy) / tc.speed
+                              - Math.hypot(t.sx - t.sx, t.sy - t.sy) / tc.speed;
+    // From threat current path point (ipx,ipy) to its destination
+    const remaining = Math.hypot(t.tx - ipx, t.ty - ipy) / tc.speed;
+    if (T > remaining) {
+      candidates.push({ battery: c.short, reason: 'flight-time' });
+      continue;
+    }
+    // Tangent check at this geometric closest approach
+    const btx = ipx - d.x, bty = ipy - d.y;
+    const blen = Math.hypot(btx, bty) || 1;
+    const cosAng = (btx / blen) * tvx + (bty / blen) * tvy;
+    if (Math.abs(cosAng) < 0.15) {
+      candidates.push({ battery: c.short, reason: 'tangent' });
+      continue;
+    }
+    // Could have engaged - geometrically a statistical attempt
+    candidates.push({ battery: c.short, reason: 'statistical' });
   }
 
-  for (const d of state.defenses) {
-    const c = CATALOG[d.key];
-    const range = c.kind === 'radar' ? c.detection : c.maxRange;
-    const effective = range * (0.6 + 0.4 * tc.rcs);
-    if (segmentIntersectsCircle(t.sx, t.sy, t.tx, t.ty, d.x, d.y, effective)) {
-      detectedOnPath = true; break;
+  // Pick the best (most specific) reason: prefer statistical > tangent > flight-time > out-of-range
+  if (!candidates.length) {
+    return `<b>${REASON_LABEL['out-of-range']}</b> - אין סוללה כלשהי במפה`;
+  }
+  const priority = ['statistical', 'tangent', 'flight-time', 'out-of-range'];
+  for (const p of priority) {
+    const list = candidates.filter(x => x.reason === p);
+    if (list.length) {
+      const batteries = [...new Set(list.map(x => x.battery))].join(', ');
+      return `<b>${REASON_LABEL[p]}</b> [${batteries}]`;
     }
   }
+  return `<b>${REASON_LABEL['out-of-range']}</b>`;
+}
 
-  if (inRangeBatteries.length === 0) return 'מחוץ לטווח כל הסוללות - אין כיסוי';
-  if (!altMatched) {
-    const altInfo = inRangeBatteries.map(({c}) => `${c.short}(${c.minAlt}-${c.maxAlt})`).join(', ');
-    return `גובה טיסה ${tc.altitude} ק"מ מחוץ לתחום סוללות בטווח: ${altInfo}`;
-  }
-  if (!detectedOnPath) return 'לא התגלה ע"י אף מכ"ם - חתימת מכ"ם נמוכה';
-  // Had a chance - must be ammo/cooldown
-  const noAmmo = inRangeBatteries.some(({d, c}) => d.ammo <= 0);
-  if (noAmmo) return 'הסוללות בטווח מיצו תחמושת';
-  return 'הסוללות לא הספיקו להגיב (קולדאון בין ירי)';
+// Closest approach point on threat path to a battery
+function closestApproachOnPath(t, d) {
+  const dx = t.tx - t.sx, dy = t.ty - t.sy;
+  const len2 = dx*dx + dy*dy || 1;
+  let k = ((d.x - t.sx) * dx + (d.y - t.sy) * dy) / len2;
+  k = Math.max(0, Math.min(1, k));
+  return { x: t.sx + k * dx, y: t.sy + k * dy };
 }
 
 function segmentIntersectsCircle(x1, y1, x2, y2, cx, cy, r) {
