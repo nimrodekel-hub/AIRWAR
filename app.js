@@ -101,6 +101,75 @@ const TARGETS = [
   { name: 'Eagle Airbase',   x: 800, y: 510, value: 4, airbase: true }
 ];
 
+// ---- Country land polygon (used for border check & rendering) ----
+const LAND_POLYGON = [
+  [430, 90], [560, 70], [690, 95], [820, 80], [930, 130],
+  [1010, 200], [1060, 320], [1080, 450], [1040, 570], [960, 660],
+  [840, 690], [710, 700], [580, 680], [470, 620], [410, 510],
+  [380, 380], [400, 250], [420, 150]
+];
+
+// ---- Attack-challenge difficulty profiles ----
+// System auto-deploys defense; user has limited threat budget to break through.
+const ATTACK_DIFFICULTY = {
+  easy: {
+    label: 'קל',
+    threatBudget: { uav: 12, fighter: 4, helicopter: 4 },  // 20 total
+    defenses: [
+      { key: 'ironDome',   x: 720, y: 430 }, // capital point defense
+      { key: 'patriot',    x: 700, y: 470 }, // mid-country
+      { key: 'medRadar',   x: 700, y: 440 }
+    ]
+  },
+  medium: {
+    label: 'בינוני',
+    threatBudget: { uav: 9, fighter: 3, helicopter: 3 },   // 15 total
+    defenses: [
+      { key: 'ironDome',   x: 720, y: 410 },
+      { key: 'ironDome',   x: 800, y: 510 }, // airbase
+      { key: 'patriot',    x: 700, y: 450 },
+      { key: 'barak8',     x: 600, y: 350 },
+      { key: 'medRadar',   x: 700, y: 400 },
+      { key: 'longRadar',  x: 850, y: 450 }
+    ]
+  },
+  hard: {
+    label: 'קשה',
+    threatBudget: { uav: 6, fighter: 2, helicopter: 2 },   // 10 total
+    defenses: [
+      { key: 'ironDome',   x: 720, y: 410 }, // capital
+      { key: 'ironDome',   x: 800, y: 510 }, // airbase
+      { key: 'ironDome',   x: 560, y: 250 }, // Talos
+      { key: 'sa8',        x: 920, y: 340 }, // Miron
+      { key: 'sa8',        x: 660, y: 600 }, // Plaion
+      { key: 'patriot',    x: 700, y: 380 },
+      { key: 'patriot',    x: 760, y: 480 },
+      { key: 'barak8',     x: 600, y: 450 },
+      { key: 'davidsSling',x: 850, y: 400 },
+      { key: 'longRadar',  x: 700, y: 430 },
+      { key: 'longRadar',  x: 820, y: 460 },
+      { key: 'medRadar',   x: 600, y: 320 },
+      { key: 'shortRadar', x: 900, y: 350 }
+    ]
+  }
+};
+
+function pointInPolygon(x, y, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i][0], yi = poly[i][1];
+    const xj = poly[j][0], yj = poly[j][1];
+    const intersect = ((yi > y) !== (yj > y)) &&
+      (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function isInsideCountry(x, y) {
+  return pointInPolygon(x, y, LAND_POLYGON);
+}
+
 // ---- Miss reason labels (Hebrew UI) ----
 const REASON_LABEL = {
   'statistical': 'החטאה סטטיסטית',
@@ -111,21 +180,27 @@ const REASON_LABEL = {
 
 // ---- מצב כללי ----
 const state = {
-  mode: 'idle',           // idle | placing | deleting | sim | challengeDeploy
+  mode: 'idle',
   placeKey: null,
+  placeStep: null,        // null | 'origin' | 'target'  (attack challenge 3-click flow)
+  placeOrigin: null,      // {x, y} captured between origin click and target click
+  attackChallenge: false, // true when system-deployed defense + limited threat budget
+  challengeDifficulty: null,
   side: 'blue',
-  defenses: [],           // {id, key, x, y, ammo, cd}
-  threats: [],            // {id, key, x, y, sx, sy, tx, ty, status, hitBy}
-  missiles: [],           // {sx, sy, x, y, tx, ty, t, dur, hit, threatId}
+  defenses: [],
+  threats: [],
+  missiles: [],
   explosions: [],
-  targetHits: [],         // {type, x, y, t, dur, ...} effects when threats reach targets
-  challengeMode: null,    // null | 'auto-attack' | 'defense-challenge'
-  budget: null,           // {ironDome:1,...} for defense-challenge
+  targetHits: [],
+  challengeMode: null,    // null | 'attack-challenge' | 'defense-challenge'
+  budget: null,           // defense budget (defense-challenge)
+  threatBudget: null,     // threat budget (attack-challenge)
   results: null,
   lastTs: 0,
   simElapsed: 0,
   drag: null,
-  serialCounters: {}      // {uav: 5, fighter: 3, ...}
+  mouseX: 0, mouseY: 0,
+  serialCounters: {}
 };
 
 let canvas, ctx, W, H, tooltip, banner;
@@ -297,8 +372,10 @@ function bindControls() {
   document.getElementById('edit-targets').addEventListener('click', toggleEditTargets);
   document.getElementById('clear-threats').addEventListener('click', clearThreats);
   document.getElementById('reset').addEventListener('click', resetAll);
-  document.getElementById('auto-attack').addEventListener('click', generateAutoAttack);
-  document.querySelectorAll('.diff-btn').forEach(btn => {
+  document.querySelectorAll('.diff-btn[data-attack]').forEach(btn => {
+    btn.addEventListener('click', () => startAttackChallenge(btn.dataset.attack));
+  });
+  document.querySelectorAll('.diff-btn[data-diff]').forEach(btn => {
     btn.addEventListener('click', () => startDefenseChallenge(btn.dataset.diff));
   });
   document.getElementById('modal-close').addEventListener('click', hideModal);
@@ -326,7 +403,8 @@ function switchSide(side) {
 function selectPlace(key) {
   const c = CATALOG[key];
   if (state.mode === 'sim') return;
-  // Check budget
+
+  // Defense budget enforcement
   if (state.budget && c.kind !== 'threat') {
     const used = state.defenses.filter(d => d.key === key).length;
     if ((state.budget[key] || 0) <= used) {
@@ -334,10 +412,28 @@ function selectPlace(key) {
       return;
     }
   }
+  // Threat budget enforcement (attack challenge)
+  if (state.threatBudget && c.kind === 'threat') {
+    const used = state.threats.filter(t => t.key === key).length;
+    if ((state.threatBudget[key] || 0) <= used) {
+      setStatus(`לא נותרו ${c.name} בתקציב`);
+      return;
+    }
+  }
+
   state.mode = 'placing';
   state.placeKey = key;
+
+  // Three-click attack-challenge flow
+  if (state.attackChallenge && c.kind === 'threat') {
+    state.placeStep = 'origin';
+    state.placeOrigin = null;
+    setStatus(`${c.name} - לחץ על המפה מחוץ לגבולות המדינה (נקודת מוצא)`);
+  } else {
+    state.placeStep = null;
+    setStatus(`מציב ${c.name} - לחץ על המפה`);
+  }
   refreshButtonStates();
-  setStatus(`מציב ${c.name} - לחץ על המפה`);
 }
 
 function refreshButtonStates() {
@@ -377,12 +473,52 @@ function onCanvasClick(ev) {
   if (state.drag && state.drag.moved) { state.drag = null; return; }
   state.drag = null;
   const p = getPos(ev);
+
   if (state.mode === 'placing') {
+    const c = CATALOG[state.placeKey];
+
+    // Three-click attack-challenge threat placement
+    if (state.attackChallenge && c.kind === 'threat') {
+      if (state.placeStep === 'origin') {
+        if (isInsideCountry(p.x, p.y)) {
+          flashStatus('⚠ נקודת המוצא חייבת להיות מחוץ לגבולות המדינה!', 'origin');
+          return;
+        }
+        state.placeOrigin = { x: p.x, y: p.y };
+        state.placeStep = 'target';
+        setStatus(`${c.name} מ-(${Math.round(p.x)}, ${Math.round(p.y)}) - בחר יעד אסטרטגי`);
+        return;
+      }
+      if (state.placeStep === 'target') {
+        const tgt = findTargetAt(p.x, p.y);
+        if (!tgt) {
+          flashStatus('⚠ יש ללחוץ על אחד מהיעדים האסטרטגיים!', 'target');
+          return;
+        }
+        state.threats.push(makeThreat(state.placeKey, state.placeOrigin.x, state.placeOrigin.y, tgt.x, tgt.y, tgt.name));
+        renderBudget();
+        // Continue with same threat type if budget allows; otherwise prompt to choose another
+        const used = state.threats.filter(t => t.key === state.placeKey).length;
+        const max = (state.threatBudget && state.threatBudget[state.placeKey]) || 0;
+        if (used >= max) {
+          state.mode = 'idle';
+          state.placeKey = null;
+          state.placeStep = null;
+          state.placeOrigin = null;
+          refreshButtonStates();
+          setStatus('מיצית את התקציב לסוג הזה - בחר סוג אחר או הפעל סימולציה');
+        } else {
+          state.placeStep = 'origin';
+          state.placeOrigin = null;
+          setStatus(`${c.name} - לחץ על נקודת מוצא לאיום הבא (${used}/${max} הוצבו)`);
+        }
+        return;
+      }
+    }
+
+    // Default single-click placement
     placeAt(state.placeKey, p.x, p.y);
-    if (!state.budget) {
-      // keep placing
-    } else {
-      const c = CATALOG[state.placeKey];
+    if (state.budget) {
       if (c.kind !== 'threat') {
         const used = state.defenses.filter(d => d.key === state.placeKey).length;
         if (used >= (state.budget[state.placeKey] || 0)) {
@@ -395,6 +531,21 @@ function onCanvasClick(ev) {
     const ent = findEntityAt(p.x, p.y);
     if (ent) deleteEntity(ent);
   }
+}
+
+let _flashTimer = null;
+function flashStatus(msg, returnStep) {
+  setStatus(msg);
+  clearTimeout(_flashTimer);
+  _flashTimer = setTimeout(() => {
+    if (state.placeStep === 'origin') {
+      const c = CATALOG[state.placeKey];
+      setStatus(`${c.name} - לחץ על המפה מחוץ לגבולות המדינה (נקודת מוצא)`);
+    } else if (state.placeStep === 'target') {
+      const c = CATALOG[state.placeKey];
+      setStatus(`${c.name} - בחר יעד אסטרטגי`);
+    }
+  }, 1500);
 }
 
 function onMouseDown(ev) {
@@ -413,6 +564,7 @@ function onMouseDown(ev) {
 
 function onMouseMove(ev) {
   const p = getPos(ev);
+  state.mouseX = p.x; state.mouseY = p.y;
   if (state.drag) {
     state.drag.ent.x = p.x - state.drag.ox;
     state.drag.ent.y = p.y - state.drag.oy;
@@ -550,10 +702,20 @@ function clearThreats() {
 function resetAll() {
   state.defenses = []; state.threats = []; state.missiles = []; state.explosions = []; state.targetHits = [];
   state.serialCounters = {};
-  state.results = null; state.budget = null; state.challengeMode = null;
-  state.mode = 'idle'; state.placeKey = null;
+  state.results = null;
+  state.budget = null;
+  state.threatBudget = null;
+  state.attackChallenge = false;
+  state.challengeDifficulty = null;
+  state.challengeMode = null;
+  state.mode = 'idle';
+  state.placeKey = null;
+  state.placeStep = null;
+  state.placeOrigin = null;
   hideBanner();
-  refreshButtonStates(); renderResults();
+  refreshButtonStates();
+  renderBudget();
+  renderResults();
   setStatus('המפה אופסה');
 }
 
@@ -580,7 +742,70 @@ function draw() {
   drawMissiles();
   drawExplosions();
   drawTargetHits();
+  drawPlacementGuide();
   drawHUD();
+}
+
+// Visual aid during the 3-click attack-challenge flow
+function drawPlacementGuide() {
+  if (state.mode !== 'placing' || !state.placeStep) return;
+  const c = CATALOG[state.placeKey];
+  if (!c || c.kind !== 'threat') return;
+
+  if (state.placeStep === 'origin') {
+    // Show whether the cursor is in a valid (outside-country) location
+    const inside = isInsideCountry(state.mouseX, state.mouseY);
+    ctx.beginPath();
+    ctx.arc(state.mouseX, state.mouseY, 12, 0, Math.PI * 2);
+    ctx.strokeStyle = inside ? '#dc2626' : '#5fa86b';
+    ctx.lineWidth = 2;
+    ctx.setLineDash(inside ? [3, 3] : []);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    if (inside) {
+      ctx.fillStyle = '#dc2626';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('✗ בתוך המדינה', state.mouseX, state.mouseY - 18);
+    } else {
+      ctx.fillStyle = '#5fa86b';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('✓ נקודת מוצא תקינה', state.mouseX, state.mouseY - 18);
+    }
+  } else if (state.placeStep === 'target' && state.placeOrigin) {
+    const o = state.placeOrigin;
+    // Origin marker
+    ctx.beginPath();
+    ctx.arc(o.x, o.y, 6, 0, Math.PI * 2);
+    ctx.fillStyle = '#dc2626';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = '#fca5a5';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('מוצא', o.x, o.y - 12);
+
+    // Planning line from origin to cursor
+    const tgt = findTargetAt(state.mouseX, state.mouseY);
+    ctx.beginPath();
+    ctx.moveTo(o.x, o.y);
+    ctx.lineTo(state.mouseX, state.mouseY);
+    ctx.strokeStyle = tgt ? '#5fa86b' : 'rgba(220, 38, 38, 0.5)';
+    ctx.lineWidth = tgt ? 2.5 : 1.5;
+    ctx.setLineDash([6, 6]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    if (!tgt) {
+      ctx.fillStyle = '#dc2626';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('✗ לחץ על יעד אסטרטגי', state.mouseX, state.mouseY - 14);
+    }
+  }
 }
 
 function drawBackground() {
@@ -611,13 +836,7 @@ function drawBackground() {
 }
 
 function drawCountry() {
-  // Fictional country polygon (Taliaria)
-  const land = [
-    [430, 90], [560, 70], [690, 95], [820, 80], [930, 130],
-    [1010, 200], [1060, 320], [1080, 450], [1040, 570], [960, 660],
-    [840, 690], [710, 700], [580, 680], [470, 620], [410, 510],
-    [380, 380], [400, 250], [420, 150]
-  ];
+  const land = LAND_POLYGON;
   ctx.fillStyle = '#1a3148';
   ctx.strokeStyle = '#3a6b8c';
   ctx.lineWidth = 2;
@@ -627,6 +846,18 @@ function drawCountry() {
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
+  // In attack-challenge placement step 'origin' show the border highlighted
+  if (state.attackChallenge && state.placeStep === 'origin') {
+    ctx.strokeStyle = 'rgba(220, 38, 38, 0.7)';
+    ctx.setLineDash([6, 4]);
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(land[0][0], land[0][1]);
+    for (let i = 1; i < land.length; i++) ctx.lineTo(land[i][0], land[i][1]);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
 
   // Mountain ridge
   ctx.fillStyle = 'rgba(120, 140, 160, 0.12)';
@@ -650,7 +881,21 @@ function drawCountry() {
 function drawTargets() {
   ctx.textAlign = 'center';
   const editing = state.mode === 'editTargets';
+  const targetingPhase = state.mode === 'placing' && state.placeStep === 'target';
   for (const t of TARGETS) {
+    // Targeting halo for attack-challenge target-pick step
+    if (targetingPhase) {
+      const phase = (Date.now() / 1000) * 5 + t.x * 0.01;
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, 22 + Math.sin(phase) * 3, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(220, 38, 38, 0.18)';
+      ctx.fill();
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
     // Pulsing edit-mode halo
     if (editing) {
       const phase = (Date.now() / 1000) * 4 + t.x * 0.01;
@@ -1376,6 +1621,12 @@ function finishSim() {
     if (score >= 0.85) showBanner(`ניצחון! הגנת על ${(score*100).toFixed(0)}% מהערך האסטרטגי`, 'success');
     else if (score >= 0.5) showBanner(`הגנה חלקית: ${(score*100).toFixed(0)}% הצלחה`, '');
     else showBanner(`כשלון - רק ${(score*100).toFixed(0)}% מהיעדים הוגנו`, 'failure');
+  } else if (state.challengeMode === 'attack-challenge' && state.results) {
+    const breachRate = state.results.survived / Math.max(1, state.results.total);
+    const damageRate = 1 - state.results.protectedValue / state.results.totalValue;
+    if (damageRate >= 0.6) showBanner(`התקפה הצליחה! פגעת ב-${(damageRate*100).toFixed(0)}% מהערך האסטרטגי`, 'success');
+    else if (damageRate >= 0.3) showBanner(`התקפה חלקית: ${(damageRate*100).toFixed(0)}% נזק`, '');
+    else showBanner(`התקפה נכשלה: רק ${(damageRate*100).toFixed(0)}% נזק לאויב`, 'failure');
   } else if (state.challengeMode === 'auto-attack' && state.results) {
     const breachRate = state.results.survived / state.results.total;
     if (breachRate >= 0.5) showBanner(`התקפה הצליחה: ${state.results.survived} איומים פרצו`, 'failure');
@@ -1817,7 +2068,43 @@ function renderResults() {
 }
 
 // =============================================================
-// תכנון התקפה אוטומטי
+// אתגר התקפה - המערכת פורסת הגנה, המשתמש פורס איומים בתקציב
+// =============================================================
+function startAttackChallenge(difficulty) {
+  resetAll();
+  const profile = ATTACK_DIFFICULTY[difficulty];
+  if (!profile) return;
+
+  state.attackChallenge = true;
+  state.challengeMode = 'attack-challenge';
+  state.challengeDifficulty = difficulty;
+  state.threatBudget = { ...profile.threatBudget };
+
+  // System auto-deploys defenses according to the difficulty profile
+  for (const item of profile.defenses) {
+    state.defenses.push({
+      id: nextId++, key: item.key, x: item.x, y: item.y,
+      ammo: CATALOG[item.key].ammo, cd: 0,
+      prepareTarget: null, prepareUntil: 0
+    });
+  }
+
+  // Switch to red side and prompt for first placement
+  switchSide('red');
+  state.mode = 'idle';
+  state.placeKey = null;
+  state.placeStep = null;
+  state.placeOrigin = null;
+  refreshButtonStates();
+  renderBudget();
+
+  const total = profile.threatBudget.uav + profile.threatBudget.fighter + profile.threatBudget.helicopter;
+  showBanner(`🎯 אתגר התקפה ${profile.label} - ${total} איומים זמינים. בחר סוג, לחץ מחוץ לגבולות, ולחץ על יעד.`, '');
+  setStatus(`אתגר התקפה ${profile.label} פעיל - בחר סוג איום מהתפריט`);
+}
+
+// =============================================================
+// תכנון התקפה אוטומטי (legacy, exposed if defenses present and no challenge)
 // =============================================================
 function generateAutoAttack() {
   if (state.defenses.length === 0) {
@@ -1942,20 +2229,45 @@ function startDefenseChallenge(difficulty = 'medium') {
 }
 
 function renderBudget() {
-  if (!state.budget) return;
+  // Defense (battery + radar) budget badges
   document.querySelectorAll('#battery-btns button[data-key], #radar-btns button[data-key]').forEach(b => {
     const k = b.dataset.key;
-    const used = state.defenses.filter(d => d.key === k).length;
-    const max = state.budget[k] || 0;
     let badge = b.querySelector('.budget-badge');
-    if (!badge) {
-      badge = document.createElement('span');
-      badge.className = 'budget-badge';
-      badge.style.cssText = 'background:#fbbf24;color:#0a0e14;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;margin-right:4px';
-      b.appendChild(badge);
+    if (state.budget) {
+      const used = state.defenses.filter(d => d.key === k).length;
+      const max = state.budget[k] || 0;
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'budget-badge';
+        badge.style.cssText = 'background:#fbbf24;color:#0a0e14;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;margin-right:4px';
+        b.appendChild(badge);
+      }
+      badge.textContent = `${used}/${max}`;
+      b.style.opacity = used >= max ? '0.5' : '1';
+    } else {
+      if (badge) badge.remove();
+      b.style.opacity = '1';
     }
-    badge.textContent = `${used}/${max}`;
-    b.style.opacity = used >= max ? '0.5' : '1';
+  });
+  // Threat budget badges
+  document.querySelectorAll('#threat-btns button[data-key]').forEach(b => {
+    const k = b.dataset.key;
+    let badge = b.querySelector('.budget-badge');
+    if (state.threatBudget) {
+      const used = state.threats.filter(t => t.key === k).length;
+      const max = state.threatBudget[k] || 0;
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'budget-badge';
+        badge.style.cssText = 'background:#dc2626;color:#fff;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;margin-right:4px';
+        b.appendChild(badge);
+      }
+      badge.textContent = `${used}/${max}`;
+      b.style.opacity = used >= max ? '0.5' : '1';
+    } else {
+      if (badge) badge.remove();
+      b.style.opacity = '1';
+    }
   });
 }
 
