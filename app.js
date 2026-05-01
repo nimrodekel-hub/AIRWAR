@@ -1272,16 +1272,22 @@ function drawMissiles() {
   }
 }
 
+// Mid-air interception puff - small and quick, yellow-white spark with thin
+// orange ring.  Distinct from the larger red ground-impact blast.
 function drawExplosions() {
   for (const e of state.explosions) {
-    const a = 1 - e.t / e.dur;
+    const k = e.t / e.dur;
+    const a = 1 - k;
+    // Thin orange ring expanding
     ctx.beginPath();
-    ctx.arc(e.x, e.y, e.r * (1 + e.t / e.dur * 1.5), 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(251, 146, 60, ${a * 0.7})`;
-    ctx.fill();
+    ctx.arc(e.x, e.y, e.r * (0.5 + k * 1.4), 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(251, 191, 36, ${a * 0.7})`;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // Bright yellow-white core
     ctx.beginPath();
-    ctx.arc(e.x, e.y, e.r * (e.t / e.dur), 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(254, 240, 138, ${a})`;
+    ctx.arc(e.x, e.y, e.r * 0.7 * a, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 255, 200, ${a})`;
     ctx.fill();
   }
 }
@@ -1306,12 +1312,12 @@ function triggerTargetHit(t) {
       people, t: 0, dur: 4
     });
   } else {
-    // Explosion - fighter is bigger than UAV
+    // Strategic-target ground impact - large bright-red blast
     state.targetHits.push({
       type: 'explosion',
       x: t.x, y: t.y,
-      r: t.key === 'fighter' ? 36 : 24,
-      t: 0, dur: 2.0
+      r: t.key === 'fighter' ? 44 : 30,
+      t: 0, dur: 2.4
     });
   }
 }
@@ -1326,41 +1332,54 @@ function drawTargetHits() {
   }
 }
 
+// Strategic-target ground impact - large, bright red blast.  Visually
+// distinct from the small yellow-white mid-air interception puff.
 function drawTargetExplosion(e) {
   const k = e.t / e.dur;
   const fade = 1 - k;
-  // Outer shockwave
+
+  // Outer red shockwave - largest and loudest
   ctx.beginPath();
-  ctx.arc(e.x, e.y, e.r * (1 + k * 2.2), 0, Math.PI * 2);
-  ctx.fillStyle = `rgba(251, 100, 30, ${fade * 0.4})`;
+  ctx.arc(e.x, e.y, e.r * (1 + k * 2.5), 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(220, 38, 38, ${fade * 0.55})`;
   ctx.fill();
-  // Hot core
+
+  // Mid-ring saturated red
   ctx.beginPath();
-  ctx.arc(e.x, e.y, e.r * (0.3 + k * 1.2), 0, Math.PI * 2);
-  ctx.fillStyle = `rgba(255, 200, 80, ${fade * 0.85})`;
+  ctx.arc(e.x, e.y, e.r * (0.65 + k * 1.4), 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(239, 68, 68, ${fade * 0.85})`;
   ctx.fill();
-  // White-hot center
+
+  // Hot orange-red core
   ctx.beginPath();
-  ctx.arc(e.x, e.y, e.r * 0.4 * fade, 0, Math.PI * 2);
-  ctx.fillStyle = `rgba(255, 255, 240, ${fade})`;
+  ctx.arc(e.x, e.y, e.r * (0.35 + k * 0.9), 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(255, 90, 60, ${fade * 0.95})`;
   ctx.fill();
-  // Smoke ring after main blast
-  if (k > 0.4) {
-    const smokeFade = (1 - k) * 0.5;
+
+  // White-hot heart of the blast
+  ctx.beginPath();
+  ctx.arc(e.x, e.y, e.r * 0.5 * fade, 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(255, 250, 230, ${fade})`;
+  ctx.fill();
+
+  // Dark crimson smoke ring after the flash
+  if (k > 0.35) {
+    const smokeFade = (1 - k) * 0.7;
     ctx.beginPath();
-    ctx.arc(e.x, e.y, e.r * (1.2 + k * 1.5), 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(40, 40, 40, ${smokeFade})`;
-    ctx.lineWidth = 4;
+    ctx.arc(e.x, e.y, e.r * (1.3 + k * 1.7), 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(70, 18, 18, ${smokeFade})`;
+    ctx.lineWidth = 5;
     ctx.stroke();
   }
-  // Debris specks
-  if (k < 0.6) {
-    ctx.fillStyle = `rgba(80, 60, 40, ${fade})`;
-    for (let i = 0; i < 8; i++) {
-      const ang = (i / 8) * Math.PI * 2;
-      const d = e.r * (0.5 + k * 2);
+
+  // Glowing red debris specks
+  if (k < 0.65) {
+    ctx.fillStyle = `rgba(220, 60, 60, ${fade})`;
+    for (let i = 0; i < 12; i++) {
+      const ang = (i / 12) * Math.PI * 2 + k * 0.7;
+      const d = e.r * (0.5 + k * 2.2);
       ctx.beginPath();
-      ctx.arc(e.x + Math.cos(ang) * d, e.y + Math.sin(ang) * d, 1.5, 0, Math.PI * 2);
+      ctx.arc(e.x + Math.cos(ang) * d, e.y + Math.sin(ang) * d, 1.8, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -1531,10 +1550,11 @@ function tick(dt) {
         if (m.hit) {
           target.status = 'destroyed';
           target.hitBy = m.battery;
-          state.explosions.push({ x: target.x, y: target.y, r: 18, t: 0, dur: 0.8 });
+          // Smaller, brief mid-air interception puff
+          state.explosions.push({ x: target.x, y: target.y, r: 9, t: 0, dur: 0.5 });
         } else {
           target.missedBy.push({ battery: m.battery, reason: m.reason });
-          state.explosions.push({ x: m.x + (Math.random()-0.5)*10, y: m.y + (Math.random()-0.5)*10, r: 8, t: 0, dur: 0.4 });
+          state.explosions.push({ x: m.x + (Math.random()-0.5)*10, y: m.y + (Math.random()-0.5)*10, r: 5, t: 0, dur: 0.35 });
         }
       }
     }
