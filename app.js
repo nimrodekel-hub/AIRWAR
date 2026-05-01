@@ -219,7 +219,8 @@ function showInfoModal(key) {
     rows += `
       <tr><td>סוג</td><td>מכ"ם גילוי וכיוון</td></tr>
       <tr><td>טווח גילוי נומינלי</td><td>${c.detection} ק"מ</td></tr>
-      <tr><td>הערה</td><td>הטווח האפקטיבי משתנה לפי חתימת המכ"ם של האיום (RCS)</td></tr>
+      <tr><td>טווח אפקטיבי</td><td>תלוי ב-RCS של האיום (60-100% מהנומינלי)</td></tr>
+      <tr><td>תפקיד מערכתי</td><td><b style="color:#06b6d4">מאריך טווח של סוללות</b></td></tr>
     `;
   } else {
     rows += `
@@ -245,6 +246,14 @@ function showInfoModal(key) {
           <li><b>זמן מעוף לא מספיק</b> - האיום מקדים להגיע ליעד לפני שהמיירט מגיע אליו (תלוי במהירות המיירט: ${c.realSpeed})</li>
           <li><b>יציאה מטווח</b> - האיום עוזב את כיסוי הסוללה (${c.maxRange} ק"מ) במהלך מעוף הטיל</li>
           <li><b>חציה משיקית</b> - האיום נע בניצב לציר הסוללה ברגע היירוט (עד 15° מהניצב)</li>
+        </ul>
+      </div>
+      <div class="info-failure-list" style="border-color:rgba(6,182,212,0.4);background:rgba(6,182,212,0.06)">
+        <h4 style="color:#06b6d4">📡 תוספת מכ"ם חיצוני</h4>
+        <ul>
+          <li>בלי מכ"ם רלוונטי: הסוללה משגרת מיירט <b>רק כשהאיום נכנס לטווח ${c.maxRange} ק"מ</b></li>
+          <li>עם מכ"ם חיצוני שטווחו מעבר לסוללה: ניתן <b>לשגר מיירט לפני שהאיום נכנס לטווח</b> (היירוט עצמו עדיין חייב להתבצע בתוך הטווח)</li>
+          <li>התוצאה: <b>יותר ניסיונות יירוט</b> לאותו איום בזמן שהוא חוצה את אזור ההגנה</li>
         </ul>
       </div>
     `;
@@ -1048,11 +1057,24 @@ function pickEngagementTarget(d) {
     if (t.status !== 'inflight') continue;
     if (alreadyEngaged(t)) continue;
     const tc = CATALOG[t.key];
-    const dist = Math.hypot(t.x - d.x, t.y - d.y);
-    if (dist < c.minRange || dist > c.maxRange) continue;
     if (tc.altitude < c.minAlt || tc.altitude > c.maxAlt) continue;
-    if (!isDetected(t)) continue;
-    // prefer threats closer to important targets
+
+    const dist = Math.hypot(t.x - d.x, t.y - d.y);
+    if (dist < c.minRange) continue;
+
+    const det = getDetectionInfo(t, d, c, tc);
+
+    if (dist <= c.maxRange) {
+      // Threat inside engagement envelope - need ANY detection (organic or external)
+      if (!det.organic && !det.externalRadar) continue;
+    } else {
+      // Threat beyond own range - allow only with external standalone radar
+      // AND only if the intercept point would land inside the battery's range
+      if (!det.externalRadar) continue;
+      if (!canInterceptInsideRange(t, d, c, tc)) continue;
+    }
+
+    // Prefer threats closer to important targets
     const target = TARGETS.find(x => x.x === t.tx && x.y === t.ty);
     const value = target ? target.value : 1;
     const distToTarget = Math.hypot(t.tx - t.x, t.ty - t.y);
@@ -1060,6 +1082,50 @@ function pickEngagementTarget(d) {
     if (score > bestScore) { bestScore = score; best = t; }
   }
   return best;
+}
+
+// Detection breakdown for a threat from a specific battery's perspective
+function getDetectionInfo(t, d, c, tc) {
+  let organic = false, externalRadar = false;
+  // Battery's own organic search radar (effective range scaled by RCS)
+  const ownEff = c.maxRange * (0.6 + 0.4 * tc.rcs);
+  if (Math.hypot(t.x - d.x, t.y - d.y) <= ownEff) organic = true;
+  // Standalone radars elsewhere on the map
+  for (const od of state.defenses) {
+    const oc = CATALOG[od.key];
+    if (oc.kind !== 'radar') continue;
+    const eff = oc.detection * (0.6 + 0.4 * tc.rcs);
+    if (Math.hypot(t.x - od.x, t.y - od.y) <= eff) {
+      externalRadar = true;
+      break;
+    }
+  }
+  return { organic, externalRadar };
+}
+
+// Predict whether an early-launch missile (under extended radar coverage)
+// would actually intercept inside this battery's max engagement range.
+function canInterceptInsideRange(t, d, c, tc) {
+  const fdx = t.tx - t.sx, fdy = t.ty - t.sy;
+  const flen = Math.hypot(fdx, fdy) || 1;
+  const tvx = fdx / flen, tvy = fdy / flen;
+  // Launch position = current threat position + reactionTime worth of motion
+  const launchX = t.x + tvx * tc.speed * c.reactionTime;
+  const launchY = t.y + tvy * tc.speed * c.reactionTime;
+  // Iterative lead-pursuit intercept
+  let T = Math.hypot(launchX - d.x, launchY - d.y) / c.missileSpeed;
+  let ipx = launchX, ipy = launchY;
+  for (let i = 0; i < 5; i++) {
+    ipx = launchX + tvx * tc.speed * T;
+    ipy = launchY + tvy * tc.speed * T;
+    T = Math.hypot(ipx - d.x, ipy - d.y) / c.missileSpeed;
+  }
+  const interceptDist = Math.hypot(ipx - d.x, ipy - d.y);
+  if (interceptDist < c.minRange || interceptDist > c.maxRange) return false;
+  // Must still be alive at intercept
+  const remaining = Math.hypot(t.tx - t.x, t.ty - t.y) / tc.speed;
+  if (c.reactionTime + T > remaining) return false;
+  return true;
 }
 
 function alreadyEngaged(t) {
