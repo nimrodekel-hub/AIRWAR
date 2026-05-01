@@ -9,7 +9,7 @@ const CATALOG = {
   ironDome: {
     kind: 'battery', name: 'Iron Dome', short: 'IRN',
     minRange: 4, maxRange: 70, minAlt: 0, maxAlt: 10,
-    color: '#3b82f6', ammo: 20, reload: 0.4,
+    color: '#3b82f6', ammo: 12, reload: 0.4,
     hitRate: 0.90,
     reactionTime: 2,
     missileSpeed: 600, realSpeed: 'Mach 7 (fastest)',
@@ -18,7 +18,7 @@ const CATALOG = {
   sa8: {
     kind: 'battery', name: 'SA-8 Gecko', short: 'SA8',
     minRange: 1.5, maxRange: 15, minAlt: 0, maxAlt: 5,
-    color: '#10b981', ammo: 8, reload: 0.6,
+    color: '#10b981', ammo: 3, reload: 0.6,
     hitRate: 0.65,
     reactionTime: 3,
     missileSpeed: 380, realSpeed: 'Mach 4 (medium)',
@@ -27,7 +27,7 @@ const CATALOG = {
   barak8: {
     kind: 'battery', name: 'Barak-8', short: 'BRK',
     minRange: 0.5, maxRange: 100, minAlt: 0, maxAlt: 16,
-    color: '#8b5cf6', ammo: 16, reload: 0.5,
+    color: '#8b5cf6', ammo: 6, reload: 0.5,
     hitRate: 0.85,
     reactionTime: 1,
     missileSpeed: 480, realSpeed: 'Mach 5.5 (fast)',
@@ -36,7 +36,7 @@ const CATALOG = {
   patriot: {
     kind: 'battery', name: 'Patriot PAC-3', short: 'PAT',
     minRange: 3, maxRange: 160, minAlt: 0, maxAlt: 24,
-    color: '#f59e0b', ammo: 16, reload: 0.7,
+    color: '#f59e0b', ammo: 4, reload: 0.7,
     hitRate: 0.75,
     reactionTime: 3,
     missileSpeed: 220, realSpeed: 'Mach 2.5 (slowest)',
@@ -45,7 +45,7 @@ const CATALOG = {
   davidsSling: {
     kind: 'battery', name: "David's Sling", short: 'DSL',
     minRange: 40, maxRange: 300, minAlt: 5, maxAlt: 30,
-    color: '#ef4444', ammo: 12, reload: 0.8,
+    color: '#ef4444', ammo: 5, reload: 0.8,
     hitRate: 0.80,
     reactionTime: 2,
     missileSpeed: 280, realSpeed: 'Mach 3 (slow)',
@@ -664,6 +664,7 @@ function drawCoverage() {
 function drawDefenses() {
   for (const d of state.defenses) {
     const c = CATALOG[d.key];
+    const depleted = c.kind === 'battery' && d.ammo <= 0;
 
     // Reaction-time preparation indicator: pulsing ring that fills as launch nears
     if (d.prepareTarget != null && state.simElapsed < d.prepareUntil) {
@@ -681,6 +682,7 @@ function drawDefenses() {
     }
 
     ctx.save();
+    if (depleted) ctx.globalAlpha = 0.35;
     ctx.translate(d.x, d.y);
     ctx.fillStyle = c.color;
     ctx.strokeStyle = '#0a0e14';
@@ -708,15 +710,42 @@ function drawDefenses() {
       ctx.fillText(c.short, 0, 0.5);
     }
     ctx.restore();
-    // label
-    ctx.fillStyle = '#d6e0f0';
+
+    // Short label below
+    ctx.fillStyle = depleted ? '#7e91a8' : '#d6e0f0';
     ctx.font = '10px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(c.short, d.x, d.y + 24);
+
+    // Ammo counter pill (only for batteries)
     if (c.kind === 'battery') {
-      ctx.fillStyle = '#7e91a8';
-      ctx.font = '9px sans-serif';
-      ctx.fillText(`${d.ammo}/${c.ammo}`, d.x, d.y + 35);
+      const txt = depleted ? 'EMPTY' : `▮ ${d.ammo}/${c.ammo}`;
+      let bgColor, fgColor;
+      if (depleted)              { bgColor = '#6b1e2a'; fgColor = '#fca5a5'; }
+      else if (d.ammo / c.ammo > 0.5) { bgColor = '#1e6b3e'; fgColor = '#86efac'; }
+      else if (d.ammo / c.ammo > 0.25){ bgColor = '#8a5a1c'; fgColor = '#fcd34d'; }
+      else                            { bgColor = '#9c2d3e'; fgColor = '#fca5a5'; }
+
+      ctx.font = 'bold 11px ui-monospace, monospace';
+      const tw = ctx.measureText(txt).width;
+      const padX = 6, padY = 2;
+      const bx = d.x - tw/2 - padX;
+      const by = d.y + 30;
+      const bw = tw + padX*2;
+      const bh = 14 + padY;
+      ctx.fillStyle = bgColor;
+      ctx.strokeStyle = fgColor;
+      ctx.lineWidth = 1.5;
+      if (ctx.roundRect) {
+        ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 8); ctx.fill(); ctx.stroke();
+      } else {
+        ctx.fillRect(bx, by, bw, bh);
+        ctx.strokeRect(bx, by, bw, bh);
+      }
+      ctx.fillStyle = fgColor;
+      ctx.textBaseline = 'middle';
+      ctx.fillText(txt, d.x, by + bh/2);
+      ctx.textBaseline = 'alphabetic';
     }
   }
 }
