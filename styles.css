@@ -43,6 +43,17 @@ html, body {
   margin-top: 2px;
 }
 
+.version-tag {
+  background: #fbbf24;
+  color: #0a0e14;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: monospace;
+  font-weight: 700;
+  margin-right: 4px;
+  font-size: 10px;
+}
+
 .side-toggle {
   display: flex;
   gap: 4px;
