@@ -2196,29 +2196,42 @@ function showResultsModal() {
     `;
   }
 
-  // Hit-targets summary line - which strategic targets actually got struck
+  // Hit-targets summary line - which strategic targets actually got struck.
+  // Visual semantics flip by role:
+  //   Attacker: target HIT  = success (green💥),  target intact = failure (red ✗)
+  //   Defender: target HIT  = failure (red 💥),   target intact = success (green ✓)
   const hitList = TARGETS.map(t => ({
     name: t.name, value: t.value,
     hit: r.hitTargets && r.hitTargets.has(t.name)
   }));
-  const hitTargetsHtml = hitList.map(t =>
-    `<span class="target-chip ${t.hit ? 'hit' : 'safe'}">${t.hit ? '💥' : '✓'} ${t.name}</span>`
-  ).join('');
+  const hitTargetsHtml = hitList.map(t => {
+    let cls, icon;
+    if (isAttack) {
+      cls  = t.hit ? 'safe' : 'hit';
+      icon = t.hit ? '💥'   : '✗';
+    } else {
+      cls  = t.hit ? 'hit'  : 'safe';
+      icon = t.hit ? '💥'   : '✓';
+    }
+    return `<span class="target-chip ${cls}">${icon} ${t.name}</span>`;
+  }).join('');
 
-  // Three top summary cards differ by mode so the framing matches the player role
+  // Three top summary cards differ by mode so the framing matches the player role.
+  // For attacker: "breached" is success (green), "lost" is failure (red), "damage
+  // dealt" is success (green).  For defender: "intercepted" is success, etc.
   const summaryCardsHtml = isAttack
     ? `
-        <div class="stat survived" style="border-color:#dc2626">
+        <div class="stat" style="border-color:#5fa86b">
           <div class="label">איומים שפרצו</div>
-          <div class="value">${r.survived}/${r.total}</div>
+          <div class="value" style="color:#5fa86b">${r.survived}/${r.total}</div>
         </div>
-        <div class="stat killed">
+        <div class="stat" style="border-color:#d35f5f">
           <div class="label">איומים שאבדו</div>
-          <div class="value">${r.killed}/${r.total}</div>
+          <div class="value" style="color:#d35f5f">${r.killed}/${r.total}</div>
         </div>
-        <div class="stat protected" style="border-color:#dc2626">
+        <div class="stat" style="border-color:#5fa86b">
           <div class="label">נזק שגרמת</div>
-          <div class="value" style="color:#dc2626">${r.totalValue - r.protectedValue}/${r.totalValue}</div>
+          <div class="value" style="color:#5fa86b">${r.totalValue - r.protectedValue}/${r.totalValue}</div>
         </div>`
     : `
         <div class="stat killed">
