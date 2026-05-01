@@ -1460,22 +1460,32 @@ function drawExplosions() {
 
 function triggerTargetHit(t) {
   if (t.key === 'helicopter') {
-    // Paratroopers / soldiers descending and running outward
-    const peopleCount = 4 + Math.floor(Math.random() * 3);
+    // Helicopter touchdown: troops disembark and run outward.  Combined with
+    // a large rising smoke column + scorched ground so it's unmistakable
+    // that the strategic site was breached.
+    const peopleCount = 7 + Math.floor(Math.random() * 3);   // 7-9 soldiers
     const people = [];
     for (let i = 0; i < peopleCount; i++) {
       const angle = (i / peopleCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.6;
       people.push({
         angle,
         distance: 0,
-        speed: 14 + Math.random() * 10,
+        speed: 18 + Math.random() * 14,
         bob: 0
+      });
+    }
+    // Pre-spawn a sequence of smoke puffs so the column rises continuously
+    const puffs = [];
+    for (let i = 0; i < 8; i++) {
+      puffs.push({
+        bornAt: i * 0.35,
+        offsetX: (Math.random() - 0.5) * 12
       });
     }
     state.targetHits.push({
       type: 'paratroopers',
       x: t.x, y: t.y,
-      people, t: 0, dur: 4
+      people, puffs, t: 0, dur: 4.5
     });
   } else {
     // Strategic-target ground impact - large bright-red blast
@@ -1552,20 +1562,99 @@ function drawTargetExplosion(e) {
 }
 
 function drawParatroopers(e) {
-  const fade = e.t / e.dur > 0.85 ? 1 - (e.t / e.dur - 0.85) / 0.15 : 1;
-  // Smoke from helo touchdown
-  if (e.t < 1.2) {
-    const smokeFade = 1 - e.t / 1.2;
+  const k = e.t / e.dur;
+  const fade = k > 0.85 ? 1 - (k - 0.85) / 0.15 : 1;
+
+  // 1. Scorched ground patch - persistent dark mark on the strategic target
+  const groundFade = Math.min(1, e.t / 0.4) * fade;
+  const grad = ctx.createRadialGradient(e.x, e.y, 2, e.x, e.y, 18);
+  grad.addColorStop(0, `rgba(20, 12, 8, ${groundFade * 0.85})`);
+  grad.addColorStop(1, `rgba(20, 12, 8, 0)`);
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(e.x, e.y, 20, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 2. Initial impact flash - quick orange burst when the helo touches down
+  if (e.t < 0.45) {
+    const f = 1 - e.t / 0.45;
     ctx.beginPath();
-    ctx.arc(e.x, e.y, 12 + e.t * 8, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(120, 100, 80, ${smokeFade * 0.4})`;
+    ctx.arc(e.x, e.y, 14 + e.t * 24, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 170, 60, ${f * 0.7})`;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, 9 * f, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 240, 200, ${f})`;
     ctx.fill();
   }
-  // Each soldier figure
+
+  // 3. Flickering flames at the base
+  if (e.t > 0.2 && k < 0.92) {
+    const flicker = 0.6 + Math.sin(e.t * 30) * 0.25;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y - 4, 6 + Math.sin(e.t * 25) * 1.5, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 130, 50, ${flicker * fade * 0.95})`;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(e.x - 4, e.y - 1, 4 + Math.cos(e.t * 28) * 1, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 90, 30, ${flicker * fade * 0.8})`;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(e.x + 5, e.y - 3, 4 + Math.sin(e.t * 35) * 1.2, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 160, 60, ${flicker * fade * 0.85})`;
+    ctx.fill();
+  }
+
+  // 4. Rising smoke column - big billowing puffs that climb and grow
+  if (e.puffs) {
+    for (const p of e.puffs) {
+      const age = e.t - p.bornAt;
+      if (age <= 0 || age > 3.5) continue;
+      const ageK = age / 3.5;
+      const py = e.y - age * 22;
+      const drift = Math.sin(age * 1.2 + p.offsetX) * 6;
+      const r = 10 + ageK * 28;
+      const alpha = (1 - ageK) * 0.65 * fade;
+      // Outer dark smoke
+      ctx.beginPath();
+      ctx.arc(e.x + p.offsetX + drift, py, r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(45, 38, 35, ${alpha})`;
+      ctx.fill();
+      // Lighter inner highlight (lit from below by flames)
+      ctx.beginPath();
+      ctx.arc(e.x + p.offsetX + drift, py + r * 0.2, r * 0.6, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(135, 120, 110, ${alpha * 0.65})`;
+      ctx.fill();
+      // Hot edge tint when puff is fresh
+      if (ageK < 0.25) {
+        ctx.beginPath();
+        ctx.arc(e.x + p.offsetX + drift, py + r * 0.3, r * 0.35, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(220, 130, 60, ${alpha * 0.5})`;
+        ctx.fill();
+      }
+    }
+  }
+
+  // 5. Soldier figures running outward
   for (const p of e.people) {
     const px = e.x + Math.cos(p.angle) * p.distance;
     const py = e.y + Math.sin(p.angle) * p.distance + (p.bob || 0);
     drawSoldier(px, py, fade);
+  }
+
+  // 6. "BASE BREACHED" warning label early in the effect
+  if (e.t < 1.6) {
+    const labelFade = e.t < 0.2 ? e.t / 0.2 : (e.t > 1.3 ? 1 - (e.t - 1.3) / 0.3 : 1);
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const txt = '⚠ אתר נפגע';
+    const tw = ctx.measureText(txt).width;
+    ctx.fillStyle = `rgba(8, 12, 22, ${labelFade * 0.92})`;
+    ctx.fillRect(e.x - tw/2 - 5, e.y + 24, tw + 10, 16);
+    ctx.fillStyle = `rgba(252, 165, 165, ${labelFade})`;
+    ctx.fillText(txt, e.x, e.y + 32);
+    ctx.textBaseline = 'alphabetic';
   }
 }
 
