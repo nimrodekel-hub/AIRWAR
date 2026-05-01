@@ -304,6 +304,26 @@ html, body {
   font-family: monospace;
 }
 
+.rt-badge {
+  display: inline-block;
+  background: #06b6d4;
+  color: #0a0e14;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  margin-right: 4px;
+  font-family: monospace;
+}
+
+.speed-line {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 9px;
+  color: #8fb4c9;
+  font-style: italic;
+}
+
 .control-buttons {
   display: flex;
   flex-direction: column;

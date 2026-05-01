@@ -5,39 +5,50 @@
 
 const CATALOG = {
   // ---- Batteries ----
+  // Missile speed order (fastest to slowest, per spec): Iron Dome > Barak > Gecko > David's Sling > Patriot
   ironDome: {
     kind: 'battery', name: 'Iron Dome', short: 'IRN',
     minRange: 4, maxRange: 70, minAlt: 0, maxAlt: 10,
     color: '#3b82f6', ammo: 20, reload: 0.4,
-    hitRate: 0.90, missileSpeed: 250, realSpeed: 'Mach 2.2 (~750 m/s)',
+    hitRate: 0.90,
+    reactionTime: 2,
+    missileSpeed: 600, realSpeed: 'Mach 7 (fastest)',
     desc: 'Short-range interception, highly effective against UAVs and rockets'
   },
   sa8: {
     kind: 'battery', name: 'SA-8 Gecko', short: 'SA8',
     minRange: 1.5, maxRange: 15, minAlt: 0, maxAlt: 5,
     color: '#10b981', ammo: 8, reload: 0.6,
-    hitRate: 0.65, missileSpeed: 180, realSpeed: 'Mach 2 (~660 m/s)',
+    hitRate: 0.65,
+    reactionTime: 3,
+    missileSpeed: 380, realSpeed: 'Mach 4 (medium)',
     desc: 'Mobile short-range SAM, low-altitude'
   },
   barak8: {
     kind: 'battery', name: 'Barak-8', short: 'BRK',
     minRange: 0.5, maxRange: 100, minAlt: 0, maxAlt: 16,
     color: '#8b5cf6', ammo: 16, reload: 0.5,
-    hitRate: 0.85, missileSpeed: 300, realSpeed: 'Mach 4 (~1300 m/s)',
+    hitRate: 0.85,
+    reactionTime: 1,
+    missileSpeed: 480, realSpeed: 'Mach 5.5 (fast)',
     desc: 'Multi-layered medium-to-long range system'
   },
   patriot: {
     kind: 'battery', name: 'Patriot PAC-3', short: 'PAT',
     minRange: 3, maxRange: 160, minAlt: 0, maxAlt: 24,
     color: '#f59e0b', ammo: 16, reload: 0.7,
-    hitRate: 0.75, missileSpeed: 400, realSpeed: 'Mach 5 (~1700 m/s)',
+    hitRate: 0.75,
+    reactionTime: 3,
+    missileSpeed: 220, realSpeed: 'Mach 2.5 (slowest)',
     desc: 'Long-range system, struggles with slow/small targets'
   },
   davidsSling: {
     kind: 'battery', name: "David's Sling", short: 'DSL',
     minRange: 40, maxRange: 300, minAlt: 5, maxAlt: 30,
     color: '#ef4444', ammo: 12, reload: 0.8,
-    hitRate: 0.80, missileSpeed: 450, realSpeed: 'Mach 7 (~2400 m/s)',
+    hitRate: 0.80,
+    reactionTime: 2,
+    missileSpeed: 280, realSpeed: 'Mach 3 (slow)',
     desc: 'Long-range interception, medium-to-high altitude'
   },
   // ---- Radars ----
@@ -59,19 +70,19 @@ const CATALOG = {
   // ---- Threats ----
   uav: {
     kind: 'threat', name: 'Attack UAV', short: 'UAV',
-    speed: 35, altitude: 2, rcs: 0.4,
+    speed: 18, altitude: 2, rcs: 0.4,
     color: '#fbbf24', icon: '◆',
     desc: 'Slow, low altitude, small radar signature'
   },
   fighter: {
     kind: 'threat', name: 'Fighter Jet', short: 'FTR',
-    speed: 110, altitude: 10, rcs: 1.0,
+    speed: 40, altitude: 10, rcs: 1.0,
     color: '#dc2626', icon: '▲',
     desc: 'Fast, high altitude'
   },
   helicopter: {
     kind: 'threat', name: 'Attack Helicopter', short: 'HEL',
-    speed: 45, altitude: 0.8, rcs: 0.7,
+    speed: 22, altitude: 0.8, rcs: 0.7,
     color: '#a855f7', icon: '✚',
     desc: 'Very low altitude, evades radars'
   }
@@ -154,7 +165,7 @@ function makeBtn(k) {
   const c = CATALOG[k];
   let rangeText;
   if (c.kind === 'battery') {
-    rangeText = `${c.minRange}-${c.maxRange} km • <span class="kp-badge">KP ${(c.hitRate*100).toFixed(0)}%</span>`;
+    rangeText = `${c.minRange}-${c.maxRange} km • <span class="kp-badge">KP ${(c.hitRate*100).toFixed(0)}%</span> <span class="rt-badge">RT ${c.reactionTime}s</span><br><span class="speed-line">Missile: ${c.realSpeed}</span>`;
   } else if (c.kind === 'radar') {
     rangeText = `Detection ${c.detection} km`;
   } else {
@@ -198,8 +209,9 @@ function showInfoModal(key) {
       <tr><td>סוג</td><td>סוללת נ"מ קרקע-אוויר</td></tr>
       <tr><td>טווח יירוט</td><td>${c.minRange} - ${c.maxRange} ק"מ</td></tr>
       <tr><td>תקרת גובה</td><td>${c.minAlt} - ${c.maxAlt} ק"מ</td></tr>
-      <tr><td>מהירות מיירט</td><td>${c.realSpeed}</td></tr>
-      <tr><td>שיעור פגיעה סטטיסטי</td><td><b style="color:#5fa86b;font-size:15px">${(c.hitRate*100).toFixed(0)}%</b></td></tr>
+      <tr><td>מהירות מיירט</td><td><b style="color:#5fa8d3">${c.realSpeed}</b> (${c.missileSpeed} px/s)</td></tr>
+      <tr><td>זמן תגובה (RT)</td><td><b style="color:#06b6d4;font-size:15px">${c.reactionTime} שניות</b><div style="font-size:10px;color:#7e91a8;margin-top:2px">משך הזמן מהחלטה לירות עד שיגור בפועל</div></td></tr>
+      <tr><td>שיעור פגיעה (KP)</td><td><b style="color:#5fa86b;font-size:15px">${(c.hitRate*100).toFixed(0)}%</b></td></tr>
       <tr><td>מצבור תחמושת</td><td>${c.ammo} מיירטים</td></tr>
       <tr><td>זמן טעינה בין ירי</td><td>${c.reload} שניות</td></tr>
     `;
@@ -437,7 +449,9 @@ function placeAt(key, x, y) {
   } else {
     state.defenses.push({
       id: nextId++, key, x, y,
-      ammo: c.ammo, cd: 0
+      ammo: c.ammo, cd: 0,
+      prepareTarget: null,    // threatId currently being prepared (during reactionTime)
+      prepareUntil: 0          // simElapsed at which the missile actually launches
     });
   }
   if (state.budget) renderBudget();
@@ -650,6 +664,22 @@ function drawCoverage() {
 function drawDefenses() {
   for (const d of state.defenses) {
     const c = CATALOG[d.key];
+
+    // Reaction-time preparation indicator: pulsing ring that fills as launch nears
+    if (d.prepareTarget != null && state.simElapsed < d.prepareUntil) {
+      const progress = 1 - (d.prepareUntil - state.simElapsed) / c.reactionTime;
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, 18, -Math.PI/2, -Math.PI/2 + Math.PI*2*progress);
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, 22 + Math.sin(state.simElapsed * 8) * 2, 0, Math.PI*2);
+      ctx.strokeStyle = 'rgba(251, 191, 36, 0.4)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
     ctx.save();
     ctx.translate(d.x, d.y);
     ctx.fillStyle = c.color;
@@ -822,10 +852,13 @@ function startSim() {
   // reset threats and defenses
   for (const t of state.threats) {
     t.x = t.sx; t.y = t.sy; t.status = 'inflight'; t.hitBy = null;
+    t.firedAt = 0; t.missedBy = [];
   }
   for (const d of state.defenses) {
     const c = CATALOG[d.key];
     d.ammo = c.ammo; d.cd = 0;
+    d.prepareTarget = null;
+    d.prepareUntil = 0;
   }
   document.getElementById('simulate').style.display = 'none';
   document.getElementById('stop').style.display = '';
@@ -862,14 +895,31 @@ function tick(dt) {
   // 2. Cooldowns
   for (const d of state.defenses) if (d.cd > 0) d.cd -= dt;
 
-  // 3. Engagement: each battery picks a threat to fire at
+  // 3a. Resolve completed preparations - launch missiles whose reactionTime elapsed
+  for (const d of state.defenses) {
+    if (d.prepareTarget == null) continue;
+    if (state.simElapsed < d.prepareUntil) continue;
+    const target = state.threats.find(t => t.id === d.prepareTarget);
+    if (target && target.status === 'inflight') {
+      fireMissile(d, target);
+    }
+    // If threat reached its target during preparation, the diagnose engine
+    // will pick this up via the geometric simulation (flight-time miss)
+    d.prepareTarget = null;
+    d.prepareUntil = 0;
+  }
+
+  // 3b. Start new preparations - each idle battery commits to a target
   for (const d of state.defenses) {
     const c = CATALOG[d.key];
     if (c.kind !== 'battery') continue;
     if (d.cd > 0 || d.ammo <= 0) continue;
-    // detection: any radar (or own) sees the threat
+    if (d.prepareTarget != null) continue;  // already preparing
     const target = pickEngagementTarget(d);
-    if (target) fireMissile(d, target);
+    if (target) {
+      d.prepareTarget = target.id;
+      d.prepareUntil = state.simElapsed + c.reactionTime;
+    }
   }
 
   // 4. Update missiles
@@ -928,7 +978,9 @@ function pickEngagementTarget(d) {
 }
 
 function alreadyEngaged(t) {
-  return state.missiles.some(m => m.threatId === t.id && !m.resolved);
+  if (state.missiles.some(m => m.threatId === t.id && !m.resolved)) return true;
+  if (state.defenses.some(d => d.prepareTarget === t.id)) return true;
+  return false;
 }
 
 function isDetected(t) {
@@ -1246,49 +1298,14 @@ function diagnoseFailure(t) {
     return `נורו ${t.firedAt} טילי יירוט וכולם פספסו: ${parts.join(' • ')}`;
   }
 
-  // Case B: threat was never engaged - virtual fire from each in-range battery to classify
+  // Case B: threat was never engaged - simulate engagement physics for each battery
   const tc = CATALOG[t.key];
   const candidates = [];
 
   for (const d of state.defenses) {
     const c = CATALOG[d.key];
     if (c.kind !== 'battery') continue;
-    const altOk = tc.altitude >= c.minAlt && tc.altitude <= c.maxAlt;
-    // Check if path enters max engagement range
-    if (!segmentIntersectsCircle(t.sx, t.sy, t.tx, t.ty, d.x, d.y, c.maxRange)) {
-      candidates.push({ battery: c.short, reason: 'out-of-range' });
-      continue;
-    }
-    if (!altOk) {
-      candidates.push({ battery: c.short, reason: 'out-of-range' });
-      continue;
-    }
-    // Path enters range AND altitude OK - simulate a fire at closest approach point
-    const r = closestApproachOnPath(t, d);
-    const ipx = r.x, ipy = r.y;
-    const fdx = t.tx - t.sx, fdy = t.ty - t.sy;
-    const flen = Math.hypot(fdx, fdy) || 1;
-    const tvx = fdx / flen, tvy = fdy / flen;
-    const T = Math.hypot(ipx - d.x, ipy - d.y) / c.missileSpeed;
-    const threatTimeToTarget = Math.hypot(t.tx - ipx, t.ty - ipy) / tc.speed
-                              + Math.hypot(ipx - t.sx, ipy - t.sy) / tc.speed
-                              - Math.hypot(t.sx - t.sx, t.sy - t.sy) / tc.speed;
-    // From threat current path point (ipx,ipy) to its destination
-    const remaining = Math.hypot(t.tx - ipx, t.ty - ipy) / tc.speed;
-    if (T > remaining) {
-      candidates.push({ battery: c.short, reason: 'flight-time' });
-      continue;
-    }
-    // Tangent check at this geometric closest approach
-    const btx = ipx - d.x, bty = ipy - d.y;
-    const blen = Math.hypot(btx, bty) || 1;
-    const cosAng = (btx / blen) * tvx + (bty / blen) * tvy;
-    if (Math.abs(cosAng) < 0.15) {
-      candidates.push({ battery: c.short, reason: 'tangent' });
-      continue;
-    }
-    // Could have engaged - geometrically a statistical attempt
-    candidates.push({ battery: c.short, reason: 'statistical' });
+    candidates.push({ battery: c.short, reason: simulateEngagementOutcome(t, d, c, tc) });
   }
 
   // Pick the best (most specific) reason: prefer statistical > tangent > flight-time > out-of-range
@@ -1313,6 +1330,59 @@ function closestApproachOnPath(t, d) {
   let k = ((d.x - t.sx) * dx + (d.y - t.sy) * dy) / len2;
   k = Math.max(0, Math.min(1, k));
   return { x: t.sx + k * dx, y: t.sy + k * dy };
+}
+
+// Walk the engagement physics for a virtual fire.  Returns a 4-reason classification.
+function simulateEngagementOutcome(t, d, c, tc) {
+  // 1. Altitude envelope
+  if (tc.altitude < c.minAlt || tc.altitude > c.maxAlt) return 'out-of-range';
+
+  // 2. Path geometry vs max range circle
+  const dx = t.tx - t.sx, dy = t.ty - t.sy;
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len, uy = dy / len;
+  const proj = (d.x - t.sx) * ux + (d.y - t.sy) * uy;
+  const cdx = (t.sx + proj * ux) - d.x;
+  const cdy = (t.sy + proj * uy) - d.y;
+  const closestDist = Math.hypot(cdx, cdy);
+  if (closestDist > c.maxRange) return 'out-of-range';
+
+  // 3. In-range chord and entry/exit times along the path
+  const halfChord = Math.sqrt(c.maxRange*c.maxRange - closestDist*closestDist);
+  const entryDist = Math.max(0, proj - halfChord);
+  const exitDist  = Math.min(len, proj + halfChord);
+  const inRangeTime = (exitDist - entryDist) / tc.speed;
+  if (c.reactionTime > inRangeTime) return 'flight-time';
+
+  // 4. Battery commits at entry, missile launches after reactionTime
+  const launchTimeFromEntry = c.reactionTime;
+  const launchX = t.sx + ux * (entryDist + tc.speed * launchTimeFromEntry);
+  const launchY = t.sy + uy * (entryDist + tc.speed * launchTimeFromEntry);
+
+  // 5. Iterative lead-pursuit intercept
+  let T = Math.hypot(launchX - d.x, launchY - d.y) / c.missileSpeed;
+  let ipx = launchX, ipy = launchY;
+  for (let i = 0; i < 6; i++) {
+    ipx = launchX + ux * tc.speed * T;
+    ipy = launchY + uy * tc.speed * T;
+    T = Math.hypot(ipx - d.x, ipy - d.y) / c.missileSpeed;
+  }
+
+  // 6. Threat may reach its target before missile arrives
+  const remaining = Math.hypot(t.tx - launchX, t.ty - launchY) / tc.speed;
+  if (T > remaining) return 'flight-time';
+
+  // 7. Intercept point may be outside max range
+  if (Math.hypot(ipx - d.x, ipy - d.y) > c.maxRange) return 'out-of-range';
+
+  // 8. Tangent crossing at intercept (within 15% of perpendicular)
+  const btx = ipx - d.x, bty = ipy - d.y;
+  const blen = Math.hypot(btx, bty) || 1;
+  const cosAng = (btx / blen) * ux + (bty / blen) * uy;
+  if (Math.abs(cosAng) < 0.15) return 'tangent';
+
+  // 9. Engagement was viable - this is a statistical miss
+  return 'statistical';
 }
 
 function segmentIntersectsCircle(x1, y1, x2, y2, cx, cy, r) {
