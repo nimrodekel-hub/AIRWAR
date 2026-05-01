@@ -689,6 +689,51 @@ html, body {
 
 .recommendations li b { color: #fbbf24; }
 
+.benchmark-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.benchmark-row {
+  display: grid;
+  grid-template-columns: 130px 1fr 110px;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.bench-label {
+  color: #8fb4c9;
+  font-weight: 600;
+}
+
+.bench-bar {
+  height: 18px;
+  background: #0c1320;
+  border: 1px solid #1f2a3d;
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.bench-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+
+.bench-fill.yours { background: linear-gradient(90deg, #2563eb, #5fa8d3); }
+.bench-fill.best  { background: linear-gradient(90deg, #16a34a, #5fa86b); }
+
+.bench-num {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: #d6e0f0;
+  text-align: left;
+}
+
 @media (max-width: 600px) {
   .modal-summary { grid-template-columns: 1fr 1fr; }
   .results-table { font-size: 11px; }

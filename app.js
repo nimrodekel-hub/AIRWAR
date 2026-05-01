@@ -11,7 +11,7 @@ const CATALOG = {
     minRange: 4, maxRange: 70, minAlt: 0, maxAlt: 10,
     color: '#3b82f6', ammo: 12, reload: 0.4,
     hitRate: 0.90,
-    reactionTime: 2,
+    reactionTime: 1,
     missileSpeed: 600, realSpeed: 'Mach 7 (fastest)',
     desc: 'Short-range interception, highly effective against UAVs and rockets'
   },
@@ -20,7 +20,7 @@ const CATALOG = {
     minRange: 1.5, maxRange: 15, minAlt: 0, maxAlt: 5,
     color: '#10b981', ammo: 3, reload: 0.6,
     hitRate: 0.65,
-    reactionTime: 3,
+    reactionTime: 1.5,
     missileSpeed: 380, realSpeed: 'Mach 4 (medium)',
     desc: 'Mobile short-range SAM, low-altitude'
   },
@@ -29,7 +29,7 @@ const CATALOG = {
     minRange: 0.5, maxRange: 100, minAlt: 0, maxAlt: 16,
     color: '#8b5cf6', ammo: 6, reload: 0.5,
     hitRate: 0.85,
-    reactionTime: 1,
+    reactionTime: 0.5,
     missileSpeed: 480, realSpeed: 'Mach 5.5 (fast)',
     desc: 'Multi-layered medium-to-long range system'
   },
@@ -38,7 +38,7 @@ const CATALOG = {
     minRange: 3, maxRange: 160, minAlt: 0, maxAlt: 24,
     color: '#f59e0b', ammo: 4, reload: 0.7,
     hitRate: 0.75,
-    reactionTime: 3,
+    reactionTime: 1.5,
     missileSpeed: 220, realSpeed: 'Mach 2.5 (slowest)',
     desc: 'Long-range system, struggles with slow/small targets'
   },
@@ -47,7 +47,7 @@ const CATALOG = {
     minRange: 40, maxRange: 300, minAlt: 5, maxAlt: 30,
     color: '#ef4444', ammo: 5, reload: 0.8,
     hitRate: 0.80,
-    reactionTime: 2,
+    reactionTime: 1,
     missileSpeed: 280, realSpeed: 'Mach 3 (slow)',
     desc: 'Long-range interception, medium-to-high altitude'
   },
@@ -284,6 +284,7 @@ function bindControls() {
   document.getElementById('simulate').addEventListener('click', startSim);
   document.getElementById('stop').addEventListener('click', stopSim);
   document.getElementById('delete-mode').addEventListener('click', toggleDelete);
+  document.getElementById('edit-targets').addEventListener('click', toggleEditTargets);
   document.getElementById('clear-threats').addEventListener('click', clearThreats);
   document.getElementById('reset').addEventListener('click', resetAll);
   document.getElementById('auto-attack').addEventListener('click', generateAutoAttack);
@@ -387,6 +388,13 @@ function onCanvasClick(ev) {
 function onMouseDown(ev) {
   if (state.mode === 'sim' || state.mode === 'placing' || state.mode === 'deleting') return;
   const p = getPos(ev);
+
+  if (state.mode === 'editTargets') {
+    const tgt = findTargetAt(p.x, p.y);
+    if (tgt) state.drag = { ent: tgt, ox: p.x - tgt.x, oy: p.y - tgt.y, moved: false, isTarget: true };
+    return;
+  }
+
   const ent = findEntityAt(p.x, p.y);
   if (ent) state.drag = { ent, ox: p.x - ent.x, oy: p.y - ent.y, moved: false };
 }
@@ -397,6 +405,15 @@ function onMouseMove(ev) {
     state.drag.ent.x = p.x - state.drag.ox;
     state.drag.ent.y = p.y - state.drag.oy;
     state.drag.moved = true;
+    // If we're moving a strategic target, sync any threats already aimed at it
+    if (state.drag.isTarget) {
+      for (const t of state.threats) {
+        if (t.target === state.drag.ent.name) {
+          t.tx = state.drag.ent.x;
+          t.ty = state.drag.ent.y;
+        }
+      }
+    }
     canvas.classList.add('dragging');
     return;
   }
@@ -486,6 +503,29 @@ function toggleDelete() {
   state.placeKey = null;
   refreshButtonStates();
   setStatus(state.mode === 'deleting' ? 'מצב מחיקה - לחץ על רכיב כדי להסיר' : 'בחר רכיב להוספה');
+}
+
+function toggleEditTargets() {
+  if (state.mode === 'sim') return;
+  if (state.mode === 'editTargets') {
+    state.mode = 'idle';
+    setStatus('יצאת ממצב עריכת יעדים');
+    hideBanner();
+  } else {
+    state.mode = 'editTargets';
+    state.placeKey = null;
+    setStatus('עריכת יעדים - גרור יעדים על המפה');
+    showBanner('🛠 מצב עריכת יעדים - גרור את היעדים האסטרטגיים למיקום חדש. לחץ שוב על הכפתור כדי לסיים.', '');
+  }
+  refreshButtonStates();
+}
+
+function findTargetAt(x, y) {
+  for (let i = TARGETS.length - 1; i >= 0; i--) {
+    const t = TARGETS[i];
+    if (Math.hypot(t.x - x, t.y - y) <= 20) return t;
+  }
+  return null;
 }
 
 function clearThreats() {
@@ -596,7 +636,22 @@ function drawCountry() {
 
 function drawTargets() {
   ctx.textAlign = 'center';
+  const editing = state.mode === 'editTargets';
   for (const t of TARGETS) {
+    // Pulsing edit-mode halo
+    if (editing) {
+      const phase = (Date.now() / 1000) * 4 + t.x * 0.01;
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, 18 + Math.sin(phase) * 2, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(251, 191, 36, 0.18)';
+      ctx.fill();
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
     ctx.beginPath();
     ctx.fillStyle = t.capital ? '#fbbf24' : t.airbase ? '#a78bfa' : '#fcd34d';
     ctx.strokeStyle = '#0a0e14';
@@ -780,9 +835,10 @@ function drawThreats() {
     else drawDrone();
     ctx.restore();
 
-    // Prominent serial label (pill with battery color)
+    // Prominent serial label with altitude (pill with battery color)
+    const labelText = `${t.label} · Alt ${c.altitude}km`;
     ctx.font = 'bold 11px ui-monospace, "SF Mono", Menlo, monospace';
-    const tw = ctx.measureText(t.label).width;
+    const tw = ctx.measureText(labelText).width;
     const padX = 5, padY = 2;
     const bx = t.x - tw/2 - padX;
     const by = t.y + 13;
@@ -799,7 +855,7 @@ function drawThreats() {
     ctx.fillStyle = c.color;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(t.label, t.x, by + bh/2);
+    ctx.fillText(labelText, t.x, by + bh/2);
     ctx.textBaseline = 'alphabetic';
   }
 }
@@ -1164,6 +1220,37 @@ function showResultsModal() {
     recsHtml += `<li>${rec}</li>`;
   }
 
+  // Theoretical best given the same deployment + threats (no random misses)
+  const best = computeBestPossible();
+  const yourScore = r.protectedValue;
+  const bestScore = best.bestProtectedValue;
+  const efficiency = bestScore > 0 ? Math.min(1, yourScore / bestScore) : 1;
+  const effPercent = (efficiency * 100).toFixed(0);
+  let effClass, effLabel;
+  if (efficiency >= 0.9) { effClass = 'success'; effLabel = 'ביצוע אופטימלי כמעט'; }
+  else if (efficiency >= 0.7) { effClass = 'partial'; effLabel = 'ביצוע סביר'; }
+  else { effClass = 'failure'; effLabel = 'יש מקום לשיפור משמעותי'; }
+
+  const benchmarkHtml = `
+    <div class="results-section-title" style="color:#a78bfa">📊 השוואה אל מול האופטימום האובייקטיבי</div>
+    <div class="benchmark-grid">
+      <div class="benchmark-row">
+        <div class="bench-label">הביצוע שלך</div>
+        <div class="bench-bar"><div class="bench-fill yours" style="width:${(r.protectedValue/r.totalValue*100).toFixed(0)}%"></div></div>
+        <div class="bench-num">${r.killed}/${r.total} | ${r.protectedValue}/${r.totalValue}</div>
+      </div>
+      <div class="benchmark-row">
+        <div class="bench-label">המקסימום האפשרי</div>
+        <div class="bench-bar"><div class="bench-fill best" style="width:${(best.bestProtectedValue/best.totalValue*100).toFixed(0)}%"></div></div>
+        <div class="bench-num">${best.bestKilled}/${r.total} | ${best.bestProtectedValue}/${best.totalValue}</div>
+      </div>
+    </div>
+    <div class="modal-verdict ${effClass}" style="margin-top:10px">
+      🎯 השגת <b>${effPercent}%</b> מהאופטימום - ${effLabel}<br>
+      <span style="font-size:11px;font-weight:400;color:#7e91a8">המקסימום מחושב לפי הפריסה הנוכחית, ללא החטאות סטטיסטיות, עם הקצאה אופטימלית של מיירטים. מה שמעבר אינו ניתן להשגה ללא שינוי בפריסה / משאבים.</span>
+    </div>
+  `;
+
   body.innerHTML = `
     <div class="modal-verdict ${verdictCls}">${verdictText}</div>
     <div class="modal-summary">
@@ -1180,6 +1267,8 @@ function showResultsModal() {
         <div class="value">${r.protectedValue}/${r.totalValue}</div>
       </div>
     </div>
+
+    ${benchmarkHtml}
 
     <div class="results-section-title" style="color:#d35f5f">⚠ איומים שחדרו את ההגנה (${breachers.length})</div>
     <table class="results-table">
@@ -1274,6 +1363,61 @@ function generateRecommendations(r) {
 
 function hideModal() {
   document.getElementById('modal').classList.remove('visible');
+}
+
+// Theoretical best result with the current placement: every viable engagement succeeds.
+// Greedy assignment of one available battery per threat (highest-value targets first).
+function computeBestPossible() {
+  const ammoLeft = new Map();
+  for (const d of state.defenses) {
+    if (CATALOG[d.key].kind === 'battery') {
+      ammoLeft.set(d.id, CATALOG[d.key].ammo);
+    }
+  }
+
+  // Sort threats by target value descending (defenders prioritize high-value targets)
+  const sorted = [...state.threats].sort((a, b) => {
+    const va = (TARGETS.find(x => x.name === a.target) || {}).value || 0;
+    const vb = (TARGETS.find(x => x.name === b.target) || {}).value || 0;
+    return vb - va;
+  });
+
+  let bestKilled = 0;
+  let damagedValue = 0;
+  const totalValue = TARGETS.reduce((s, t) => s + t.value, 0);
+
+  for (const t of sorted) {
+    const tc = CATALOG[t.key];
+    let assigned = null;
+    // Find any battery that has ammo and can geometrically engage (would hit at 100% KP)
+    for (const d of state.defenses) {
+      const c = CATALOG[d.key];
+      if (c.kind !== 'battery') continue;
+      if ((ammoLeft.get(d.id) || 0) <= 0) continue;
+      const outcome = simulateEngagementOutcome(t, d, c, tc);
+      if (outcome === 'statistical') {
+        assigned = d;
+        break;
+      }
+    }
+    if (assigned) {
+      ammoLeft.set(assigned.id, ammoLeft.get(assigned.id) - 1);
+      bestKilled++;
+    } else {
+      const tg = TARGETS.find(x => x.name === t.target);
+      if (tg) damagedValue += tg.value;
+    }
+  }
+
+  damagedValue = Math.min(damagedValue, totalValue);
+  const total = sorted.length;
+  return {
+    bestKilled,
+    bestSurvived: total - bestKilled,
+    bestProtectedValue: totalValue - damagedValue,
+    totalValue,
+    bestProtectedFraction: totalValue > 0 ? (totalValue - damagedValue) / totalValue : 1
+  };
 }
 
 function computeResults() {
