@@ -4,14 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>משחק מלחמה - הגנה אווירית | רפובליקת טליאריה</title>
-  <link rel="stylesheet" href="styles.css?v=20260501g">
+  <link rel="stylesheet" href="styles.css?v=20260501h">
 </head>
 <body>
   <div id="app">
     <aside id="sidebar">
       <header>
         <h1>פיקוד הגנה אווירית</h1>
-        <div class="subtitle">משחק מלחמה: כחול נגד אדום <span class="version-tag">v20260501g</span></div>
+        <div class="subtitle">משחק מלחמה: כחול נגד אדום <span class="version-tag">v20260501h</span></div>
         <div class="side-toggle">
           <button class="side-btn blue active" data-side="blue">🔵 כחול - הגנה</button>
           <button class="side-btn red" data-side="red">🔴 אדום - התקפה</button>
@@ -82,6 +82,14 @@
           <button id="reset" class="danger">↺ אפס הכל</button>
         </div>
         <div id="mode-status" class="status-line">בחר רכיב להוספה</div>
+
+        <div id="scrubber-row" style="display:none">
+          <div class="scrubber-label">📺 ציר זמן סימולציה - גרור כדי לחזור ולהריץ קדימה</div>
+          <input type="range" id="scrubber" min="0" max="100" value="100" step="0.05">
+          <div class="scrubber-info">
+            <span id="scrubber-time">0.0</span> / <span id="scrubber-total">0.0</span> שנ׳
+          </div>
+        </div>
       </section>
 
       <section class="panel" id="results-panel">
@@ -133,6 +141,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260501g"></script>
+  <script src="app.js?v=20260501h"></script>
 </body>
 </html>

@@ -45,7 +45,7 @@ const CATALOG = {
   davidsSling: {
     kind: 'battery', name: "David's Sling", short: 'DSL',
     minRange: 40, maxRange: 300, minAlt: 5, maxAlt: 30,
-    color: '#ef4444', ammo: 5, reload: 0.8,
+    color: '#d946ef', ammo: 5, reload: 0.8,
     hitRate: 0.70,
     reactionTime: 1,
     missileSpeed: 280, realSpeed: 'Mach 3 (slow)',
@@ -192,6 +192,8 @@ const state = {
   missiles: [],
   explosions: [],
   targetHits: [],
+  history: [],            // [{time, threats, missiles, explosions, targetHits}] - for scrubbing
+  scrubTime: null,        // when set, draw uses snapshot at this time instead of live state
   challengeMode: null,    // null | 'attack-challenge' | 'defense-challenge'
   budget: null,           // defense budget (defense-challenge)
   threatBudget: null,     // threat budget (attack-challenge)
@@ -386,6 +388,36 @@ function bindControls() {
   document.getElementById('info-modal').addEventListener('click', (ev) => {
     if (ev.target.id === 'info-modal') hideInfoModal();
   });
+  document.getElementById('scrubber').addEventListener('input', onScrubberChange);
+}
+
+function onScrubberChange(ev) {
+  const t = parseFloat(ev.target.value);
+  state.scrubTime = t;
+  document.getElementById('scrubber-time').textContent = t.toFixed(1);
+}
+
+function captureSnapshot() {
+  return {
+    time: state.simElapsed,
+    threats: state.threats.map(t => ({...t, missedBy: t.missedBy ? t.missedBy.slice() : []})),
+    missiles: state.missiles.map(m => ({...m})),
+    explosions: state.explosions.map(e => ({...e})),
+    targetHits: state.targetHits.map(e => ({
+      ...e,
+      people: e.people ? e.people.map(p => ({...p})) : undefined
+    }))
+  };
+}
+
+function findSnapshot(t) {
+  if (!state.history.length) return null;
+  let best = state.history[0];
+  for (const s of state.history) {
+    if (s.time <= t) best = s;
+    else break;
+  }
+  return best;
 }
 
 function switchSide(side) {
@@ -701,6 +733,8 @@ function clearThreats() {
 
 function resetAll() {
   state.defenses = []; state.threats = []; state.missiles = []; state.explosions = []; state.targetHits = [];
+  state.history = [];
+  state.scrubTime = null;
   state.serialCounters = {};
   state.results = null;
   state.budget = null;
@@ -712,6 +746,7 @@ function resetAll() {
   state.placeKey = null;
   state.placeStep = null;
   state.placeOrigin = null;
+  document.getElementById('scrubber-row').style.display = 'none';
   hideBanner();
   refreshButtonStates();
   renderBudget();
@@ -737,11 +772,38 @@ function draw() {
   drawTargets();
   drawCoverage();
   drawDefenses();
+
+  // If scrubbing, swap state arrays for the dynamic objects with the snapshot
+  let saved = null;
+  if (state.scrubTime != null) {
+    const snap = findSnapshot(state.scrubTime);
+    if (snap) {
+      saved = {
+        threats: state.threats,
+        missiles: state.missiles,
+        explosions: state.explosions,
+        targetHits: state.targetHits
+      };
+      state.threats = snap.threats;
+      state.missiles = snap.missiles;
+      state.explosions = snap.explosions;
+      state.targetHits = snap.targetHits;
+    }
+  }
+
   drawThreatPaths();
   drawThreats();
   drawMissiles();
   drawExplosions();
   drawTargetHits();
+
+  if (saved) {
+    state.threats = saved.threats;
+    state.missiles = saved.missiles;
+    state.explosions = saved.explosions;
+    state.targetHits = saved.targetHits;
+  }
+
   drawPlacementGuide();
   drawHUD();
 }
@@ -883,6 +945,20 @@ function drawTargets() {
   const editing = state.mode === 'editTargets';
   const targetingPhase = state.mode === 'placing' && state.placeStep === 'target';
   for (const t of TARGETS) {
+    // Bold prominence ring (always visible) so targets aren't lost behind battery icons
+    const radial = ctx.createRadialGradient(t.x, t.y, 4, t.x, t.y, 22);
+    radial.addColorStop(0, 'rgba(251, 191, 36, 0.35)');
+    radial.addColorStop(1, 'rgba(251, 191, 36, 0)');
+    ctx.fillStyle = radial;
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, 22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, 18, 0, Math.PI * 2);
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
     // Targeting halo for attack-challenge target-pick step
     if (targetingPhase) {
       const phase = (Date.now() / 1000) * 5 + t.x * 0.01;
@@ -1339,6 +1415,9 @@ function startSim() {
   state.mode = 'sim';
   state.simElapsed = 0;
   state.missiles = []; state.explosions = []; state.targetHits = [];
+  state.history = [];
+  state.scrubTime = null;
+  document.getElementById('scrubber-row').style.display = 'none';
   // reset threats and defenses
   for (const t of state.threats) {
     t.x = t.sx; t.y = t.sy; t.status = 'inflight'; t.hitBy = null;
@@ -1458,6 +1537,12 @@ function tick(dt) {
   const active = state.threats.filter(t => t.status === 'inflight');
   if (active.length === 0 && state.missiles.length === 0) {
     finishSim();
+  }
+
+  // 7. Snapshot for scrubber (every ~0.1s)
+  const lastSnap = state.history.length ? state.history[state.history.length - 1].time : -1;
+  if (state.simElapsed - lastSnap >= 0.08) {
+    state.history.push(captureSnapshot());
   }
 }
 
@@ -1613,6 +1698,19 @@ function finishSim() {
   state.mode = 'idle';
   document.getElementById('simulate').style.display = '';
   document.getElementById('stop').style.display = 'none';
+  // Capture a final snapshot so the scrubber can land exactly at the end
+  state.history.push(captureSnapshot());
+  // Show scrubber set to the end of the timeline
+  const total = state.simElapsed;
+  const slider = document.getElementById('scrubber');
+  slider.min = 0;
+  slider.max = total;
+  slider.step = Math.max(0.05, total / 400);
+  slider.value = total;
+  document.getElementById('scrubber-total').textContent = total.toFixed(1);
+  document.getElementById('scrubber-time').textContent = total.toFixed(1);
+  document.getElementById('scrubber-row').style.display = '';
+  state.scrubTime = null;  // live until user drags
   computeResults();
   renderResults();
 
@@ -1768,13 +1866,20 @@ function showResultsModal() {
       <tbody>${killRows}</tbody>
     </table>
 
-    <div class="results-section-title" style="color:#fbbf24">💡 המלצות לשיפור ההגנה</div>
+    <div class="results-section-title" style="color:#fbbf24">💡 ${state.challengeMode === 'attack-challenge' ? 'המלצות לשיפור ההתקפה' : 'המלצות לשיפור ההגנה'}</div>
     <ul class="recommendations">${recsHtml}</ul>
   `;
   modal.classList.add('visible');
 }
 
 function generateRecommendations(r) {
+  if (state.challengeMode === 'attack-challenge') {
+    return generateAttackRecommendations(r);
+  }
+  return generateDefenseRecommendations(r);
+}
+
+function generateDefenseRecommendations(r) {
   const recs = [];
   const survived = r.breakdown.filter(b => b.status === 'reached');
 
@@ -1828,6 +1933,96 @@ function generateRecommendations(r) {
   if (hotTargets.length) {
     const [tname, count] = hotTargets[0];
     recs.push(`🔥 <b>${tname} ספג ${count} פגיעות</b> - יעד תחת לחץ מיוחד. בנה סביבו הגנה רב-שכבתית: מכ"ם גילוי + סוללה ארוכת-טווח חיצונית + Iron Dome כ-point-defense.`);
+  }
+
+  return recs;
+}
+
+// =============================================================
+// המלצות שיפור התקפה (במצב אתגר התקפה)
+// =============================================================
+function generateAttackRecommendations(r) {
+  const recs = [];
+  const intercepted = r.breakdown.filter(b => b.status === 'destroyed');
+  const survivors = r.breakdown.filter(b => b.status === 'reached');
+  const breachRate = survivors.length / Math.max(1, r.total);
+
+  if (breachRate >= 0.9) {
+    recs.push('🏆 <b>התקפה מרהיבה!</b> ההגנה התמוטטה כמעט לחלוטין. שמור על הטקטיקה - ערב סוגי איומים, פיזור כיוונים, התרכזות ביעדים יקרי-ערך.');
+  } else if (breachRate <= 0.15) {
+    recs.push('💀 <b>ההתקפה נכשלה</b> - ההגנה החזיקה. במקום לעבור דרך הסוללות, זהה אזורים בלי כיסוי על המפה ושלח שם את רוב האיומים.');
+  }
+
+  // Most lethal battery against your attack
+  const interByBattery = {};
+  for (const b of intercepted) {
+    if (b.hitBy) interByBattery[b.hitBy] = (interByBattery[b.hitBy] || 0) + 1;
+  }
+  const sortedBat = Object.entries(interByBattery).sort((a, b) => b[1] - a[1]);
+  if (sortedBat.length && sortedBat[0][1] >= 2) {
+    const [batName, count] = sortedBat[0];
+    recs.push(`⚠ <b>${batName} יורט ${count} איומים</b> - הסוללה שיירטה הכי הרבה. שלח גלי <u>סטורציה</u> (3+ איומים בו-זמנית מאזור צר) למצות את התחמושת שלה, ואז שלח את האיומים החשובים שלך.`);
+  }
+
+  // Threat-type performance comparison
+  const allTypes = ['Attack UAV', 'Fighter Jet', 'Attack Helicopter'];
+  const typeStats = {};
+  for (const type of allTypes) {
+    const total = r.breakdown.filter(b => b.type === type).length;
+    if (total === 0) continue;
+    const surv = survivors.filter(b => b.type === type).length;
+    typeStats[type] = { total, surv, rate: surv / total };
+  }
+  const ts = Object.entries(typeStats);
+  if (ts.length >= 2) {
+    const sortedT = [...ts].sort((a, b) => b[1].rate - a[1].rate);
+    const [bestType, bs] = sortedT[0];
+    const [worstType, ws] = sortedT[sortedT.length - 1];
+    if (bs.rate - ws.rate > 0.2) {
+      recs.push(`✅ <b>${bestType}</b> חדר ב-${(bs.rate*100).toFixed(0)}% מהמקרים - הסוג הכי מוצלח שלך. תכלול אותו כעיקרי בהתקפה הבאה.`);
+      recs.push(`✗ <b>${worstType}</b> יורט ב-${((1-ws.rate)*100).toFixed(0)}% - מבוזבז. הקטן את כמותו או השתמש בו רק כפיתיון לסטורציה.`);
+    }
+  }
+
+  // Target-by-target performance
+  const targetStats = TARGETS.map(t => {
+    const sent = r.breakdown.filter(b => b.target === t.name).length;
+    const surv = survivors.filter(b => b.target === t.name).length;
+    return { name: t.name, value: t.value, sent, surv, killed: sent - surv };
+  }).filter(t => t.sent > 0);
+
+  const undefended = targetStats.filter(t => t.surv === t.sent && t.sent > 0);
+  if (undefended.length) {
+    const desc = undefended.map(t => `${t.name} (ערך ${t.value})`).join(', ');
+    recs.push(`📍 <b>יעד פרוץ: ${desc}</b> - כל איומיך אליו עברו. בעתיד שלח לכאן יותר Fighters יקרי-ערך כדי למקסם נזק.`);
+  }
+  const fortified = targetStats.filter(t => t.sent >= 2 && t.surv === 0);
+  if (fortified.length) {
+    const desc = fortified.map(t => t.name).join(', ');
+    recs.push(`🛡 <b>יעד מבוצר: ${desc}</b> - אף איום לא חדר. שלח לכאן רק UAVs זולים כסטורציה למיצוי תחמושת, ושמור Fighters ליעדים פרוצים.`);
+  }
+
+  // Altitude/type tactical hints
+  const fighterKilled = intercepted.filter(b => b.type === 'Fighter Jet').length;
+  const heloKilled = intercepted.filter(b => b.type === 'Attack Helicopter').length;
+  const uavKilled = intercepted.filter(b => b.type === 'Attack UAV').length;
+  if (fighterKilled >= 2) {
+    recs.push('✈ <b>Fighter Jet בגובה 10 ק"מ</b> נחשפים ל-Patriot/David\'s Sling/Barak-8. כדי לעקוף - בחר יעדים שלא מכוסים בסוללות גובה גבוה (בדוק את עיגולי הטווח).');
+  }
+  if (heloKilled >= 2) {
+    recs.push('🚁 <b>Attack Helicopter בגובה 0.8 ק"מ</b> פגיעים ל-Iron Dome ו-SA-8. שלח אותם רק ליעדים מרוחקים מסוללות point-defense.');
+  }
+  if (uavKilled >= 4) {
+    recs.push('◆ <b>הרבה UAVs יורטו</b> - הם איטיים וחשופים. שלח אותם בגלים מרוכזים (סטורציה) במקום בודדים, או נצל אותם רק כפיתיון לפני שיגור Fighters.');
+  }
+
+  // Saturation hint based on overall interception rate
+  if (intercepted.length / r.total > 0.4) {
+    recs.push('💡 <b>סטורציה</b> - הגדל את כמות האיומים בו-זמנית מאותו וקטור. הסוללות מוגבלות בקצב טעינה (0.4-0.8 שנ\') ובתחמושת (3-12 מיירטים) - אם תציף, אחד יעבור.');
+  }
+
+  if (recs.length === 0) {
+    recs.push('💡 ההתקפה הצליחה ברובה - שמור על הטקטיקה.');
   }
 
   return recs;
