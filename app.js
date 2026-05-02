@@ -1859,17 +1859,18 @@ function pickEngagementTarget(d) {
     const dist = Math.hypot(t.x - d.x, t.y - d.y);
     if (dist < c.minRange) continue;
 
-    const det = getDetectionInfo(t, d, c, tc);
-
-    if (dist <= c.maxRange) {
-      // Threat inside engagement envelope - need ANY detection (organic or external)
-      if (!det.organic && !det.externalRadar) continue;
-    } else {
-      // Threat beyond own range - allow only with external standalone radar
-      // AND only if the intercept point would land inside the battery's range
+    if (dist > c.maxRange) {
+      // Threat beyond own engagement range - the battery has no organic
+      // visibility, so it must be cued by an external standalone radar
+      // AND the predicted intercept must land back inside the envelope.
+      const det = getDetectionInfo(t, d, c, tc);
       if (!det.externalRadar) continue;
       if (!canInterceptInsideRange(t, d, c, tc)) continue;
     }
+    // Otherwise the threat is inside the battery's engagement envelope.
+    // The battery's own search radar is assumed to cover its full max
+    // engagement range, so any in-range threat is fair game regardless
+    // of approach direction (incoming OR receding) and regardless of RCS.
 
     // Prefer threats closer to important targets
     const target = TARGETS.find(x => x.x === t.tx && x.y === t.ty);
