@@ -158,6 +158,23 @@ function getCountryCenter() {
   return { x: sx / TARGETS.length, y: sy / TARGETS.length };
 }
 
+// Radar-equation scaling: detection / tracking range scales with the
+// fourth root of RCS (range^4 ∝ σ in the standard radar equation).
+// Reference RCS = 1.0 (Fighter Jet) → factor 1.0 (full range).
+// Helicopter (rcs=0.7) → factor 0.915.  UAV (rcs=0.4) → factor 0.795.
+// A truly stealthy target at rcs=0.1 → factor 0.562.
+function rcsRangeFactor(rcs) {
+  return Math.pow(Math.max(rcs, 0.001), 0.25);
+}
+
+// Effective engagement range of a battery against a specific threat.
+// The missile envelope is physically fixed but the battery's tracking
+// radar (used to guide the interceptor) suffers from RCS so the
+// closeable engagement range shrinks for low-RCS targets.
+function effectiveEngagementRange(c, tc) {
+  return c.maxRange * rcsRangeFactor(tc.rcs);
+}
+
 // ---- Attack-challenge difficulty profiles ----
 // System auto-deploys defense; user has limited threat budget to break through.
 // Defense positions are anchored to target names (or to the country center)
@@ -403,9 +420,17 @@ function showInfoModal(key) {
   let rows = `<tr><td>תיאור</td><td>${c.desc}</td></tr>`;
 
   if (c.kind === 'battery') {
+    // Per-threat-type effective range (RCS-adjusted)
+    const fmtEff = (rcs) => `${Math.round(c.maxRange * rcsRangeFactor(rcs))} ק"מ`;
     rows += `
       <tr><td>סוג</td><td>סוללת נ"מ קרקע-אוויר</td></tr>
-      <tr><td>טווח יירוט</td><td>${c.minRange} - ${c.maxRange} ק"מ</td></tr>
+      <tr><td>טווח יירוט נומינלי</td><td>${c.minRange} - ${c.maxRange} ק"מ</td></tr>
+      <tr><td>טווח אפקטיבי לפי RCS</td><td style="font-size:11px;line-height:1.6">
+        Fighter (RCS 1.0): <b>${fmtEff(1.0)}</b><br>
+        Helicopter (RCS 0.7): <b>${fmtEff(0.7)}</b><br>
+        UAV (RCS 0.4): <b>${fmtEff(0.4)}</b>
+        <div style="color:#7e91a8;margin-top:4px">משוואת המכ"ם: range ∝ RCS<sup>¼</sup></div>
+      </td></tr>
       <tr><td>תקרת גובה</td><td>${c.minAlt} - ${c.maxAlt} ק"מ</td></tr>
       <tr><td>מהירות מיירט</td><td><b style="color:#5fa8d3">${c.realSpeed}</b> (${c.missileSpeed} px/s)</td></tr>
       <tr><td>זמן תגובה (RT)</td><td><b style="color:#06b6d4;font-size:15px">${c.reactionTime} שניות</b><div style="font-size:10px;color:#7e91a8;margin-top:2px">משך הזמן מהחלטה לירות עד שיגור בפועל</div></td></tr>
@@ -414,10 +439,16 @@ function showInfoModal(key) {
       <tr><td>זמן טעינה בין ירי</td><td>${c.reload} שניות</td></tr>
     `;
   } else if (c.kind === 'radar') {
+    const fmtEff = (rcs) => `${Math.round(c.detection * rcsRangeFactor(rcs))} ק"מ`;
     rows += `
       <tr><td>סוג</td><td>מכ"ם גילוי וכיוון</td></tr>
       <tr><td>טווח גילוי נומינלי</td><td>${c.detection} ק"מ</td></tr>
-      <tr><td>טווח אפקטיבי</td><td>תלוי ב-RCS של האיום (60-100% מהנומינלי)</td></tr>
+      <tr><td>טווח אפקטיבי לפי RCS</td><td style="font-size:11px;line-height:1.6">
+        Fighter: <b>${fmtEff(1.0)}</b><br>
+        Helicopter: <b>${fmtEff(0.7)}</b><br>
+        UAV: <b>${fmtEff(0.4)}</b>
+        <div style="color:#7e91a8;margin-top:4px">range ∝ RCS<sup>¼</sup></div>
+      </td></tr>
       <tr><td>תפקיד מערכתי</td><td><b style="color:#06b6d4">מאריך טווח של סוללות</b></td></tr>
     `;
   } else {
@@ -1859,18 +1890,22 @@ function pickEngagementTarget(d) {
     const dist = Math.hypot(t.x - d.x, t.y - d.y);
     if (dist < c.minRange) continue;
 
-    if (dist > c.maxRange) {
-      // Threat beyond own engagement range - the battery has no organic
-      // visibility, so it must be cued by an external standalone radar
-      // AND the predicted intercept must land back inside the envelope.
+    // RCS-adjusted effective engagement envelope - low-RCS targets shrink
+    // the battery's effective tracking range (radar equation).  The missile
+    // envelope is physically the same in both directions (incoming OR
+    // receding) but it's tighter for stealthier threats.
+    const effMax = effectiveEngagementRange(c, tc);
+
+    if (dist > effMax) {
+      // Threat beyond effective engagement range - need cueing from a
+      // dedicated standalone radar AND the predicted intercept must
+      // still land inside the effective engagement envelope.
       const det = getDetectionInfo(t, d, c, tc);
       if (!det.externalRadar) continue;
       if (!canInterceptInsideRange(t, d, c, tc)) continue;
     }
-    // Otherwise the threat is inside the battery's engagement envelope.
-    // The battery's own search radar is assumed to cover its full max
-    // engagement range, so any in-range threat is fair game regardless
-    // of approach direction (incoming OR receding) and regardless of RCS.
+    // Otherwise the threat is inside the battery's effective engagement
+    // envelope - approach direction (incoming or receding) does not matter.
 
     // Prefer threats closer to important targets
     const target = TARGETS.find(x => x.x === t.tx && x.y === t.ty);
@@ -1882,17 +1917,22 @@ function pickEngagementTarget(d) {
   return best;
 }
 
-// Detection breakdown for a threat from a specific battery's perspective
+// Detection breakdown for a threat from a specific battery's perspective.
+// All radar ranges scale with RCS^(1/4) per the radar equation - low-RCS
+// targets are detectable at substantially shorter range.
 function getDetectionInfo(t, d, c, tc) {
+  const factor = rcsRangeFactor(tc.rcs);
   let organic = false, externalRadar = false;
-  // Battery's own organic search radar (effective range scaled by RCS)
-  const ownEff = c.maxRange * (0.6 + 0.4 * tc.rcs);
+  // Battery's own organic search radar
+  const ownEff = c.maxRange * factor;
   if (Math.hypot(t.x - d.x, t.y - d.y) <= ownEff) organic = true;
-  // Standalone radars elsewhere on the map
+  // Standalone radars elsewhere on the map - detection only, doesn't
+  // change the missile's physical envelope but extends the battery's
+  // effective engagement range when the radar covers ground beyond it.
   for (const od of state.defenses) {
     const oc = CATALOG[od.key];
     if (oc.kind !== 'radar') continue;
-    const eff = oc.detection * (0.6 + 0.4 * tc.rcs);
+    const eff = oc.detection * factor;
     if (Math.hypot(t.x - od.x, t.y - od.y) <= eff) {
       externalRadar = true;
       break;
@@ -1910,10 +1950,8 @@ function canInterceptInsideRange(t, d, c, tc) {
   const fdx = t.tx - t.sx, fdy = t.ty - t.sy;
   const flen = Math.hypot(fdx, fdy) || 1;
   const tvx = fdx / flen, tvy = fdy / flen;
-  // Launch position = current threat position + reactionTime worth of motion
   const launchX = t.x + tvx * tc.speed * c.reactionTime;
   const launchY = t.y + tvy * tc.speed * c.reactionTime;
-  // Iterative lead-pursuit intercept
   let T = Math.hypot(launchX - d.x, launchY - d.y) / c.missileSpeed;
   let ipx = launchX, ipy = launchY;
   for (let i = 0; i < 6; i++) {
@@ -1922,9 +1960,9 @@ function canInterceptInsideRange(t, d, c, tc) {
     T = Math.hypot(ipx - d.x, ipy - d.y) / c.missileSpeed;
   }
   const interceptDist = Math.hypot(ipx - d.x, ipy - d.y);
-  // Predicted intercept point MUST be inside [minRange, maxRange]
-  if (interceptDist < c.minRange || interceptDist > c.maxRange) return false;
-  // Threat must still be alive when missile arrives
+  // Predicted intercept point MUST be inside the RCS-adjusted envelope
+  const effMax = effectiveEngagementRange(c, tc);
+  if (interceptDist < c.minRange || interceptDist > effMax) return false;
   const remaining = Math.hypot(t.tx - t.x, t.ty - t.y) / tc.speed;
   if (c.reactionTime + T > remaining) return false;
   return true;
@@ -1982,8 +2020,8 @@ function fireMissile(d, t) {
     ipx = t.x + tvx * threatSpeed * threatTimeToTarget;
     ipy = t.y + tvy * threatSpeed * threatTimeToTarget;
   }
-  // Rule 2: predicted intercept point exits engagement envelope
-  else if (Math.hypot(ipx - d.x, ipy - d.y) > c.maxRange) {
+  // Rule 2: predicted intercept point exits the RCS-adjusted envelope
+  else if (Math.hypot(ipx - d.x, ipy - d.y) > effectiveEngagementRange(c, tc)) {
     outcome = 'out-of-range';
   }
   // Rule 3: tangent crossing - threat moving (near-)perpendicular to battery LOS at intercept
@@ -2610,7 +2648,10 @@ function simulateEngagementOutcome(t, d, c, tc) {
   // 1. Altitude envelope
   if (tc.altitude < c.minAlt || tc.altitude > c.maxAlt) return 'out-of-range';
 
-  // 2. Path geometry vs max range circle
+  // RCS-adjusted effective engagement range
+  const effMax = effectiveEngagementRange(c, tc);
+
+  // 2. Path geometry vs effective range circle
   const dx = t.tx - t.sx, dy = t.ty - t.sy;
   const len = Math.hypot(dx, dy) || 1;
   const ux = dx / len, uy = dy / len;
@@ -2618,10 +2659,10 @@ function simulateEngagementOutcome(t, d, c, tc) {
   const cdx = (t.sx + proj * ux) - d.x;
   const cdy = (t.sy + proj * uy) - d.y;
   const closestDist = Math.hypot(cdx, cdy);
-  if (closestDist > c.maxRange) return 'out-of-range';
+  if (closestDist > effMax) return 'out-of-range';
 
   // 3. In-range chord and entry/exit times along the path
-  const halfChord = Math.sqrt(c.maxRange*c.maxRange - closestDist*closestDist);
+  const halfChord = Math.sqrt(effMax*effMax - closestDist*closestDist);
   const entryDist = Math.max(0, proj - halfChord);
   const exitDist  = Math.min(len, proj + halfChord);
   const inRangeTime = (exitDist - entryDist) / tc.speed;
@@ -2645,8 +2686,8 @@ function simulateEngagementOutcome(t, d, c, tc) {
   const remaining = Math.hypot(t.tx - launchX, t.ty - launchY) / tc.speed;
   if (T > remaining) return 'flight-time';
 
-  // 7. Intercept point may be outside max range
-  if (Math.hypot(ipx - d.x, ipy - d.y) > c.maxRange) return 'out-of-range';
+  // 7. Intercept point may be outside effective range
+  if (Math.hypot(ipx - d.x, ipy - d.y) > effMax) return 'out-of-range';
 
   // 8. Tangent crossing at intercept (within 15% of perpendicular)
   const btx = ipx - d.x, bty = ipy - d.y;
