@@ -661,6 +661,191 @@ html, body {
   box-shadow: 0 20px 60px rgba(0,0,0,0.7);
 }
 
+.modal-content.tutorial-content {
+  max-width: 720px;
+}
+
+.help-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fbbf24;
+  color: #0a0e14;
+  border: none;
+  font-size: 14px;
+  font-weight: 800;
+  font-family: inherit;
+  cursor: pointer;
+  margin-right: 8px;
+  vertical-align: middle;
+  padding: 0;
+  line-height: 1;
+}
+
+.help-btn:hover {
+  background: #fcd34d;
+  transform: scale(1.05);
+}
+
+.tutorial-step h3 {
+  color: #5fa8d3;
+  font-size: 16px;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #1f2a3d;
+}
+
+.tutorial-step h4 {
+  color: #fbbf24;
+  font-size: 13px;
+  margin: 12px 0 4px 0;
+}
+
+.tutorial-step p {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #d6e0f0;
+  margin-bottom: 10px;
+}
+
+.tutorial-step ul {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0;
+}
+
+.tutorial-step li {
+  background: #0c1320;
+  border: 1px solid #1f2a3d;
+  border-right: 3px solid #5fa8d3;
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.tutorial-step li b { color: #fbbf24; }
+
+.tutorial-step .demo-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 8px 0;
+  font-size: 12px;
+}
+
+.tutorial-step .icon-cell {
+  width: 28px;
+  text-align: center;
+  font-size: 18px;
+}
+
+.tutorial-step .swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+
+.tutorial-step table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  margin: 6px 0;
+}
+
+.tutorial-step th {
+  background: #1a2436;
+  color: #8fb4c9;
+  padding: 6px 8px;
+  text-align: right;
+  font-weight: 600;
+  border-bottom: 2px solid #2a3a55;
+}
+
+.tutorial-step td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #1f2a3d;
+  color: #d6e0f0;
+}
+
+.tutorial-step .key { color: #fbbf24; font-weight: 700; }
+
+.tutorial-step .tip {
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-right: 3px solid #fbbf24;
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin: 10px 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #fde68a;
+}
+
+.tutorial-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-top: 1px solid #1f2a3d;
+  background: #0c1320;
+  border-radius: 0 0 8px 8px;
+}
+
+.tutorial-footer button {
+  background: #1a2436;
+  color: #d6e0f0;
+  border: 1px solid #2a3a55;
+  border-radius: 4px;
+  padding: 8px 16px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tutorial-footer button.primary {
+  background: #1e6b3e;
+  border-color: #2d9056;
+}
+
+.tutorial-footer button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.tutorial-dots {
+  display: flex;
+  gap: 6px;
+}
+
+.tutorial-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2a3a55;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.tutorial-dot.active {
+  background: #5fa8d3;
+  transform: scale(1.3);
+}
+
+#tutorial-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
 .modal-header {
   padding: 14px 18px;
   border-bottom: 1px solid #2a3a55;

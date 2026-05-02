@@ -337,7 +337,8 @@ const state = {
   drag: null,
   mouseX: 0, mouseY: 0,
   serialCounters: {},
-  viewport: { offsetX: 0, offsetY: 0, scale: 1 }
+  viewport: { offsetX: 0, offsetY: 0, scale: 1 },
+  tutorialStep: 0
 };
 
 let canvas, ctx, W, H, tooltip, banner;
@@ -548,6 +549,249 @@ function bindControls() {
   document.getElementById('pan-up').addEventListener('click', () => panBy(0, 80));
   document.getElementById('pan-down').addEventListener('click', () => panBy(0, -80));
   document.getElementById('zoom-reset').addEventListener('click', resetView);
+
+  // Tutorial controls
+  document.getElementById('open-tutorial').addEventListener('click', () => showTutorial(0));
+  document.getElementById('tutorial-close').addEventListener('click', hideTutorial);
+  document.getElementById('tutorial-prev').addEventListener('click', () => showTutorial(state.tutorialStep - 1));
+  document.getElementById('tutorial-next').addEventListener('click', tutorialNext);
+  document.getElementById('tutorial-modal').addEventListener('click', (ev) => {
+    if (ev.target.id === 'tutorial-modal') hideTutorial();
+  });
+
+  // Auto-show tutorial on first visit
+  if (!localStorage.getItem('airwar-tutorial-seen')) {
+    setTimeout(() => showTutorial(0), 600);
+  }
+}
+
+const TUTORIAL_STEPS = [
+  {
+    title: '🎯 ברוך הבא לסימולטור הגנה אווירית',
+    html: () => `
+      <p>זהו סימולטור משחק מלחמה אסטרטגי בין <b style="color:#5fa8d3">צד כחול (מגן)</b> לבין <b style="color:#dc2626">צד אדום (תוקף)</b> שמתרחש מעל המדינה הבדיונית "רפובליקת טליאריה".</p>
+      <h4>שני מצבי משחק עיקריים:</h4>
+      <ul>
+        <li>🛡 <b>אתגר הגנה</b> - אתה המגן. המערכת שולחת איומים, ואתה צריך לפרוס סוללות נ"מ ומכ"מים כדי להגן על היעדים האסטרטגיים.</li>
+        <li>🎯 <b>אתגר התקפה</b> - אתה התוקף. המערכת פורסת אוטומטית הגנה, ואתה צריך לתכנן ולפרוס איומים אוויריים שיפרצו דרכה.</li>
+      </ul>
+      <p>שני המצבים תומכים בשלוש רמות קושי (קל / בינוני / קשה) שמשפיעות על מספר האיומים, התקציב, ופיזור.</p>
+      <div class="tip">💡 <b>טיפ:</b> בכל פעם שתאפס את המפה - גבולות המדינה ומיקומי היעדים האסטרטגיים יוגרלו מחדש, כך שכל משחק הוא אתגר חדש.</div>
+    `
+  },
+  {
+    title: '🗺 המפה והאזורים',
+    html: () => `
+      <p>המסך מציג את <b>רפובליקת טליאריה</b> במרכז (השטח המוגן בכחול-כהה), מוקפת בים. ממערב יש <b style="color:#dc2626">אזור אדום</b> שממנו האיומים יכולים להתחיל.</p>
+      <h4>5 יעדים אסטרטגיים פזורים בתוך המדינה:</h4>
+      <ul>
+        <li>⭐ <b>Arian (Capital)</b> - הבירה (ערך 5) - כוכב צהוב</li>
+        <li>🏰 <b>Eagle Airbase</b> - בסיס חיל אוויר (ערך 4) - ריבוע סגול</li>
+        <li>🏛 <b>Talos / Miron</b> - ערים (ערך 3 כל אחת)</li>
+        <li>🏛 <b>Plaion</b> - עיר (ערך 2)</li>
+      </ul>
+      <p>היעדים מסומנים עם <b>הילה צהובה בולטת</b> כדי שיהיה קל לראות אותם גם מתחת לסוללות.</p>
+      <div class="tip">📍 כפתור "ערוך מיקומי יעדים" מאפשר לך לגרור את היעדים למקום אחר על המפה לפני התחלת משחק.</div>
+    `
+  },
+  {
+    title: '🛡 סוללות הגנה אווירית',
+    html: () => `
+      <p>חמש סוללות שונות, כל אחת עם תכונות ייחודיות. הקטלוג מימין מציג את הנתונים העיקריים.</p>
+      <table>
+        <tr><th>סוללה</th><th>טווח</th><th>גובה</th><th>KP</th><th>RT</th><th>תחמושת</th></tr>
+        <tr><td><span class="swatch" style="background:#3b82f6"></span> Iron Dome</td><td>4-70</td><td>0-10</td><td class="key">90%</td><td>1s</td><td>8</td></tr>
+        <tr><td><span class="swatch" style="background:#10b981"></span> SA-8 Gecko</td><td>1.5-30</td><td>0-5</td><td class="key">65%</td><td>1.5s</td><td>3</td></tr>
+        <tr><td><span class="swatch" style="background:#8b5cf6"></span> Barak-8</td><td>0.5-100</td><td>0-16</td><td class="key">85%</td><td>0.5s</td><td>6</td></tr>
+        <tr><td><span class="swatch" style="background:#f59e0b"></span> Patriot PAC-3</td><td>3-160</td><td>0-24</td><td class="key">65%</td><td>1.5s</td><td>4</td></tr>
+        <tr><td><span class="swatch" style="background:#d946ef"></span> David's Sling</td><td>40-300</td><td>5-30</td><td class="key">70%</td><td>1s</td><td>5</td></tr>
+      </table>
+      <h4>מה כל מספר אומר:</h4>
+      <ul>
+        <li><b>טווח</b> (ק"מ): בתוך הטווח הזה הסוללה יכולה ליירט.</li>
+        <li><b>גובה</b>: עטפת הגובה - איום מחוץ לתחום הזה לא ניתן ליירט (למשל David's Sling לא נוגע במסוקים בגובה 0.8 ק"מ).</li>
+        <li><b>KP</b>: שיעור פגיעה - אחוז המיירטים שצולחים לפגוע ברגע שיורט בגאומטריה תקינה.</li>
+        <li><b>RT</b>: זמן תגובה - שניות מההחלטה לירות עד השיגור בפועל. בזמן הזה האיום ממשיך לנוע.</li>
+        <li><b>תחמושת</b>: מספר המיירטים בסוללה. נגמרו - אין יותר ירי.</li>
+      </ul>
+    `
+  },
+  {
+    title: '📡 מכ"מים ותפקידם',
+    html: () => `
+      <p>שלושה סוגי מכ"מים סטנדאלוניים. הם <b>אינם יורים מיירטים</b>, אבל הם תפקיד מערכתי קריטי - <b style="color:#06b6d4">מאריכים את טווח הסוללות</b>.</p>
+      <table>
+        <tr><th>מכ"ם</th><th>טווח גילוי</th></tr>
+        <tr><td><span class="swatch" style="background:#06b6d4"></span> Long-Range Radar</td><td>350 ק"מ</td></tr>
+        <tr><td><span class="swatch" style="background:#0ea5e9"></span> Medium-Range Radar</td><td>180 ק"מ</td></tr>
+        <tr><td><span class="swatch" style="background:#0891b2"></span> Short-Range Radar</td><td>100 ק"מ</td></tr>
+      </table>
+      <h4>איך זה עובד:</h4>
+      <ul>
+        <li>בלי מכ"ם חיצוני - הסוללה תירה <b>רק כשהאיום בתוך הטווח שלה</b>.</li>
+        <li>עם מכ"ם שמכסה אזור מעבר לטווח הסוללה - הסוללה <b>תתחיל הכנה לירי כבר כשהאיום עוד מחוץ לטווח</b>, ובלבד שנקודת הפגיעה החזויה תהיה בתוך הטווח.</li>
+        <li>במצב הזה תראה <b>הילה תכלת</b> סביב הסוללה (במקום צהובה) וקו תכלת מהסוללה אל האיום.</li>
+      </ul>
+      <div class="tip">📡 מכ"ם ארוך-טווח לפני סוללת Patriot מוסיף משמעותית את חלון היירוט שלה - זה אפקט סינרגטי מועיל ביותר.</div>
+    `
+  },
+  {
+    title: '✈ איומים אוויריים',
+    html: () => `
+      <p>שלושה סוגי איומים, כל אחד עם תכונות ייחודיות שמשפיעות על איזו סוללה תוכל לטפל בו:</p>
+      <table>
+        <tr><th>איום</th><th>מהירות</th><th>גובה</th><th>RCS</th></tr>
+        <tr><td><span class="swatch" style="background:#fbbf24"></span> Attack UAV</td><td>18</td><td>2 ק"מ</td><td class="key">0.1</td></tr>
+        <tr><td><span class="swatch" style="background:#dc2626"></span> Fighter Jet</td><td>40</td><td>10 ק"מ</td><td class="key">1.0</td></tr>
+        <tr><td><span class="swatch" style="background:#a855f7"></span> Attack Helicopter</td><td>22</td><td>0.8 ק"מ</td><td class="key">0.7</td></tr>
+      </table>
+      <h4>חתימת מכ"ם (RCS) - חשוב!</h4>
+      <p>RCS משפיע על הטווח האפקטיבי לפי משוואת המכ"ם: <code>range ∝ RCS<sup>¼</sup></code></p>
+      <ul>
+        <li><b>Fighter Jet (RCS 1.0)</b>: 100% מהטווח. נראה היטב.</li>
+        <li><b>Helicopter (RCS 0.7)</b>: ~91% מהטווח.</li>
+        <li><b>UAV (RCS 0.1)</b>: <b>רק ~56%</b> מהטווח. כטב"מים מאוד קשים לאיתור (סטילת'י).</li>
+      </ul>
+      <div class="tip">⚠ <b>גובה משנה הכל:</b> מסוק בגובה 0.8 ק"מ לא יכול להיות מיורט ע"י David's Sling (גובה מינימום 5 ק"מ). מטוס קרב בגובה 10 ק"מ לא ניתן לתפוס ע"י SA-8 (גובה מקסימום 5).</div>
+    `
+  },
+  {
+    title: '🎯 רצף יירוט - איך זה עובד',
+    html: () => `
+      <p>כשאיום מגיע לטווח של סוללה - מתחיל רצף של 4 שלבים:</p>
+      <ol style="list-style:decimal;padding-right:20px">
+        <li style="margin:8px 0"><b>1. גילוי</b> - הסוללה רואה את האיום (ע"י המכ"ם הפנימי שלה או ע"י מכ"ם חיצוני).</li>
+        <li style="margin:8px 0"><b>2. זמן תגובה (RT)</b> - הסוללה "מתכוננת" לירות. תראה <b>עיגול צהוב מתמלא</b> סביב הסוללה. בזמן הזה האיום ממשיך לנוע.</li>
+        <li style="margin:8px 0"><b>3. שיגור הטיל</b> - בסוף ה-RT הטיל יוצא. המערכת מחשבת איטרטיבית את <b>נקודת הפגיעה החזויה</b> (לד-פרסוייט).</li>
+        <li style="margin:8px 0"><b>4. תוצאה</b> - אם נקודת הפגיעה בתוך הטווח, מבוצעת הגרלה לפי KP. אחרת - "אאוט-אוף-ריינג'".</li>
+      </ol>
+      <h4>4 הסיבות האפשריות לפספוס:</h4>
+      <ul>
+        <li>🎲 <b>החטאה סטטיסטית</b> - לפי KP של הסוללה (מטיל פטריוט יפספס בממוצע 35% מהירויות).</li>
+        <li>⏱ <b>זמן מעוף לא מספיק</b> - האיום הקדים להגיע ליעד לפני שהמיירט הגיע אליו.</li>
+        <li>🎯 <b>יציאה מטווח</b> - האיום עוזב את עטפת הסוללה לפני שהטיל מגיע.</li>
+        <li>📐 <b>חציה משיקית</b> - האיום נע בניצב לציר הסוללה (תוך 15° מהניצב), קושי גאומטרי ליירוט.</li>
+      </ul>
+    `
+  },
+  {
+    title: '🛡 משחק ההגנה - איך משחקים',
+    html: () => `
+      <p>אתה המגן. המערכת שולחת גלי איומים, ואתה צריך להגן על היעדים האסטרטגיים בעזרת תקציב מוגבל של סוללות ומכ"מים.</p>
+      <h4>זרימת המשחק:</h4>
+      <ul>
+        <li>1. בחר רמת קושי (קל / בינוני / קשה).</li>
+        <li>2. תראה את האיומים על המפה. <b>הם עדיין לא טסים</b> - יש לך זמן להתכונן.</li>
+        <li>3. <b>פרוס סוללות ומכ"מים</b> בתפריט (תג כתום = כמה זמין מכל סוג).</li>
+        <li>4. לחץ "▶ הפעל סימולציה" כשמוכן.</li>
+      </ul>
+      <h4>תנאי ניצחון לפי רמה:</h4>
+      <ul>
+        <li>🟢 <b>קל</b>: הבירה (Arian) שלמה <u>וגם</u> פחות מ-4 יעדים נפגעו.</li>
+        <li>🟡 <b>בינוני</b>: הבירה שלמה <u>וגם</u> פחות מ-3 יעדים נפגעו.</li>
+        <li>🔴 <b>קשה</b>: הבירה שלמה <u>וגם</u> פחות מ-2 יעדים נפגעו.</li>
+      </ul>
+      <p><b style="color:#dc2626">פגיעה בבירה = הפסד מיידי</b>, לא משנה כמה יעדים אחרים שרדו.</p>
+    `
+  },
+  {
+    title: '🛡 שיקולים אסטרטגיים - הגנה',
+    html: () => `
+      <h4>כיצד לבחור איפה לפרוס:</h4>
+      <ul>
+        <li>🎯 <b>כסה את הבירה ראשית</b> - היא תנאי הפסד מוחלט.</li>
+        <li>🔄 <b>הגנה רב-שכבתית</b> - שתי סוללות שונות מכסות את אותו אזור (KP מוכפל: 90%×90% = 99%).</li>
+        <li>📡 <b>השתמש במכ"ם ארוך-טווח</b> כדי להאריך את חלון הירי של סוללות איטיות (Patriot).</li>
+        <li>🚁 <b>אל תשים David's Sling נגד מסוקים</b> - הוא לא נוגע בגובה <5 ק"מ. השתמש ב-Iron Dome / SA-8.</li>
+        <li>✈ <b>נגד Fighters בגובה 10 ק"מ</b> - Patriot, Barak-8, או David's Sling.</li>
+        <li>◆ <b>נגד UAVs (RCS נמוך)</b> - הטווח מצטמצם ל-56% בלבד. שים את ה-Iron Dome קרוב לציר ההגעה.</li>
+      </ul>
+      <h4>סטורציה (חשוב להבין):</h4>
+      <p>סוללה Iron Dome יש לה רק <b>8 מיירטים</b>. אם התוקף שולח 10 איומים בו-זמנית מאותו וקטור, התחמושת תיגמר ולפחות 2 יעברו. <b>הזהר מנקודות חולשה לסטורציה</b> - שכפל סוללות באזור עם גוויות איום צפויות.</p>
+      <div class="tip">⚡ Barak-8 הוא הסוללה היחידה עם RT=0.5s והוא מכסה גם UAV וגם Fighter. הוא הסוללה הכי גמישה.</div>
+    `
+  },
+  {
+    title: '🎯 משחק ההתקפה - איך משחקים',
+    html: () => `
+      <p>אתה התוקף. המערכת פורסת אוטומטית הגנה, ואתה צריך לתכנן את ההתקפה כדי לפרוץ אותה ולהשיג את המשימה.</p>
+      <h4>זרימת המשחק - 3 לחיצות לכל איום:</h4>
+      <ul>
+        <li><b>לחיצה 1:</b> בחר סוג איום מתפריט "🔴 איומים אוויריים" (UAV / Fighter / Helicopter).</li>
+        <li><b>לחיצה 2:</b> לחץ על המפה <b style="color:#dc2626">מחוץ לגבולות המדינה</b> - זו נקודת המוצא של האיום. גבול המדינה יזרח באדום מקווקו.</li>
+        <li><b>לחיצה 3:</b> לחץ על אחד מהיעדים האסטרטגיים שאליו האיום יתקוף. היעדים יזרחו באדום פעימה.</li>
+      </ul>
+      <p>תקציב האיומים מוצג בתג אדום על כפתורי האיומים. כל איום שתציב יוריד את הקאונטר.</p>
+      <h4>תנאי ניצחון לפי רמה:</h4>
+      <ul>
+        <li>🟢 <b>קל</b>: פגע ב<b>בירה (Arian)</b>. תקציב 40 איומים.</li>
+        <li>🟡 <b>בינוני</b>: פגע ב<b>3 יעדים אסטרטגיים שונים</b>. תקציב 30 איומים.</li>
+        <li>🔴 <b>קשה</b>: פגע ב<b>4 יעדים שונים</b>, או ב<b>בירה + 2 נוספים</b>. תקציב 20 איומים.</li>
+      </ul>
+    `
+  },
+  {
+    title: '🎯 שיקולים אסטרטגיים - התקפה + טיפים נוספים',
+    html: () => `
+      <h4>כיצד לפרוץ את ההגנה:</h4>
+      <ul>
+        <li>💥 <b>סטורציה</b> - שלח 4-5 כטב"מים בו-זמנית מאותו וקטור כדי למצות את התחמושת של Iron Dome (8 מיירטים בלבד), ואז שלח את ה-Fighters יקרי-הערך.</li>
+        <li>📡 <b>נצל RCS נמוך</b> - כטב"מים (RCS 0.1) ניתן ליירט רק ב-56% מטווח הסוללה. אם תכוון אותם דרך אזורים עם כיסוי דליל, יש סיכוי טוב לפרוץ.</li>
+        <li>📐 <b>זוויות חציה משיקית</b> - אם תפזר את האיומים כך שיגיעו בניצב לסוללה (ולא בקו ישר אליה), יש סיכוי לפספוס משיקי.</li>
+        <li>⛰ <b>גובה</b> - מסוקים (גובה 0.8) נמלטים מ-David's Sling. Fighters בגובה 10 נמלטים מ-SA-8.</li>
+        <li>🎯 <b>תקוף יעדים מוגנים פחות</b> - הגן יוצב סביב הבירה כברירת מחדל. ערים פריפריאליות עשויות להיות פחות מוגנות.</li>
+      </ul>
+      <h4>תכונות מערכת נוספות:</h4>
+      <ul>
+        <li>🔍 <b>זום ופאן</b> - השתמש בכפתורים בפינה השמאלית-עליונה של המפה.</li>
+        <li>📺 <b>ציר זמן</b> - אחרי הסימולציה, סקרולר מתחת לכפתור "הפעל" מאפשר לך לחזור ולהריץ קדימה את האירועים.</li>
+        <li>📊 <b>מסך סיכום</b> - כולל המלצות אישיות לשיפור על-בסיס מה שקרה במשחק שלך.</li>
+        <li>ⓘ <b>כפתורי מידע</b> - ליד כל סוללה/מכ"ם/איום בתפריט, לקבלת פרטים מלאים.</li>
+        <li>📍 <b>ערוך יעדים</b> - מאפשר לגרור את היעדים האסטרטגיים בין משחקים.</li>
+      </ul>
+      <div class="tip">💡 <b>בהצלחה!</b> אפשר לפתוח את המדריך הזה שוב בכל זמן ע"י לחיצה על הכפתור <span class="key">?</span> ליד כותרת המסך הראשית.</div>
+    `
+  }
+];
+
+function showTutorial(stepIdx) {
+  if (stepIdx < 0) stepIdx = 0;
+  if (stepIdx >= TUTORIAL_STEPS.length) stepIdx = TUTORIAL_STEPS.length - 1;
+  state.tutorialStep = stepIdx;
+  const step = TUTORIAL_STEPS[stepIdx];
+  document.getElementById('tutorial-body').innerHTML = `
+    <div class="tutorial-step">
+      <h3>${step.title}</h3>
+      ${step.html()}
+    </div>
+  `;
+  // Render dots
+  const dotsEl = document.getElementById('tutorial-dots');
+  dotsEl.innerHTML = TUTORIAL_STEPS.map((_, i) =>
+    `<div class="tutorial-dot ${i === stepIdx ? 'active' : ''}" data-i="${i}"></div>`
+  ).join('');
+  dotsEl.querySelectorAll('.tutorial-dot').forEach(dot => {
+    dot.addEventListener('click', () => showTutorial(parseInt(dot.dataset.i)));
+  });
+  // Update button states
+  document.getElementById('tutorial-prev').disabled = stepIdx === 0;
+  document.getElementById('tutorial-next').textContent =
+    stepIdx === TUTORIAL_STEPS.length - 1 ? 'התחל לשחק! ✓' : 'הבא ›';
+  document.getElementById('tutorial-modal').classList.add('visible');
+}
+
+function tutorialNext() {
+  if (state.tutorialStep === TUTORIAL_STEPS.length - 1) {
+    hideTutorial();
+  } else {
+    showTutorial(state.tutorialStep + 1);
+  }
+}
+
+function hideTutorial() {
+  document.getElementById('tutorial-modal').classList.remove('visible');
+  // Mark seen so the auto-show on first visit won't retrigger next time
+  try { localStorage.setItem('airwar-tutorial-seen', '1'); } catch (e) {}
 }
 
 function zoomBy(factor) {
