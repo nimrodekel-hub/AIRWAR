@@ -524,7 +524,10 @@ function bindControls() {
   document.getElementById('stop').addEventListener('click', stopSim);
   document.getElementById('delete-mode').addEventListener('click', toggleDelete);
   document.getElementById('clear-threats').addEventListener('click', clearThreats);
-  document.getElementById('reset').addEventListener('click', resetAll);
+  document.getElementById('reset').addEventListener('click', () => {
+    resetAll();
+    showStartModal();
+  });
   document.querySelectorAll('.diff-btn[data-attack]').forEach(btn => {
     btn.addEventListener('click', () => startAttackChallenge(btn.dataset.attack));
   });
@@ -1361,8 +1364,6 @@ function resetAll() {
   renderBudget();
   renderResults();
   setStatus('המפה אופסה - מפה ויעדים חדשים');
-  // Re-open the start modal so the user picks a new mode/difficulty
-  showStartModal();
 }
 
 // =============================================================
