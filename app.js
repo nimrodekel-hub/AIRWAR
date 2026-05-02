@@ -70,9 +70,9 @@ const CATALOG = {
   // ---- Threats ----
   uav: {
     kind: 'threat', name: 'Attack UAV', short: 'UAV',
-    speed: 18, altitude: 2, rcs: 0.4,
+    speed: 18, altitude: 2, rcs: 0.1,
     color: '#fbbf24', icon: '◆',
-    desc: 'Slow, low altitude, small radar signature'
+    desc: 'Slow, low altitude, very low radar signature (stealthy)'
   },
   fighter: {
     kind: 'threat', name: 'Fighter Jet', short: 'FTR',
@@ -428,7 +428,7 @@ function showInfoModal(key) {
       <tr><td>טווח אפקטיבי לפי RCS</td><td style="font-size:11px;line-height:1.6">
         Fighter (RCS 1.0): <b>${fmtEff(1.0)}</b><br>
         Helicopter (RCS 0.7): <b>${fmtEff(0.7)}</b><br>
-        UAV (RCS 0.4): <b>${fmtEff(0.4)}</b>
+        UAV (RCS 0.1): <b>${fmtEff(0.1)}</b>
         <div style="color:#7e91a8;margin-top:4px">משוואת המכ"ם: range ∝ RCS<sup>¼</sup></div>
       </td></tr>
       <tr><td>תקרת גובה</td><td>${c.minAlt} - ${c.maxAlt} ק"מ</td></tr>
@@ -444,9 +444,9 @@ function showInfoModal(key) {
       <tr><td>סוג</td><td>מכ"ם גילוי וכיוון</td></tr>
       <tr><td>טווח גילוי נומינלי</td><td>${c.detection} ק"מ</td></tr>
       <tr><td>טווח אפקטיבי לפי RCS</td><td style="font-size:11px;line-height:1.6">
-        Fighter: <b>${fmtEff(1.0)}</b><br>
-        Helicopter: <b>${fmtEff(0.7)}</b><br>
-        UAV: <b>${fmtEff(0.4)}</b>
+        Fighter (RCS 1.0): <b>${fmtEff(1.0)}</b><br>
+        Helicopter (RCS 0.7): <b>${fmtEff(0.7)}</b><br>
+        UAV (RCS 0.1): <b>${fmtEff(0.1)}</b>
         <div style="color:#7e91a8;margin-top:4px">range ∝ RCS<sup>¼</sup></div>
       </td></tr>
       <tr><td>תפקיד מערכתי</td><td><b style="color:#06b6d4">מאריך טווח של סוללות</b></td></tr>
