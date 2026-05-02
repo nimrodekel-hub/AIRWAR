@@ -558,10 +558,32 @@ function bindControls() {
     if (ev.target.id === 'tutorial-modal') hideTutorial();
   });
 
-  // Auto-show tutorial on first visit
-  if (!localStorage.getItem('airwar-tutorial-seen')) {
-    setTimeout(() => showTutorial(0), 600);
-  }
+  // Start-modal controls
+  document.getElementById('open-start').addEventListener('click', showStartModal);
+  document.getElementById('start-tutorial-btn').addEventListener('click', () => showTutorial(0));
+  document.getElementById('start-free-btn').addEventListener('click', () => {
+    hideStartModal();
+    setStatus('מצב חופשי - פרוס סוללות, מכ"מים ואיומים כרצונך');
+  });
+  document.querySelectorAll('#start-body button[data-startmode]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.startmode;
+      const diff = btn.dataset.startdiff;
+      hideStartModal();
+      if (mode === 'defense') startDefenseChallenge(diff);
+      else if (mode === 'attack') startAttackChallenge(diff);
+    });
+  });
+
+  // Show the mode-selection modal as the entry point on every load
+  setTimeout(showStartModal, 200);
+}
+
+function showStartModal() {
+  document.getElementById('start-modal').classList.add('visible');
+}
+function hideStartModal() {
+  document.getElementById('start-modal').classList.remove('visible');
 }
 
 const TUTORIAL_STEPS = [
@@ -932,7 +954,7 @@ const TUTORIAL_STEPS = [
         <li>📊 <b>מסך סיכום</b> - כולל המלצות אישיות לשיפור על-בסיס מה שקרה במשחק שלך.</li>
         <li>ⓘ <b>כפתורי מידע</b> - ליד כל סוללה/מכ"ם/איום בתפריט, לקבלת פרטים מלאים.</li>
       </ul>
-      <div class="tip">💡 <b>בהצלחה!</b> אפשר לפתוח את המדריך הזה שוב בכל זמן ע"י לחיצה על הכפתור <span class="key">?</span> ליד כותרת המסך הראשית.</div>
+      <div class="tip">💡 <b>בהצלחה!</b> אפשר לפתוח את המדריך הזה שוב בכל זמן ע"י לחיצה על הכפתור <span class="key">📘 הוראות המשחק</span> מתחת לכותרת. אפשר גם להתחיל משחק חדש דרך הכפתור <span class="key">🆕 משחק חדש</span>.</div>
     `
   }
 ];
@@ -1339,6 +1361,8 @@ function resetAll() {
   renderBudget();
   renderResults();
   setStatus('המפה אופסה - מפה ויעדים חדשים');
+  // Re-open the start modal so the user picks a new mode/difficulty
+  showStartModal();
 }
 
 // =============================================================

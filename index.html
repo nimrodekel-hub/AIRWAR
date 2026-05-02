@@ -4,16 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>משחק מלחמה - הגנה אווירית | רפובליקת טליאריה</title>
-  <link rel="stylesheet" href="styles.css?v=20260501x">
+  <link rel="stylesheet" href="styles.css?v=20260501y">
 </head>
 <body>
   <div id="app">
     <aside id="sidebar">
       <header>
-        <h1>פיקוד הגנה אווירית
-          <button id="open-tutorial" title="פתח מדריך משתמש" class="help-btn">?</button>
-        </h1>
-        <div class="subtitle">משחק מלחמה: כחול נגד אדום <span class="version-tag">v20260501x</span></div>
+        <h1>פיקוד הגנה אווירית</h1>
+        <div class="subtitle">משחק מלחמה: כחול נגד אדום <span class="version-tag">v20260501y</span></div>
+        <button id="open-tutorial" class="instructions-btn">📘 הוראות המשחק</button>
+        <button id="open-start" class="newgame-btn">🆕 משחק חדש</button>
         <div class="side-toggle">
           <button class="side-btn blue active" data-side="blue">🔵 כחול - הגנה</button>
           <button class="side-btn red" data-side="red">🔴 אדום - התקפה</button>
@@ -151,6 +151,41 @@
     </div>
   </div>
 
+  <div id="start-modal" class="modal">
+    <div class="modal-content start-content">
+      <div class="modal-header">
+        <h2>🎯 ברוך הבא לסימולטור הגנה אווירית</h2>
+      </div>
+      <div id="start-body">
+        <p class="start-intro">איזה משחק תרצה לשחק?<br>בחר מצב משחק ורמת קושי כדי להתחיל.</p>
+        <div class="start-grid">
+          <div class="start-section defense">
+            <div class="start-section-title">🛡 משחק הגנה</div>
+            <div class="start-section-sub">אתה המגן - פרוס סוללות נגד גלי איומים אוויריים</div>
+            <div class="start-buttons">
+              <button class="diff-btn easy" data-startmode="defense" data-startdiff="easy">קל</button>
+              <button class="diff-btn medium" data-startmode="defense" data-startdiff="medium">בינוני</button>
+              <button class="diff-btn hard" data-startmode="defense" data-startdiff="hard">קשה</button>
+            </div>
+          </div>
+          <div class="start-section attack">
+            <div class="start-section-title">🎯 משחק התקפה</div>
+            <div class="start-section-sub">אתה התוקף - פרוץ את ההגנה האוטומטית של המערכת</div>
+            <div class="start-buttons">
+              <button class="diff-btn easy" data-startmode="attack" data-startdiff="easy">קל</button>
+              <button class="diff-btn medium" data-startmode="attack" data-startdiff="medium">בינוני</button>
+              <button class="diff-btn hard" data-startmode="attack" data-startdiff="hard">קשה</button>
+            </div>
+          </div>
+        </div>
+        <div class="start-footer-row">
+          <button id="start-tutorial-btn" class="instructions-btn">📘 הוראות המשחק</button>
+          <button id="start-free-btn">▶ מצב חופשי (ללא משימה)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="tutorial-modal" class="modal">
     <div class="modal-content tutorial-content">
       <div class="modal-header">
@@ -166,6 +201,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260501x"></script>
+  <script src="app.js?v=20260501y"></script>
 </body>
 </html>
