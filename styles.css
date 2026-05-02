@@ -789,6 +789,29 @@ html, body {
   color: #fde68a;
 }
 
+.tutorial-figure {
+  margin: 12px 0;
+  text-align: center;
+}
+
+.tutorial-figure svg {
+  display: block;
+  width: 100%;
+  max-width: 480px;
+  height: auto;
+  background: #0a1628;
+  border: 1px solid #1f2a3d;
+  border-radius: 6px;
+  margin: 0 auto;
+}
+
+.tutorial-figure .caption {
+  font-size: 11px;
+  color: #7e91a8;
+  margin-top: 6px;
+  font-style: italic;
+}
+
 .tutorial-footer {
   display: flex;
   justify-content: space-between;

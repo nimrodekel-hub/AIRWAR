@@ -582,6 +582,33 @@ const TUTORIAL_STEPS = [
     title: '🗺 המפה והאזורים',
     html: () => `
       <p>המסך מציג את <b>רפובליקת טליאריה</b> במרכז (השטח המוגן בכחול-כהה), מוקפת מדינות אויב. מסביב לטליאריה <b style="color:#dc2626">אזור אדום</b> שממנו האיומים יכולים להתחיל.</p>
+      <div class="tutorial-figure">
+        <svg viewBox="0 0 460 220" xmlns="http://www.w3.org/2000/svg">
+          <rect width="460" height="220" fill="#0a1628"/>
+          <rect x="0" y="0" width="135" height="220" fill="rgba(220,38,38,0.1)"/>
+          <line x1="135" y1="0" x2="135" y2="220" stroke="rgba(220,38,38,0.4)" stroke-width="1" stroke-dasharray="5,3"/>
+          <text x="68" y="20" text-anchor="middle" fill="#f87171" font-size="11" font-weight="bold">Red Zone</text>
+          <text x="68" y="34" text-anchor="middle" fill="rgba(248,113,113,0.7)" font-size="9">(threat origin)</text>
+          <path d="M175,30 Q230,15 295,32 Q360,50 395,100 Q410,165 340,200 Q270,212 215,200 Q170,185 168,140 Q162,80 175,30 Z" fill="#1a3148" stroke="#3a6b8c" stroke-width="2"/>
+          <text x="285" y="68" text-anchor="middle" fill="rgba(95,168,211,0.5)" font-size="13" font-weight="bold">Taliaria</text>
+          <circle cx="245" cy="125" r="14" fill="rgba(251,191,36,0.18)" stroke="#fbbf24" stroke-width="1.5"/>
+          <polygon points="245,117 248,123 254,123 249,127 251,133 245,129 239,133 241,127 236,123 242,123" fill="#fbbf24" stroke="#0a0e14" stroke-width="1"/>
+          <text x="245" y="148" text-anchor="middle" fill="#fde68a" font-size="9">★ Arian (Capital)</text>
+          <circle cx="320" cy="160" r="14" fill="rgba(251,191,36,0.18)" stroke="#fbbf24" stroke-width="1.5"/>
+          <rect x="313" y="153" width="14" height="14" fill="#a78bfa" stroke="#0a0e14" stroke-width="1"/>
+          <text x="320" y="183" text-anchor="middle" fill="#fde68a" font-size="9">▣ Eagle Airbase</text>
+          <circle cx="210" cy="70" r="12" fill="rgba(251,191,36,0.18)" stroke="#fbbf24" stroke-width="1.5"/>
+          <circle cx="210" cy="70" r="5" fill="#fcd34d" stroke="#0a0e14" stroke-width="1"/>
+          <text x="210" y="55" text-anchor="middle" fill="#fde68a" font-size="9">Talos</text>
+          <circle cx="370" cy="100" r="12" fill="rgba(251,191,36,0.18)" stroke="#fbbf24" stroke-width="1.5"/>
+          <circle cx="370" cy="100" r="5" fill="#fcd34d" stroke="#0a0e14" stroke-width="1"/>
+          <text x="370" y="85" text-anchor="middle" fill="#fde68a" font-size="9">Miron</text>
+          <circle cx="245" cy="190" r="12" fill="rgba(251,191,36,0.18)" stroke="#fbbf24" stroke-width="1.5"/>
+          <circle cx="245" cy="190" r="5" fill="#fcd34d" stroke="#0a0e14" stroke-width="1"/>
+          <text x="245" y="208" text-anchor="middle" fill="#fde68a" font-size="9">Plaion</text>
+        </svg>
+        <div class="caption">תצוגת המפה: אזור אדום במערב (מקור איומים), טליאריה במרכז, 5 יעדים אסטרטגיים עם הילה צהובה</div>
+      </div>
       <h4>5 יעדים אסטרטגיים פזורים בתוך המדינה:</h4>
       <ul>
         <li>⭐ <b>Arian (Capital)</b> - הבירה (ערך 5) - כוכב צהוב</li>
@@ -613,6 +640,42 @@ const TUTORIAL_STEPS = [
         <li><b>RT</b>: זמן תגובה - שניות מההחלטה לירות עד השיגור בפועל. בזמן הזה האיום ממשיך לנוע.</li>
         <li><b>תחמושת</b>: מספר המיירטים בסוללה. נגמרו - אין יותר ירי מהסוללה הספציפית.</li>
       </ul>
+      <div class="tutorial-figure">
+        <svg viewBox="0 0 460 220" xmlns="http://www.w3.org/2000/svg">
+          <rect width="460" height="220" fill="#0a1628"/>
+          <rect x="0" y="190" width="460" height="30" fill="#1a3148"/>
+          <line x1="40" y1="20" x2="40" y2="190" stroke="#5fa8d3" stroke-width="1"/>
+          <line x1="40" y1="190" x2="430" y2="190" stroke="#3a6b8c" stroke-width="1"/>
+          <text x="35" y="194" text-anchor="end" fill="#5fa8d3" font-size="9">0</text>
+          <text x="35" y="162" text-anchor="end" fill="#5fa8d3" font-size="9">5</text>
+          <text x="35" y="133" text-anchor="end" fill="#5fa8d3" font-size="9">10</text>
+          <text x="35" y="76" text-anchor="end" fill="#5fa8d3" font-size="9">20</text>
+          <text x="35" y="32" text-anchor="end" fill="#5fa8d3" font-size="9">30</text>
+          <text x="20" y="105" text-anchor="middle" fill="#8fb4c9" font-size="9" transform="rotate(-90 20 105)">altitude (km)</text>
+          <rect x="60" y="139" width="38" height="51" fill="rgba(59,130,246,0.18)" stroke="#3b82f6" stroke-width="1"/>
+          <text x="79" y="135" text-anchor="middle" fill="#3b82f6" font-size="9" font-weight="bold">Iron shield</text>
+          <text x="79" y="170" text-anchor="middle" fill="#3b82f6" font-size="9">0-9</text>
+          <rect x="110" y="162" width="38" height="28" fill="rgba(16,185,129,0.18)" stroke="#10b981" stroke-width="1"/>
+          <text x="129" y="135" text-anchor="middle" fill="#10b981" font-size="9" font-weight="bold">SA-8</text>
+          <text x="129" y="180" text-anchor="middle" fill="#10b981" font-size="9">0-5</text>
+          <rect x="160" y="99" width="38" height="91" fill="rgba(139,92,246,0.18)" stroke="#8b5cf6" stroke-width="1"/>
+          <text x="179" y="93" text-anchor="middle" fill="#8b5cf6" font-size="9" font-weight="bold">Barak</text>
+          <text x="179" y="150" text-anchor="middle" fill="#8b5cf6" font-size="9">0-16</text>
+          <rect x="210" y="54" width="38" height="136" fill="rgba(245,158,11,0.18)" stroke="#f59e0b" stroke-width="1"/>
+          <text x="229" y="48" text-anchor="middle" fill="#f59e0b" font-size="9" font-weight="bold">Patriot</text>
+          <text x="229" y="125" text-anchor="middle" fill="#f59e0b" font-size="9">0-24</text>
+          <rect x="260" y="20" width="38" height="142" fill="rgba(217,70,239,0.18)" stroke="#d946ef" stroke-width="1"/>
+          <text x="279" y="14" text-anchor="middle" fill="#d946ef" font-size="9" font-weight="bold">D.Sling</text>
+          <text x="279" y="92" text-anchor="middle" fill="#d946ef" font-size="9">5-30</text>
+          <line x1="310" y1="133" x2="430" y2="133" stroke="#dc2626" stroke-width="0.7" stroke-dasharray="2,3"/>
+          <text x="365" y="129" text-anchor="middle" fill="#dc2626" font-size="9" font-weight="bold">▲ Fighter @10km</text>
+          <line x1="310" y1="179" x2="430" y2="179" stroke="#fbbf24" stroke-width="0.7" stroke-dasharray="2,3"/>
+          <text x="365" y="176" text-anchor="middle" fill="#fbbf24" font-size="9" font-weight="bold">◆ UAV @2km</text>
+          <line x1="310" y1="186" x2="430" y2="186" stroke="#a855f7" stroke-width="0.7" stroke-dasharray="2,3"/>
+          <text x="365" y="206" text-anchor="middle" fill="#a855f7" font-size="9" font-weight="bold">✚ Helo @0.8km</text>
+        </svg>
+        <div class="caption">מעטפות הגובה של כל סוללה (תצוגת צד) - שים לב: David's Sling מתחיל מ-5 ק"מ ולא מיירט מסוקים, SA-8 לא מגיע למטוסים בגובה 10</div>
+      </div>
     `
   },
   {
@@ -631,6 +694,36 @@ const TUTORIAL_STEPS = [
         <li>עם מכ"ם שמכסה אזור מעבר לטווח הסוללה - הסוללה <b>תתחיל הכנה לירי כבר כשהאיום עוד מחוץ לטווח</b>, ובלבד שנקודת הפגיעה החזויה תהיה בתוך הטווח.</li>
         <li>במצב הזה תראה <b>הילה תכלת</b> סביב הסוללה (במקום צהובה) וקו תכלת מהסוללה אל האיום.</li>
       </ul>
+      <div class="tutorial-figure">
+        <svg viewBox="0 0 460 220" xmlns="http://www.w3.org/2000/svg">
+          <rect width="460" height="220" fill="#0a1628"/>
+          <circle cx="320" cy="110" r="105" fill="rgba(6,182,212,0.07)" stroke="#06b6d4" stroke-width="1" stroke-dasharray="5,5"/>
+          <text x="320" y="20" text-anchor="middle" fill="#06b6d4" font-size="10" font-weight="bold">Long-Range Radar coverage</text>
+          <circle cx="320" cy="110" r="10" fill="#06b6d4" stroke="#0a0e14" stroke-width="2"/>
+          <line x1="320" y1="100" x2="320" y2="105" stroke="#0a0e14" stroke-width="2"/>
+          <text x="320" y="135" text-anchor="middle" fill="#06b6d4" font-size="9">Radar</text>
+          <circle cx="220" cy="110" r="50" fill="rgba(245,158,11,0.12)" stroke="#f59e0b" stroke-width="1.5"/>
+          <text x="220" y="55" text-anchor="middle" fill="#f59e0b" font-size="9" font-weight="bold">Patriot range</text>
+          <polygon points="220,98 233,110 220,122 207,110" fill="#f59e0b" stroke="#0a0e14" stroke-width="1.5"/>
+          <text x="220" y="138" text-anchor="middle" fill="#f59e0b" font-size="9">Patriot</text>
+          <g>
+            <polygon points="80,105 90,110 80,115 84,110" fill="#dc2626" stroke="#000" stroke-width="0.5"/>
+            <text x="80" y="95" text-anchor="middle" fill="#dc2626" font-size="9">Threat</text>
+            <line x1="86" y1="110" x2="220" y2="110" stroke="#dc2626" stroke-width="0.7" stroke-dasharray="3,3"/>
+          </g>
+          <g>
+            <line x1="320" y1="110" x2="170" y2="110" stroke="#06b6d4" stroke-width="1" stroke-dasharray="3,2"/>
+            <text x="190" y="100" fill="#06b6d4" font-size="8">radar tracking</text>
+          </g>
+          <g>
+            <circle cx="220" cy="110" r="14" fill="none" stroke="#06b6d4" stroke-width="2"/>
+            <text x="220" y="170" text-anchor="middle" fill="#06b6d4" font-size="9" font-weight="bold">Battery prepares early</text>
+            <text x="220" y="183" text-anchor="middle" fill="#7e91a8" font-size="8">↑ intercept point lands inside Patriot range</text>
+          </g>
+          <text x="230" y="208" text-anchor="middle" fill="#7e91a8" font-size="9">Threat enters Patriot range → fire (already prepared)</text>
+        </svg>
+        <div class="caption">המכ"ם רואה את האיום הרבה לפני שהוא נכנס לטווח של פטריוט. הסוללה מתחילה הכנה מוקדמת - זה מאריך את חלון היירוט.</div>
+      </div>
       <div class="tip">📡 מכ"ם ארוך-טווח לפני סוללת Patriot מוסיף משמעותית את חלון היירוט שלה - זה אפקט סינרגטי מועיל ביותר.</div>
     `
   },
@@ -664,6 +757,40 @@ const TUTORIAL_STEPS = [
         <li style="margin:8px 0"><b>3. שיגור הטיל</b> - בסוף ה-RT הטיל יוצא. המערכת מחשבת את <b>נקודת הפגיעה החזויה</b> (לד-פרסוייט).</li>
         <li style="margin:8px 0"><b>4. תוצאה</b> - אם נקודת הפגיעה בתוך הטווח, תבוצע הגרלה לפי KP. אחרת - "אאוט-אוף-ריינג'".</li>
       </ol>
+      <div class="tutorial-figure">
+        <svg viewBox="0 0 460 220" xmlns="http://www.w3.org/2000/svg">
+          <rect width="460" height="220" fill="#0a1628"/>
+          <text x="60" y="14" text-anchor="middle" fill="#5fa8d3" font-size="9" font-weight="bold">1. גילוי</text>
+          <circle cx="60" cy="100" r="50" fill="rgba(245,158,11,0.08)" stroke="#f59e0b" stroke-width="1"/>
+          <polygon points="60,90 70,100 60,110 50,100" fill="#f59e0b" stroke="#000" stroke-width="1"/>
+          <polygon points="20,80 28,84 20,88 24,84" fill="#dc2626" stroke="#000" stroke-width="0.5"/>
+          <line x1="28" y1="86" x2="55" y2="100" stroke="#dc2626" stroke-width="0.7" stroke-dasharray="2,2"/>
+          <text x="60" y="200" text-anchor="middle" fill="#7e91a8" font-size="8">איום נכנס לטווח</text>
+          <line x1="115" y1="20" x2="115" y2="200" stroke="#1f2a3d" stroke-width="1"/>
+          <text x="170" y="14" text-anchor="middle" fill="#fbbf24" font-size="9" font-weight="bold">2. RT - הכנה</text>
+          <polygon points="170,90 180,100 170,110 160,100" fill="#f59e0b" stroke="#000" stroke-width="1"/>
+          <circle cx="170" cy="100" r="20" fill="none" stroke="#fbbf24" stroke-width="3" stroke-dasharray="40,20" stroke-dashoffset="40"/>
+          <circle cx="170" cy="100" r="20" fill="none" stroke="rgba(251,191,36,0.2)" stroke-width="3"/>
+          <text x="170" y="135" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="bold">RT 1.0s</text>
+          <text x="170" y="200" text-anchor="middle" fill="#7e91a8" font-size="8">עיגול מתמלא</text>
+          <line x1="225" y1="20" x2="225" y2="200" stroke="#1f2a3d" stroke-width="1"/>
+          <text x="285" y="14" text-anchor="middle" fill="#5fa86b" font-size="9" font-weight="bold">3. שיגור הטיל</text>
+          <polygon points="285,90 295,100 285,110 275,100" fill="#f59e0b" stroke="#000" stroke-width="1"/>
+          <circle cx="285" cy="100" r="50" fill="none" stroke="rgba(245,158,11,0.3)" stroke-width="0.5"/>
+          <line x1="285" y1="100" x2="320" y2="80" stroke="#fef3c7" stroke-width="2"/>
+          <circle cx="320" cy="80" r="2.5" fill="#fbbf24"/>
+          <polygon points="328,72 336,76 328,80 332,76" fill="#dc2626" stroke="#000" stroke-width="0.5"/>
+          <text x="285" y="200" text-anchor="middle" fill="#7e91a8" font-size="8">לד-פרסוייט</text>
+          <line x1="345" y1="20" x2="345" y2="200" stroke="#1f2a3d" stroke-width="1"/>
+          <text x="402" y="14" text-anchor="middle" fill="#dc2626" font-size="9" font-weight="bold">4. תוצאה</text>
+          <polygon points="402,90 412,100 402,110 392,100" fill="#f59e0b" stroke="#000" stroke-width="1"/>
+          <circle cx="402" cy="100" r="50" fill="none" stroke="rgba(245,158,11,0.3)" stroke-width="0.5"/>
+          <circle cx="430" cy="83" r="14" fill="rgba(255,180,80,0.5)"/>
+          <circle cx="430" cy="83" r="8" fill="rgba(255,255,200,0.9)"/>
+          <text x="402" y="200" text-anchor="middle" fill="#7e91a8" font-size="8">פגיעה / החטאה</text>
+        </svg>
+        <div class="caption">4 שלבי רצף היירוט מהגילוי ועד התוצאה - מה שאתה רואה על המסך לכל איום</div>
+      </div>
       <h4>4 הסיבות האפשריות לפספוס:</h4>
       <ul>
         <li>🎲 <b>החטאה סטטיסטית</b> - לפי KP של הסוללה (טיל פטריוט יפספס בממוצע 35% מהיירוטים).</li>
@@ -707,6 +834,32 @@ const TUTORIAL_STEPS = [
       </ul>
       <h4>כלכלת חימושים (חשוב להבין):</h4>
       <p>סוללה Iron shield יש לה רק <b>8 מיירטים</b>. אם התוקף שולח 10 איומים בו-זמנית מאותו וקטור, התחמושת תיגמר ולפחות 2 יעברו. <b>הזהר מנקודות חולשה זו</b> - הכפל סוללות באזור עם צפי לאיום משמעותי.</p>
+      <div class="tutorial-figure">
+        <svg viewBox="0 0 460 220" xmlns="http://www.w3.org/2000/svg">
+          <rect width="460" height="220" fill="#0a1628"/>
+          <text x="230" y="14" text-anchor="middle" fill="#5fa8d3" font-size="10" font-weight="bold">הגנה רב-שכבתית - 2 סוללות באזור חופף</text>
+          <circle cx="180" cy="115" r="65" fill="rgba(59,130,246,0.10)" stroke="#3b82f6" stroke-width="1.5"/>
+          <text x="125" y="58" fill="#3b82f6" font-size="9" font-weight="bold">Iron shield (KP 90%)</text>
+          <polygon points="180,105 195,115 180,125 165,115" fill="#3b82f6" stroke="#0a0e14" stroke-width="1.5"/>
+          <text x="180" y="139" text-anchor="middle" fill="#3b82f6" font-size="8">IRN</text>
+          <circle cx="290" cy="115" r="65" fill="rgba(139,92,246,0.10)" stroke="#8b5cf6" stroke-width="1.5"/>
+          <text x="345" y="58" fill="#8b5cf6" font-size="9" font-weight="bold">Barak (KP 85%)</text>
+          <polygon points="290,105 305,115 290,125 275,115" fill="#8b5cf6" stroke="#0a0e14" stroke-width="1.5"/>
+          <text x="290" y="139" text-anchor="middle" fill="#8b5cf6" font-size="8">BRK</text>
+          <rect x="200" y="93" width="70" height="44" fill="rgba(95,168,107,0.18)" stroke="#5fa86b" stroke-width="1" stroke-dasharray="4,3"/>
+          <text x="235" y="115" text-anchor="middle" fill="#5fa86b" font-size="9" font-weight="bold">אזור חופף</text>
+          <text x="235" y="128" text-anchor="middle" fill="#5fa86b" font-size="8">99% פגיעה משולב</text>
+          <polygon points="50,170 60,174 50,178 54,174" fill="#dc2626" stroke="#000" stroke-width="0.5"/>
+          <text x="55" y="167" fill="#dc2626" font-size="8">איום</text>
+          <line x1="55" y1="174" x2="420" y2="174" stroke="#dc2626" stroke-width="0.7" stroke-dasharray="3,3"/>
+          <line x1="55" y1="174" x2="55" y2="200" stroke="#5fa86b" stroke-width="0" />
+          <text x="120" y="194" text-anchor="middle" fill="#5fa86b" font-size="8">ניסיון 1: IRN</text>
+          <text x="235" y="194" text-anchor="middle" fill="#5fa86b" font-size="8">ניסיון 2: IRN+BRK</text>
+          <text x="350" y="194" text-anchor="middle" fill="#5fa86b" font-size="8">ניסיון 3: BRK</text>
+          <text x="230" y="215" text-anchor="middle" fill="#7e91a8" font-size="9">90% × 90% = 99% (אם ראשון מפספס, השני יתפוס)</text>
+        </svg>
+        <div class="caption">שתי סוללות שמכסות את אותו אזור: ההסתברות שהאיום ייפגע מצטברת - אם הראשון פספס, השני נותן הזדמנות נוספת</div>
+      </div>
       <div class="tip">⚡ Barak הוא הסוללה היחידה עם RT=0.5s והוא מכסה גם UAV וגם Fighter. הוא הסוללה הכי גמישה.</div>
     `
   },
@@ -720,6 +873,38 @@ const TUTORIAL_STEPS = [
         <li><b>לחיצה 2:</b> לחץ על המפה <b style="color:#dc2626">מחוץ לגבולות המדינה</b> - זו נקודת המוצא של האיום. גבול המדינה יזרח באדום מקווקו.</li>
         <li><b>לחיצה 3:</b> לחץ על אחד מהיעדים האסטרטגיים שאליו האיום יתקוף. היעדים יזרחו באדום.</li>
       </ul>
+      <div class="tutorial-figure">
+        <svg viewBox="0 0 460 220" xmlns="http://www.w3.org/2000/svg">
+          <rect width="460" height="220" fill="#0a1628"/>
+          <rect x="0" y="40" width="80" height="180" fill="#0f1420" stroke="#1f2a3d" stroke-width="1"/>
+          <text x="40" y="55" text-anchor="middle" fill="#dc2626" font-size="9" font-weight="bold">תפריט איומים</text>
+          <rect x="6" y="65" width="68" height="22" fill="rgba(220,38,38,0.15)" stroke="#dc2626" stroke-width="2" rx="3"/>
+          <text x="40" y="80" text-anchor="middle" fill="#fbbf24" font-size="9" font-weight="bold">UAV</text>
+          <circle cx="22" cy="76" r="9" fill="#dc2626"/>
+          <text x="22" y="79" text-anchor="middle" fill="#fff" font-size="11" font-weight="bold">1</text>
+          <rect x="6" y="95" width="68" height="22" fill="#1a2436" stroke="#2a3a55" stroke-width="1" rx="3"/>
+          <text x="40" y="110" text-anchor="middle" fill="#dc2626" font-size="9">Fighter</text>
+          <rect x="6" y="125" width="68" height="22" fill="#1a2436" stroke="#2a3a55" stroke-width="1" rx="3"/>
+          <text x="40" y="140" text-anchor="middle" fill="#a855f7" font-size="9">Helicopter</text>
+          <rect x="90" y="20" width="80" height="200" fill="rgba(220,38,38,0.10)"/>
+          <line x1="170" y1="20" x2="170" y2="220" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="5,3"/>
+          <text x="130" y="34" text-anchor="middle" fill="#f87171" font-size="9" font-weight="bold">Red Zone</text>
+          <path d="M180,40 Q230,28 295,42 Q355,60 385,105 Q400,165 335,200 Q275,215 220,205 Q175,190 173,145 Q170,90 180,40 Z" fill="#1a3148" stroke="#3a6b8c" stroke-width="2"/>
+          <circle cx="135" cy="135" r="14" fill="rgba(220,38,38,0.30)" stroke="#dc2626" stroke-width="2"/>
+          <text x="135" y="140" text-anchor="middle" fill="#fff" font-size="13" font-weight="bold">2</text>
+          <text x="135" y="158" text-anchor="middle" fill="#f87171" font-size="9" font-weight="bold">מוצא</text>
+          <circle cx="265" cy="125" r="14" fill="rgba(251,191,36,0.18)" stroke="#fbbf24" stroke-width="2"/>
+          <polygon points="265,118 268,124 273,124 269,128 270,134 265,131 260,134 261,128 257,124 262,124" fill="#fbbf24" stroke="#0a0e14" stroke-width="0.5"/>
+          <circle cx="295" cy="100" r="13" fill="rgba(220,38,38,0.30)" stroke="#dc2626" stroke-width="2"/>
+          <text x="295" y="105" text-anchor="middle" fill="#fff" font-size="13" font-weight="bold">3</text>
+          <text x="265" y="148" text-anchor="middle" fill="#fde68a" font-size="9">Arian</text>
+          <line x1="148" y1="135" x2="252" y2="125" stroke="#5fa86b" stroke-width="1.5" stroke-dasharray="6,4"/>
+          <polygon points="252,125 244,121 244,129" fill="#5fa86b"/>
+          <text x="200" y="115" text-anchor="middle" fill="#5fa86b" font-size="8">מסלול האיום</text>
+          <text x="230" y="208" text-anchor="middle" fill="#7e91a8" font-size="9">3 לחיצות: בחר סוג → נקודת מוצא → יעד אסטרטגי</text>
+        </svg>
+        <div class="caption">סדר ה-3 לחיצות באתגר התקפה: 1) בחר סוג איום מהתפריט • 2) לחץ באזור האדום • 3) לחץ על יעד אסטרטגי</div>
+      </div>
       <p>כמות הכלים האוויריים שתוכל להשתמש מוצגת בתג אדום על כפתורי האיומים. כל איום שתציב יוריד את הכמות שבידיך.</p>
       <h4>תנאי ניצחון לפי רמה:</h4>
       <ul>
