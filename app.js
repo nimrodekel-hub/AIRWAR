@@ -257,8 +257,8 @@ const DEFENSE_DIFFICULTY = {
     budget: { ironDome: 3, sa8: 2, barak8: 2, patriot: 1, davidsSling: 1,
               longRadar: 1, medRadar: 2, shortRadar: 2 },
     objective: {
-      text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר פגיעה ב-<b>4 יעדים או יותר</b>',
-      check: (hits) => !hits.has('Arian (Capital)') && hits.size < 4
+      text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר פגיעה ב-<b>3 יעדים או יותר</b>',
+      check: (hits) => !hits.has('Arian (Capital)') && hits.size < 3
     }
   },
   hard: {
@@ -268,8 +268,8 @@ const DEFENSE_DIFFICULTY = {
     budget: { ironDome: 2, sa8: 1, barak8: 1, patriot: 1, davidsSling: 1,
               longRadar: 1, medRadar: 1, shortRadar: 1 },
     objective: {
-      text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר פגיעה ב-<b>4 יעדים או יותר</b>',
-      check: (hits) => !hits.has('Arian (Capital)') && hits.size < 4
+      text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר פגיעה ב-<b>2 יעדים או יותר</b>',
+      check: (hits) => !hits.has('Arian (Capital)') && hits.size < 2
     }
   }
 };
