@@ -523,7 +523,6 @@ function bindControls() {
   document.getElementById('simulate').addEventListener('click', startSim);
   document.getElementById('stop').addEventListener('click', stopSim);
   document.getElementById('delete-mode').addEventListener('click', toggleDelete);
-  document.getElementById('edit-targets').addEventListener('click', toggleEditTargets);
   document.getElementById('clear-threats').addEventListener('click', clearThreats);
   document.getElementById('reset').addEventListener('click', resetAll);
   document.querySelectorAll('.diff-btn[data-attack]').forEach(btn => {
@@ -591,7 +590,7 @@ const TUTORIAL_STEPS = [
         <li>🏛 <b>Plaion</b> - עיר (ערך 2)</li>
       </ul>
       <p>היעדים מסומנים עם <b>הילה צהובה בולטת</b> כדי שיהיה קל לראות אותם גם מתחת לסוללות.</p>
-      <div class="tip">📍 כפתור "ערוך מיקומי יעדים" מאפשר לך לגרור את היעדים למקום אחר על המפה לפני התחלת משחק.</div>
+      <div class="tip">🎲 בכל פעם שתאפס את המפה - גבולות המדינה ומיקומי היעדים יוגרלו מחדש כדי לוודא שכל משחק שונה ומאתגר.</div>
     `
   },
   {
@@ -747,7 +746,6 @@ const TUTORIAL_STEPS = [
         <li>📺 <b>ציר זמן</b> - אחרי הסימולציה, סקרולר מתחת לכפתור "הפעל" מאפשר לך לחזור ולהריץ קדימה ואחורה את האירועים וללמוד ממה שקרה.</li>
         <li>📊 <b>מסך סיכום</b> - כולל המלצות אישיות לשיפור על-בסיס מה שקרה במשחק שלך.</li>
         <li>ⓘ <b>כפתורי מידע</b> - ליד כל סוללה/מכ"ם/איום בתפריט, לקבלת פרטים מלאים.</li>
-        <li>📍 <b>ערוך יעדים</b> - מאפשר לגרור את היעדים האסטרטגיים בין משחקים.</li>
       </ul>
       <div class="tip">💡 <b>בהצלחה!</b> אפשר לפתוח את המדריך הזה שוב בכל זמן ע"י לחיצה על הכפתור <span class="key">?</span> ליד כותרת המסך הראשית.</div>
     `
@@ -1012,13 +1010,6 @@ function flashStatus(msg, returnStep) {
 function onMouseDown(ev) {
   if (state.mode === 'sim' || state.mode === 'placing' || state.mode === 'deleting') return;
   const p = getPos(ev);
-
-  if (state.mode === 'editTargets') {
-    const tgt = findTargetAt(p.x, p.y);
-    if (tgt) state.drag = { ent: tgt, ox: p.x - tgt.x, oy: p.y - tgt.y, moved: false, isTarget: true };
-    return;
-  }
-
   const ent = findEntityAt(p.x, p.y);
   if (ent) state.drag = { ent, ox: p.x - ent.x, oy: p.y - ent.y, moved: false };
 }
@@ -1030,15 +1021,6 @@ function onMouseMove(ev) {
     state.drag.ent.x = p.x - state.drag.ox;
     state.drag.ent.y = p.y - state.drag.oy;
     state.drag.moved = true;
-    // If we're moving a strategic target, sync any threats already aimed at it
-    if (state.drag.isTarget) {
-      for (const t of state.threats) {
-        if (t.target === state.drag.ent.name) {
-          t.tx = state.drag.ent.x;
-          t.ty = state.drag.ent.y;
-        }
-      }
-    }
     canvas.classList.add('dragging');
     return;
   }
@@ -1128,21 +1110,6 @@ function toggleDelete() {
   state.placeKey = null;
   refreshButtonStates();
   setStatus(state.mode === 'deleting' ? 'מצב מחיקה - לחץ על רכיב כדי להסיר' : 'בחר רכיב להוספה');
-}
-
-function toggleEditTargets() {
-  if (state.mode === 'sim') return;
-  if (state.mode === 'editTargets') {
-    state.mode = 'idle';
-    setStatus('יצאת ממצב עריכת יעדים');
-    hideBanner();
-  } else {
-    state.mode = 'editTargets';
-    state.placeKey = null;
-    setStatus('עריכת יעדים - גרור יעדים על המפה');
-    showBanner('🛠 מצב עריכת יעדים - גרור את היעדים האסטרטגיים למיקום חדש. לחץ שוב על הכפתור כדי לסיים.', '');
-  }
-  refreshButtonStates();
 }
 
 function findTargetAt(x, y) {
@@ -1383,7 +1350,6 @@ function drawCountry() {
 
 function drawTargets() {
   ctx.textAlign = 'center';
-  const editing = state.mode === 'editTargets';
   const targetingPhase = state.mode === 'placing' && state.placeStep === 'target';
   for (const t of TARGETS) {
     // Bold prominence ring (always visible) so targets aren't lost behind battery icons
@@ -1410,19 +1376,6 @@ function drawTargets() {
       ctx.strokeStyle = '#ef4444';
       ctx.lineWidth = 2;
       ctx.setLineDash([5, 4]);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-    // Pulsing edit-mode halo
-    if (editing) {
-      const phase = (Date.now() / 1000) * 4 + t.x * 0.01;
-      ctx.beginPath();
-      ctx.arc(t.x, t.y, 18 + Math.sin(phase) * 2, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(251, 191, 36, 0.18)';
-      ctx.fill();
-      ctx.strokeStyle = '#fbbf24';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([4, 4]);
       ctx.stroke();
       ctx.setLineDash([]);
     }
