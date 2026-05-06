@@ -188,7 +188,7 @@ function hasLOS(ax, ay, bx, by, tgtAltMSL) {
 
 function regenerateMountains() {
   MOUNTAINS.length = 0;
-  const count = 3 + Math.floor(Math.random() * 3);
+  const count = 2;
   let placed = 0;
   for (let attempt = 0; attempt < 120 && placed < count; attempt++) {
     const cx = 480 + Math.random() * 460;
@@ -200,8 +200,8 @@ function regenerateMountains() {
     const y1 = cy - Math.sin(angle) * len / 2;
     const x2 = cx + Math.cos(angle) * len / 2;
     const y2 = cy + Math.sin(angle) * len / 2;
-    const peak = 3.0 + Math.random() * 1.0;
-    const sigma = 30 + Math.random() * 35;
+    const peak = 2.0 + Math.random() * 2.0;
+    const sigma = 15 + Math.random() * 17;
     // Pre-compute jagged ridgeline for stable rendering
     const dx = x2 - x1, dy = y2 - y1;
     const rlen = Math.hypot(dx, dy) || 1;
@@ -451,7 +451,7 @@ function makeBtn(k) {
   const c = CATALOG[k];
   let rangeText;
   if (c.kind === 'battery') {
-    rangeText = `${c.minRange}-${c.maxRange} km • Alt ${c.minAlt}-${c.maxAlt} km<br><span class="kp-badge">KP ${(c.hitRate*100).toFixed(0)}%</span> <span class="rt-badge">RT ${c.reactionTime}s</span> <span class="speed-line">${c.realSpeed}</span>`;
+    rangeText = `${c.minRange}-${c.maxRange} km • Alt ${c.minAlt}-${c.maxAlt} km<br><span class="pk-badge">PK ${(c.hitRate*100).toFixed(0)}%</span> <span class="rt-badge">RT ${c.reactionTime}s</span> <span class="speed-line">${c.realSpeed}</span>`;
   } else if (c.kind === 'radar') {
     rangeText = `Detection ${c.detection} km`;
   } else {
@@ -505,7 +505,7 @@ function showInfoModal(key) {
       <tr><td>תקרת גובה</td><td>${c.minAlt} - ${c.maxAlt} ק"מ</td></tr>
       <tr><td>מהירות מיירט</td><td><b style="color:#5fa8d3">${c.realSpeed}</b> (${c.missileSpeed} px/s)</td></tr>
       <tr><td>זמן תגובה (RT)</td><td><b style="color:#06b6d4;font-size:15px">${c.reactionTime} שניות</b><div style="font-size:10px;color:#7e91a8;margin-top:2px">משך הזמן מהחלטה לירות עד שיגור בפועל</div></td></tr>
-      <tr><td>שיעור פגיעה (KP)</td><td><b style="color:#5fa86b;font-size:15px">${(c.hitRate*100).toFixed(0)}%</b></td></tr>
+      <tr><td>שיעור פגיעה (PK)</td><td><b style="color:#5fa86b;font-size:15px">${(c.hitRate*100).toFixed(0)}%</b></td></tr>
       <tr><td>מצבור תחמושת</td><td>${c.ammo} מיירטים</td></tr>
       <tr><td>זמן טעינה בין ירי</td><td>${c.reload} שניות</td></tr>
     `;
@@ -724,7 +724,7 @@ const TUTORIAL_STEPS = [
     html: () => `
       <p>חמש סוללות הגנה שונות, כל אחת עם תכונות ייחודיות. הקטלוג מימין מציג את הנתונים העיקריים.</p>
       <table>
-        <tr><th>סוללה</th><th>טווח</th><th>גובה</th><th>KP</th><th>RT</th><th>תחמושת</th></tr>
+        <tr><th>סוללה</th><th>טווח</th><th>גובה</th><th>PK</th><th>RT</th><th>תחמושת</th></tr>
         <tr><td><span class="swatch" style="background:#3b82f6"></span> Iron shield</td><td>4-70</td><td>0-9</td><td class="key">90%</td><td>1s</td><td>8</td></tr>
         <tr><td><span class="swatch" style="background:#10b981"></span> SA-8 Gecko</td><td>1.5-30</td><td>0-5</td><td class="key">65%</td><td>1.5s</td><td>3</td></tr>
         <tr><td><span class="swatch" style="background:#8b5cf6"></span> Barak</td><td>0.5-100</td><td>0-16</td><td class="key">85%</td><td>0.5s</td><td>6</td></tr>
@@ -735,7 +735,7 @@ const TUTORIAL_STEPS = [
       <ul>
         <li><b>טווח</b> (ק"מ): בתוך הטווח הזה הסוללה יכולה ליירט.</li>
         <li><b>גובה</b>: מעטפת הגובה - איום מחוץ לתחום הזה לא ניתן ליירט (למשל David's Sling לא מיירט מסוקים בגובה 0.8 ק"מ; Iron shield לא מיירט מטוסים מעל גובה 9 ק"מ).</li>
-        <li><b>KP</b>: שיעור פגיעה - אחוז המיירטים שמצליחים לפגוע בתנאי שיורט בגאומטריה תקינה.</li>
+        <li><b>PK</b>: שיעור פגיעה - אחוז המיירטים שמצליחים לפגוע בתנאי שיורט בגאומטריה תקינה.</li>
         <li><b>RT</b>: זמן תגובה - שניות מההחלטה לירות עד השיגור בפועל. בזמן הזה האיום ממשיך לנוע.</li>
         <li><b>תחמושת</b>: מספר המיירטים בסוללה. נגמרו - אין יותר ירי מהסוללה הספציפית.</li>
       </ul>
@@ -854,7 +854,7 @@ const TUTORIAL_STEPS = [
         <li style="margin:8px 0"><b>1. גילוי</b> - הסוללה מגלה את האיום (ע"י המכ"ם שלה או ע"י מכ"ם חיצוני).</li>
         <li style="margin:8px 0"><b>2. זמן תגובה (RT)</b> - הסוללה "מתכוננת" לירות. תראה <b>עיגול צהוב מתמלא</b> סביב הסוללה. בזמן הזה האיום ממשיך לנוע.</li>
         <li style="margin:8px 0"><b>3. שיגור הטיל</b> - בסוף ה-RT הטיל יוצא. המערכת מחשבת את <b>נקודת הפגיעה החזויה</b> (לד-פרסוייט).</li>
-        <li style="margin:8px 0"><b>4. תוצאה</b> - אם נקודת הפגיעה בתוך הטווח, תבוצע הגרלה לפי KP. אחרת - "אאוט-אוף-ריינג'".</li>
+        <li style="margin:8px 0"><b>4. תוצאה</b> - אם נקודת הפגיעה בתוך הטווח, תבוצע הגרלה לפי PK. אחרת - "אאוט-אוף-ריינג'".</li>
       </ol>
       <div class="tutorial-figure">
         <svg viewBox="0 0 460 220" xmlns="http://www.w3.org/2000/svg">
@@ -892,7 +892,7 @@ const TUTORIAL_STEPS = [
       </div>
       <h4>4 הסיבות האפשריות לפספוס:</h4>
       <ul>
-        <li>🎲 <b>החטאה סטטיסטית</b> - לפי KP של הסוללה (טיל פטריוט יפספס בממוצע 35% מהיירוטים).</li>
+        <li>🎲 <b>החטאה סטטיסטית</b> - לפי PK של הסוללה (טיל פטריוט יפספס בממוצע 35% מהיירוטים).</li>
         <li>⏱ <b>זמן מעוף לא מספיק</b> - האיום הקדים להגיע ליעד לפני שהמיירט הגיע אליו.</li>
         <li>🎯 <b>יציאה מטווח</b> - האיום יצא מעטפת הסוללה לפני שהמיירט הגיע.</li>
         <li>📐 <b>חציה משיקית</b> - האיום נע בניצב לציר הסוללה (תוך 15° מהניצב), וקיים קושי גאומטרי ליירוט.</li>
@@ -925,7 +925,7 @@ const TUTORIAL_STEPS = [
       <h4>כיצד לבחור איפה לפרוס:</h4>
       <ul>
         <li>🎯 <b>כסה היטב את הבירה ראשית</b> - היא תנאי הפסד מוחלט.</li>
-        <li>🔄 <b>הגנה רב-שכבתית</b> - שתי סוללות שונות מכסות את אותו אזור (KP מוכפל: 90%×90% = 99%).</li>
+        <li>🔄 <b>הגנה רב-שכבתית</b> - שתי סוללות שונות מכסות את אותו אזור (PK מוכפל: 90%×90% = 99%).</li>
         <li>📡 <b>השתמש במכ"ם חיצוני לסוללה</b> כדי להאריך את חלון הירי של סוללות איטיות (Patriot).</li>
         <li>🚁 <b>אל תשים David's Sling נגד מסוקים</b> - הוא לא נוגע בגובה <5 ק"מ. השתמש ב-Iron shield / SA-8.</li>
         <li>✈ <b>נגד Fighters בגובה 10 ק"מ</b> - Patriot, Barak, או David's Sling.</li>
@@ -938,11 +938,11 @@ const TUTORIAL_STEPS = [
           <rect width="460" height="220" fill="#0a1628"/>
           <text x="230" y="14" text-anchor="middle" fill="#5fa8d3" font-size="10" font-weight="bold">הגנה רב-שכבתית - 2 סוללות באזור חופף</text>
           <circle cx="180" cy="115" r="65" fill="rgba(59,130,246,0.10)" stroke="#3b82f6" stroke-width="1.5"/>
-          <text x="125" y="58" fill="#3b82f6" font-size="9" font-weight="bold">Iron shield (KP 90%)</text>
+          <text x="125" y="58" fill="#3b82f6" font-size="9" font-weight="bold">Iron shield (PK 90%)</text>
           <polygon points="180,105 195,115 180,125 165,115" fill="#3b82f6" stroke="#0a0e14" stroke-width="1.5"/>
           <text x="180" y="139" text-anchor="middle" fill="#3b82f6" font-size="8">IRN</text>
           <circle cx="290" cy="115" r="65" fill="rgba(139,92,246,0.10)" stroke="#8b5cf6" stroke-width="1.5"/>
-          <text x="345" y="58" fill="#8b5cf6" font-size="9" font-weight="bold">Barak (KP 85%)</text>
+          <text x="345" y="58" fill="#8b5cf6" font-size="9" font-weight="bold">Barak (PK 85%)</text>
           <polygon points="290,105 305,115 290,125 275,115" fill="#8b5cf6" stroke="#0a0e14" stroke-width="1.5"/>
           <text x="290" y="139" text-anchor="middle" fill="#8b5cf6" font-size="8">BRK</text>
           <rect x="200" y="93" width="70" height="44" fill="rgba(95,168,107,0.18)" stroke="#5fa86b" stroke-width="1" stroke-dasharray="4,3"/>
@@ -1383,7 +1383,7 @@ function onMouseMove(ev) {
     } else if (c.kind === 'threat') {
       lines[0] = `<b>${c.name} <span style="color:#fbbf24">[${ent.label}]</span></b>`;
       lines.push(`יעד: ${ent.target}`);
-      lines.push(`מהירות: ${c.speed} | גובה: ${c.altitude} ק"מ`);
+      lines.push(`מהירות: ${c.speed} | גובה: ${(c.altitude + getTerrainAlt(ent.x, ent.y)).toFixed(1)} ק"מ MSL (AGL ${c.altitude})`);
       lines.push(`סטטוס: ${ent.status === 'destroyed' ? 'הושמד' : ent.status === 'reached' ? 'הגיע ליעד' : 'פעיל'}`);
     }
     tooltip.innerHTML = lines.join('<br>');
@@ -2009,8 +2009,9 @@ function drawThreats() {
     else drawDrone();
     ctx.restore();
 
-    // Prominent serial label with altitude (pill with battery color)
-    const labelText = `${t.label} · Alt ${c.altitude}km`;
+    // Prominent serial label with MSL altitude (changes as it flies over terrain)
+    const altMSL = c.altitude + getTerrainAlt(t.x, t.y);
+    const labelText = `${t.label} · ${altMSL.toFixed(1)}km MSL`;
     ctx.font = 'bold 11px ui-monospace, "SF Mono", Menlo, monospace';
     const tw = ctx.measureText(labelText).width;
     const padX = 5, padY = 2;
@@ -2035,21 +2036,67 @@ function drawThreats() {
 }
 
 function drawFighter() {
+  // Fast jet silhouette: pointed nose, swept-back delta wings, tail fin
+  const fillStyle = ctx.fillStyle;
   ctx.beginPath();
-  ctx.moveTo(10, 0); ctx.lineTo(-6, -6); ctx.lineTo(-3, 0); ctx.lineTo(-6, 6);
-  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.moveTo(7, 0);
+  ctx.lineTo(-2, -1.2);
+  ctx.lineTo(-3, -5);
+  ctx.lineTo(-5, -5);
+  ctx.lineTo(-4, -1);
+  ctx.lineTo(-6, 0);
+  ctx.lineTo(-4, 1);
+  ctx.lineTo(-5, 5);
+  ctx.lineTo(-3, 5);
+  ctx.lineTo(-2, 1.2);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // Tail fin
+  ctx.beginPath();
+  ctx.moveTo(-5, 0); ctx.lineTo(-7, -2.5); ctx.lineTo(-4, -0.5);
+  ctx.closePath();
+  ctx.fillStyle = fillStyle; ctx.fill();
 }
 function drawHelo() {
+  const fillStyle = ctx.fillStyle;
+  // Main body (pod)
   ctx.beginPath();
-  ctx.ellipse(0, 0, 8, 4, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, 4, 2.4, 0, 0, Math.PI * 2);
   ctx.fill(); ctx.stroke();
-  ctx.strokeStyle = ctx.fillStyle;
-  ctx.beginPath(); ctx.moveTo(-12, 0); ctx.lineTo(12, 0); ctx.stroke();
+  // Tail boom
+  ctx.beginPath();
+  ctx.moveTo(-3.5, 0); ctx.lineTo(-8, 0);
+  ctx.lineWidth = 1.4; ctx.stroke();
+  // Tail rotor (vertical)
+  ctx.beginPath();
+  ctx.moveTo(-8, -1.8); ctx.lineTo(-8, 1.8);
+  ctx.lineWidth = 1.2; ctx.stroke();
+  ctx.lineWidth = 1;
+  // Main rotor disc (translucent blade arc)
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  ctx.strokeStyle = fillStyle;
+  ctx.beginPath();
+  ctx.moveTo(-7, -2); ctx.lineTo(7, -2);
+  ctx.lineWidth = 1.4; ctx.stroke();
+  ctx.restore();
 }
 function drawDrone() {
+  const fillStyle = ctx.fillStyle;
+  // Quadcopter: small central body + four rotor pods on X-arms
   ctx.beginPath();
-  ctx.moveTo(8, 0); ctx.lineTo(-4, -5); ctx.lineTo(-4, 5);
-  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.arc(0, 0, 1.6, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
+  ctx.lineWidth = 0.8;
+  for (const [px, py] of [[2.6, 2.6], [2.6, -2.6], [-2.6, 2.6], [-2.6, -2.6]]) {
+    ctx.beginPath();
+    ctx.moveTo(0, 0); ctx.lineTo(px, py);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(px, py, 1.1, 0, Math.PI * 2);
+    ctx.fillStyle = fillStyle; ctx.fill(); ctx.stroke();
+  }
+  ctx.lineWidth = 1;
 }
 
 function drawMissiles() {
@@ -2484,8 +2531,9 @@ function pickEngagementTarget(d) {
     if (t.status !== 'inflight') continue;
     if (alreadyEngaged(t)) continue;
     const tc = CATALOG[t.key];
-    if (tc.altitude < c.minAlt || tc.altitude > c.maxAlt) continue;
-    if (!hasLOS(d.x, d.y, t.x, t.y, getThreatAltMSL(t))) continue;
+    const altMSL = getThreatAltMSL(t);
+    if (altMSL < c.minAlt || altMSL > c.maxAlt) continue;
+    if (!hasLOS(d.x, d.y, t.x, t.y, altMSL)) continue;
 
     const dist = Math.hypot(t.x - d.x, t.y - d.y);
     if (dist < c.minRange) continue;
@@ -2950,7 +2998,7 @@ function generateDefenseRecommendations(r) {
 
   if (survived.length === 0) {
     if (r.killed === r.total) {
-      recs.push('🎯 <b>הגנה מושלמת!</b> כל האיומים יורטו לפי ה-KP של הסוללות. ניתן לבחון הפחתת משאבים בלי לפגוע בכיסוי.');
+      recs.push('🎯 <b>הגנה מושלמת!</b> כל האיומים יורטו לפי ה-PK של הסוללות. ניתן לבחון הפחתת משאבים בלי לפגוע בכיסוי.');
     }
     return recs;
   }
@@ -2986,7 +3034,7 @@ function generateDefenseRecommendations(r) {
   }
 
   if (counts['statistical'] > 0) {
-    recs.push(`🎲 <b>${counts['statistical']} פספוסים סטטיסטיים</b> - בתחום השונות הנורמלית לפי ה-KP של הסוללה (לדוגמה: SA-8 Gecko יחטיא בממוצע 35% מהירויות). <b>פתרון:</b> <u>הגנה רב-שכבתית</u> - שתי סוללות יורות בזו אחר זו על אותו איום מכפילות את הסבירות לפגיעה (90%+90% = 99%).`);
+    recs.push(`🎲 <b>${counts['statistical']} פספוסים סטטיסטיים</b> - בתחום השונות הנורמלית לפי ה-PK של הסוללה (לדוגמה: SA-8 Gecko יחטיא בממוצע 35% מהירויות). <b>פתרון:</b> <u>הגנה רב-שכבתית</u> - שתי סוללות יורות בזו אחר זו על אותו איום מכפילות את הסבירות לפגיעה (90%+90% = 99%).`);
   }
 
   // Target-specific hotspot
@@ -3026,7 +3074,7 @@ function generateAttackRecommendations(r) {
   const sortedBat = Object.entries(interByBattery).sort((a, b) => b[1] - a[1]);
   if (sortedBat.length && sortedBat[0][1] >= 2) {
     const [batName, count] = sortedBat[0];
-    recs.push(`⚠ <b>${batName} יורט ${count} איומים</b> - הסוללה שיירטה הכי הרבה. שלח גלי <u>סטורציה</u> (3+ איומים בו-זמנית מאזור צר) למצות את התחמושת שלה, ואז שלח את האיומים החשובים שלך.`);
+    recs.push(`⚠ <b>${batName} יורט ${count} איומים</b> - הסוללה שיירטה הכי הרבה. שלח גלי <u>הספקי יירוט</u> (3+ איומים בו-זמנית מאזור צר) למצות את התחמושת שלה, ואז שלח את האיומים החשובים שלך.`);
   }
 
   // Threat-type performance comparison
@@ -3045,7 +3093,7 @@ function generateAttackRecommendations(r) {
     const [worstType, ws] = sortedT[sortedT.length - 1];
     if (bs.rate - ws.rate > 0.2) {
       recs.push(`✅ <b>${bestType}</b> חדר ב-${(bs.rate*100).toFixed(0)}% מהמקרים - הסוג הכי מוצלח שלך. תכלול אותו כעיקרי בהתקפה הבאה.`);
-      recs.push(`✗ <b>${worstType}</b> יורט ב-${((1-ws.rate)*100).toFixed(0)}% - מבוזבז. הקטן את כמותו או השתמש בו רק כפיתיון לסטורציה.`);
+      recs.push(`✗ <b>${worstType}</b> יורט ב-${((1-ws.rate)*100).toFixed(0)}% - מבוזבז. הקטן את כמותו או השתמש בו רק כפיתיון להספקי יירוט.`);
     }
   }
 
@@ -3064,7 +3112,7 @@ function generateAttackRecommendations(r) {
   const fortified = targetStats.filter(t => t.sent >= 2 && t.surv === 0);
   if (fortified.length) {
     const desc = fortified.map(t => t.name).join(', ');
-    recs.push(`🛡 <b>יעד מבוצר: ${desc}</b> - אף איום לא חדר. שלח לכאן רק UAVs זולים כסטורציה למיצוי תחמושת, ושמור Fighters ליעדים פרוצים.`);
+    recs.push(`🛡 <b>יעד מבוצר: ${desc}</b> - אף איום לא חדר. שלח לכאן רק UAVs זולים כהספקי יירוט למיצוי תחמושת, ושמור Fighters ליעדים פרוצים.`);
   }
 
   // Altitude/type tactical hints
@@ -3078,12 +3126,12 @@ function generateAttackRecommendations(r) {
     recs.push('🚁 <b>Attack Helicopter בגובה 0.8 ק"מ</b> פגיעים ל-Iron shield ו-SA-8. שלח אותם רק ליעדים מרוחקים מסוללות point-defense.');
   }
   if (uavKilled >= 4) {
-    recs.push('◆ <b>הרבה UAVs יורטו</b> - הם איטיים וחשופים. שלח אותם בגלים מרוכזים (סטורציה) במקום בודדים, או נצל אותם רק כפיתיון לפני שיגור Fighters.');
+    recs.push('◆ <b>הרבה UAVs יורטו</b> - הם איטיים וחשופים. שלח אותם בגלים מרוכזים (הספקי יירוט) במקום בודדים, או נצל אותם רק כפיתיון לפני שיגור Fighters.');
   }
 
   // Saturation hint based on overall interception rate
   if (intercepted.length / r.total > 0.4) {
-    recs.push('💡 <b>סטורציה</b> - הגדל את כמות האיומים בו-זמנית מאותו וקטור. הסוללות מוגבלות בקצב טעינה (0.4-0.8 שנ\') ובתחמושת (3-12 מיירטים) - אם תציף, אחד יעבור.');
+    recs.push('💡 <b>הספקי יירוט</b> - הגדל את כמות האיומים בו-זמנית מאותו וקטור. הסוללות מוגבלות בקצב טעינה (0.4-0.8 שנ\') ובתחמושת (3-12 מיירטים) - אם תציף, אחד יעבור.');
   }
 
   if (recs.length === 0) {
@@ -3121,7 +3169,7 @@ function computeBestPossible() {
   for (const t of sorted) {
     const tc = CATALOG[t.key];
     let assigned = null;
-    // Find any battery that has ammo and can geometrically engage (would hit at 100% KP)
+    // Find any battery that has ammo and can geometrically engage (would hit at 100% PK)
     for (const d of state.defenses) {
       const c = CATALOG[d.key];
       if (c.kind !== 'battery') continue;
@@ -3245,8 +3293,9 @@ function closestApproachOnPath(t, d) {
 
 // Walk the engagement physics for a virtual fire.  Returns a 4-reason classification.
 function simulateEngagementOutcome(t, d, c, tc) {
-  // 1. Altitude envelope
-  if (tc.altitude < c.minAlt || tc.altitude > c.maxAlt) return 'out-of-range';
+  // 1. Altitude envelope (MSL: AGL altitude + terrain elevation under threat)
+  const altMSL = getThreatAltMSL(t);
+  if (altMSL < c.minAlt || altMSL > c.maxAlt) return 'out-of-range';
 
   // RCS-adjusted effective engagement range
   const effMax = effectiveEngagementRange(c, tc);
