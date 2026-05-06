@@ -351,6 +351,12 @@ const ATTACK_DIFFICULTY = {
 // ---- Defense-challenge difficulty profiles ----
 // System generates an attack; user places defense within a budget.
 // Each profile carries an explicit win condition (`objective`).
+// Capital is mandatory in all difficulties; secondary-target tolerance shrinks.
+function nonCapitalHits(hits) {
+  let n = 0;
+  for (const name of hits) if (name !== 'Arian (Capital)') n++;
+  return n;
+}
 const DEFENSE_DIFFICULTY = {
   easy: {
     label: 'קל',
@@ -359,8 +365,8 @@ const DEFENSE_DIFFICULTY = {
     budget: { ironDome: 4, sa8: 3, barak8: 3, patriot: 2, davidsSling: 2,
               longRadar: 2, medRadar: 3, shortRadar: 3 },
     objective: {
-      text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר פגיעה ב-<b>4 יעדים או יותר</b>',
-      check: (hits) => !hits.has('Arian (Capital)') && hits.size < 4
+      text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר פגיעה ב-<b>3 יעדים אחרים או יותר</b>',
+      check: (hits) => !hits.has('Arian (Capital)') && nonCapitalHits(hits) < 3
     }
   },
   medium: {
@@ -370,8 +376,8 @@ const DEFENSE_DIFFICULTY = {
     budget: { ironDome: 3, sa8: 2, barak8: 2, patriot: 1, davidsSling: 1,
               longRadar: 1, medRadar: 2, shortRadar: 2 },
     objective: {
-      text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר פגיעה ב-<b>3 יעדים או יותר</b>',
-      check: (hits) => !hits.has('Arian (Capital)') && hits.size < 3
+      text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר פגיעה ב-<b>2 יעדים אחרים או יותר</b>',
+      check: (hits) => !hits.has('Arian (Capital)') && nonCapitalHits(hits) < 2
     }
   },
   hard: {
@@ -381,8 +387,8 @@ const DEFENSE_DIFFICULTY = {
     budget: { ironDome: 2, sa8: 1, barak8: 1, patriot: 1, davidsSling: 1,
               longRadar: 1, medRadar: 1, shortRadar: 1 },
     objective: {
-      text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר פגיעה ב-<b>2 יעדים או יותר</b>',
-      check: (hits) => !hits.has('Arian (Capital)') && hits.size < 2
+      text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר אף פגיעה ביעד נוסף',
+      check: (hits) => !hits.has('Arian (Capital)') && nonCapitalHits(hits) < 1
     }
   }
 };
