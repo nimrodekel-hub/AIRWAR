@@ -2412,52 +2412,75 @@ function drawFighter() {
 }
 function drawHelo() {
   const fillStyle = ctx.fillStyle;
-  // Tail boom (long thin tube extending rearward)
+
+  // Tail boom — filled tapered wedge from body to tail
   ctx.beginPath();
-  ctx.moveTo(-2, -0.2); ctx.lineTo(-9, -0.4);
-  ctx.lineWidth = 1.5; ctx.stroke();
-  // Tail vertical fin
-  ctx.beginPath();
-  ctx.moveTo(-9, -0.4); ctx.lineTo(-9.2, -2.8);
-  ctx.lineTo(-7.8, -0.4);
+  ctx.moveTo(-1.8, -0.7);
+  ctx.lineTo(-8.5, -0.55);
+  ctx.lineTo(-8.5, 0.15);
+  ctx.lineTo(-1.8, 0.7);
   ctx.closePath();
-  ctx.fillStyle = fillStyle; ctx.fill(); ctx.stroke();
-  // Tail rotor (small vertical disc at end)
+  ctx.fillStyle = fillStyle;
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.lineWidth = 0.4;
+  ctx.fill(); ctx.stroke();
+
+  // Vertical tail fin
   ctx.beginPath();
-  ctx.moveTo(-9.7, -1.2); ctx.lineTo(-8.7, -1.2);
-  ctx.lineWidth = 0.8; ctx.stroke();
-  // Landing skid
+  ctx.moveTo(-7.6, -0.55);
+  ctx.lineTo(-8.7, -2.4);
+  ctx.lineTo(-6.6, -0.55);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  // Tail rotor (small motion-blur line at very rear)
+  ctx.save();
+  ctx.globalAlpha = 0.7;
+  ctx.strokeStyle = fillStyle;
+  ctx.lineWidth = 0.8;
   ctx.beginPath();
-  ctx.moveTo(-1.5, 2.5); ctx.lineTo(3.0, 2.5);
-  ctx.lineWidth = 0.55; ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(-0.6, 1.6); ctx.lineTo(-0.6, 2.5);
-  ctx.moveTo(2.0, 1.6); ctx.lineTo(2.0, 2.5);
+  ctx.moveTo(-9.2, -1.5); ctx.lineTo(-7.9, -1.5);
   ctx.stroke();
-  // Main body (rounded teardrop — cockpit + cabin)
+  ctx.restore();
+
+  // Main body — curved teardrop cabin (covers body-to-boom joint)
   ctx.beginPath();
-  ctx.ellipse(0.8, 0, 3.6, 2.0, 0, 0, Math.PI * 2);
-  ctx.fillStyle = fillStyle; ctx.fill(); ctx.stroke();
-  // Cockpit window (lighter front section)
+  ctx.moveTo(4.6, 0);
+  ctx.bezierCurveTo(4.6, -2.3, 0.5, -2.4, -2, -1.85);
+  ctx.lineTo(-2, 1.85);
+  ctx.bezierCurveTo(0.5, 2.4, 4.6, 2.3, 4.6, 0);
+  ctx.closePath();
+  ctx.fillStyle = fillStyle;
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.lineWidth = 0.5;
+  ctx.fill(); ctx.stroke();
+
+  // Curved cockpit windshield (translucent)
   ctx.beginPath();
-  ctx.ellipse(2.7, -0.2, 1.4, 1.1, 0, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(160, 200, 230, 0.5)';
+  ctx.moveTo(4.4, -0.7);
+  ctx.bezierCurveTo(3.6, -1.85, 1.2, -1.9, 0.5, -1.4);
+  ctx.lineTo(0.5, -0.4);
+  ctx.bezierCurveTo(1.7, -0.9, 3.5, -0.95, 4.4, -0.7);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(155, 205, 235, 0.55)';
   ctx.fill();
+
   // Rotor mast
   ctx.fillStyle = fillStyle;
-  ctx.fillRect(0.3, -2.6, 1.0, 0.9);
-  // Main rotor disc (translucent — gives motion-blur look)
+  ctx.fillRect(0.5, -2.55, 0.85, 0.7);
+
+  // Main rotor disc — long horizontal line + translucent blur fan
   ctx.save();
-  ctx.globalAlpha = 0.55;
+  ctx.globalAlpha = 0.7;
   ctx.strokeStyle = fillStyle;
-  ctx.lineWidth = 1.4;
+  ctx.lineWidth = 1.3;
   ctx.beginPath();
-  ctx.moveTo(-5.5, -2.7); ctx.lineTo(7, -2.7);
+  ctx.moveTo(-5.8, -2.9); ctx.lineTo(8, -2.9);
   ctx.stroke();
-  ctx.globalAlpha = 0.22;
+  ctx.globalAlpha = 0.2;
   ctx.fillStyle = fillStyle;
   ctx.beginPath();
-  ctx.ellipse(0.7, -2.7, 6.4, 0.55, 0, 0, Math.PI * 2);
+  ctx.ellipse(1, -2.9, 6.8, 0.5, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 }
