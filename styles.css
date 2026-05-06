@@ -635,6 +635,7 @@ html, body {
 #legend-overlay .dot.detection { border-color: #06b6d4; }
 #legend-overlay .dot.engagement { border-color: #d35f5f; }
 #legend-overlay .dot.threat-path { border-color: #fbbf24; border-style: dashed; }
+.dot.mountain { background: rgba(140,115,92,0.9); border: 1px solid rgba(215,210,205,0.8); }
 
 .modal {
   position: fixed;

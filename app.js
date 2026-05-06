@@ -110,6 +110,7 @@ const BASE_LAND_POLYGON = [
   [380, 380], [400, 250], [420, 150]
 ];
 const LAND_POLYGON = [];
+const MOUNTAINS = [];
 
 function regenerateLand() {
   LAND_POLYGON.length = 0;
@@ -148,6 +149,73 @@ function regenerateTargets() {
       };
     }
     TARGETS.push(placed);
+  }
+}
+
+function distToSegment(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len2 = dx*dx + dy*dy;
+  if (len2 === 0) return Math.hypot(px - x1, py - y1);
+  const t = Math.max(0, Math.min(1, ((px-x1)*dx + (py-y1)*dy) / len2));
+  return Math.hypot(px - x1 - t*dx, py - y1 - t*dy);
+}
+
+function getTerrainAlt(x, y) {
+  let alt = 0;
+  for (const m of MOUNTAINS) {
+    const d = distToSegment(x, y, m.x1, m.y1, m.x2, m.y2);
+    alt += m.peak * Math.exp(-0.5 * (d / m.sigma) ** 2);
+  }
+  return alt;
+}
+
+function getThreatAltMSL(t) {
+  return CATALOG[t.key].altitude + getTerrainAlt(t.x, t.y);
+}
+
+function hasLOS(ax, ay, bx, by, tgtAltMSL) {
+  const obsAlt = getTerrainAlt(ax, ay);
+  const steps = 24;
+  for (let i = 1; i < steps; i++) {
+    const f = i / steps;
+    const mx = ax + f * (bx - ax);
+    const my = ay + f * (by - ay);
+    const losAlt = obsAlt + f * (tgtAltMSL - obsAlt);
+    if (getTerrainAlt(mx, my) > losAlt) return false;
+  }
+  return true;
+}
+
+function regenerateMountains() {
+  MOUNTAINS.length = 0;
+  const count = 3 + Math.floor(Math.random() * 3);
+  let placed = 0;
+  for (let attempt = 0; attempt < 120 && placed < count; attempt++) {
+    const cx = 480 + Math.random() * 460;
+    const cy = 160 + Math.random() * 400;
+    if (!isInsideCountry(cx, cy)) continue;
+    const angle = Math.random() * Math.PI;
+    const len = 90 + Math.random() * 110;
+    const x1 = cx - Math.cos(angle) * len / 2;
+    const y1 = cy - Math.sin(angle) * len / 2;
+    const x2 = cx + Math.cos(angle) * len / 2;
+    const y2 = cy + Math.sin(angle) * len / 2;
+    const peak = 3.0 + Math.random() * 1.0;
+    const sigma = 30 + Math.random() * 35;
+    // Pre-compute jagged ridgeline for stable rendering
+    const dx = x2 - x1, dy = y2 - y1;
+    const rlen = Math.hypot(dx, dy) || 1;
+    const nx = -dy / rlen, ny = dx / rlen;
+    const segs = 10;
+    const ridgePts = [[x1, y1]];
+    for (let i = 1; i < segs; i++) {
+      const ft = i / segs;
+      const jitter = (Math.random() - 0.5) * 16;
+      ridgePts.push([x1 + ft*dx + nx*jitter, y1 + ft*dy + ny*jitter]);
+    }
+    ridgePts.push([x2, y2]);
+    MOUNTAINS.push({ x1, y1, x2, y2, peak, sigma, ridgePts });
+    placed++;
   }
 }
 
@@ -331,6 +399,7 @@ const state = {
   budget: null,           // defense budget (defense-challenge)
   threatBudget: null,     // threat budget (attack-challenge)
   objective: null,        // { text, check(hits) } - mission win condition
+  autoAmmo: null,
   results: null,
   lastTs: 0,
   simElapsed: 0,
@@ -356,6 +425,7 @@ window.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('resize', resize);
   regenerateLand();
   regenerateTargets();
+  regenerateMountains();
   buildButtons();
   bindControls();
   bindCanvas();
@@ -1307,7 +1377,7 @@ function onMouseMove(ev) {
     if (c.kind === 'battery') {
       lines.push(`טווח: ${c.minRange}-${c.maxRange} ק"מ`);
       lines.push(`תקרה: ${c.maxAlt} ק"מ`);
-      lines.push(`תחמושת: ${ent.ammo}/${c.ammo}`);
+      lines.push(`תחמושת: ${ent.ammo}/${ent.initialAmmo || c.ammo}`);
     } else if (c.kind === 'radar') {
       lines.push(`גילוי: ${c.detection} ק"מ`);
     } else if (c.kind === 'threat') {
@@ -1346,9 +1416,10 @@ function placeAt(key, x, y) {
     const target = pickTarget();
     state.threats.push(makeThreat(key, x, y, target.x, target.y, target.name));
   } else {
+    const initialAmmo = (state.autoAmmo && state.autoAmmo[key] !== undefined) ? state.autoAmmo[key] : c.ammo;
     state.defenses.push({
       id: nextId++, key, x, y,
-      ammo: c.ammo, cd: 0,
+      ammo: initialAmmo, initialAmmo, cd: 0,
       prepareTarget: null,    // threatId currently being prepared (during reactionTime)
       prepareUntil: 0          // simElapsed at which the missile actually launches
     });
@@ -1418,6 +1489,7 @@ function resetAll() {
   state.budget = null;
   state.threatBudget = null;
   state.objective = null;
+  state.autoAmmo = null;
   state.attackChallenge = false;
   state.challengeDifficulty = null;
   state.challengeMode = null;
@@ -1429,6 +1501,7 @@ function resetAll() {
   // Regenerate the country borders and target locations so each game is fresh
   regenerateLand();
   regenerateTargets();
+  regenerateMountains();
   resetView();
   hideBanner();
   refreshButtonStates();
@@ -1465,6 +1538,7 @@ function draw() {
   ctx.scale(state.viewport.scale, state.viewport.scale);
   drawBackground();
   drawCountry();
+  drawMountains();
   drawTargets();
   drawCoverage();
   drawDefenses();
@@ -1612,15 +1686,6 @@ function drawCountry() {
     ctx.setLineDash([]);
   }
 
-  // Mountain ridge
-  ctx.fillStyle = 'rgba(120, 140, 160, 0.12)';
-  ctx.beginPath();
-  ctx.moveTo(550, 320);
-  ctx.lineTo(620, 280); ctx.lineTo(680, 310); ctx.lineTo(740, 270);
-  ctx.lineTo(800, 320); ctx.lineTo(860, 290); ctx.lineTo(900, 340);
-  ctx.lineTo(870, 380); ctx.lineTo(580, 380);
-  ctx.closePath(); ctx.fill();
-
   // Country label
   ctx.fillStyle = 'rgba(95, 168, 211, 0.35)';
   ctx.font = 'bold 28px serif';
@@ -1629,6 +1694,60 @@ function drawCountry() {
   ctx.font = '12px sans-serif';
   ctx.fillStyle = 'rgba(95, 168, 211, 0.5)';
   ctx.fillText('Air Defense Command', 720, 178);
+}
+
+function drawMountains() {
+  for (const m of MOUNTAINS) {
+    const dx = m.x2 - m.x1, dy = m.y2 - m.y1;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len, ny = dx / len;
+    const spread = m.sigma * 2.2;
+    // Filled mountain base
+    ctx.beginPath();
+    ctx.moveTo(m.x1 + nx * spread, m.y1 + ny * spread);
+    ctx.lineTo(m.x1 - nx * spread, m.y1 - ny * spread);
+    ctx.lineTo(m.x2 - nx * spread, m.y2 - ny * spread);
+    ctx.lineTo(m.x2 + nx * spread, m.y2 + ny * spread);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(75, 60, 48, 0.38)';
+    ctx.fill();
+    // Contour lines
+    for (const fr of [0.65, 0.35]) {
+      const s = spread * fr;
+      ctx.beginPath();
+      ctx.moveTo(m.x1 + nx * s, m.y1 + ny * s);
+      ctx.lineTo(m.x1 - nx * s, m.y1 - ny * s);
+      ctx.lineTo(m.x2 - nx * s, m.y2 - ny * s);
+      ctx.lineTo(m.x2 + nx * s, m.y2 + ny * s);
+      ctx.closePath();
+      ctx.strokeStyle = `rgba(140, 115, 92, ${0.18 + (1 - fr) * 0.22})`;
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+    }
+    // Snow cap
+    ctx.beginPath();
+    ctx.moveTo(m.x1 + nx * 12, m.y1 + ny * 12);
+    ctx.lineTo(m.x1 - nx * 12, m.y1 - ny * 12);
+    ctx.lineTo(m.x2 - nx * 12, m.y2 - ny * 12);
+    ctx.lineTo(m.x2 + nx * 12, m.y2 + ny * 12);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(235, 235, 248, 0.13)';
+    ctx.fill();
+    // Jagged ridgeline
+    ctx.beginPath();
+    ctx.moveTo(m.ridgePts[0][0], m.ridgePts[0][1]);
+    for (let i = 1; i < m.ridgePts.length; i++) ctx.lineTo(m.ridgePts[i][0], m.ridgePts[i][1]);
+    ctx.strokeStyle = 'rgba(215, 210, 205, 0.78)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // Elevation label
+    const midX = (m.x1 + m.x2) / 2;
+    const midY = (m.y1 + m.y2) / 2;
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255, 248, 240, 0.88)';
+    ctx.fillText(`▲ ${(m.peak * 1000).toFixed(0)}m`, midX, midY - spread * 0.25 - 4);
+  }
 }
 
 function drawTargets() {
@@ -2236,7 +2355,7 @@ function startSim() {
   }
   for (const d of state.defenses) {
     const c = CATALOG[d.key];
-    d.ammo = c.ammo; d.cd = 0;
+    d.ammo = d.initialAmmo !== undefined ? d.initialAmmo : c.ammo; d.cd = 0;
     d.prepareTarget = null;
     d.prepareUntil = 0;
   }
@@ -2366,6 +2485,7 @@ function pickEngagementTarget(d) {
     if (alreadyEngaged(t)) continue;
     const tc = CATALOG[t.key];
     if (tc.altitude < c.minAlt || tc.altitude > c.maxAlt) continue;
+    if (!hasLOS(d.x, d.y, t.x, t.y, getThreatAltMSL(t))) continue;
 
     const dist = Math.hypot(t.x - d.x, t.y - d.y);
     if (dist < c.minRange) continue;
@@ -2405,7 +2525,7 @@ function getDetectionInfo(t, d, c, tc) {
   let organic = false, externalRadar = false;
   // Battery's own organic search radar
   const ownEff = c.maxRange * factor;
-  if (Math.hypot(t.x - d.x, t.y - d.y) <= ownEff) organic = true;
+  if (Math.hypot(t.x - d.x, t.y - d.y) <= ownEff && hasLOS(d.x, d.y, t.x, t.y, getThreatAltMSL(t))) organic = true;
   // Standalone radars elsewhere on the map - detection only, doesn't
   // change the missile's physical envelope but extends the battery's
   // effective engagement range when the radar covers ground beyond it.
@@ -2413,7 +2533,7 @@ function getDetectionInfo(t, d, c, tc) {
     const oc = CATALOG[od.key];
     if (oc.kind !== 'radar') continue;
     const eff = oc.detection * factor;
-    if (Math.hypot(t.x - od.x, t.y - od.y) <= eff) {
+    if (Math.hypot(t.x - od.x, t.y - od.y) <= eff && hasLOS(od.x, od.y, t.x, t.y, getThreatAltMSL(t))) {
       externalRadar = true;
       break;
     }
@@ -2461,7 +2581,7 @@ function isDetected(t) {
     const c = CATALOG[d.key];
     const range = c.kind === 'radar' ? c.detection : c.maxRange;
     const effective = range * (0.6 + 0.4 * tc.rcs); // small RCS reduces detection
-    if (Math.hypot(t.x - d.x, t.y - d.y) <= effective) return true;
+    if (Math.hypot(t.x - d.x, t.y - d.y) <= effective && hasLOS(d.x, d.y, t.x, t.y, getThreatAltMSL(t))) return true;
   }
   return false;
 }
@@ -3230,13 +3350,17 @@ function startAttackChallenge(difficulty) {
   state.threatBudget = { ...profile.threatBudget };
   state.objective = profile.objective;
 
+  const _atkTotal = profile.threatBudget.uav + profile.threatBudget.fighter + profile.threatBudget.helicopter;
+  const _atkBatteries = profile.defenses.filter(d => CATALOG[d.key].kind === 'battery').length;
+
   // System auto-deploys defenses according to the difficulty profile.
   // Anchors are resolved against the *current* (randomized) target layout.
   for (const item of profile.defenses) {
     const pos = resolveAnchor(item);
+    const _a = calcAutoAmmo(item.key, _atkTotal, _atkBatteries);
     state.defenses.push({
       id: nextId++, key: item.key, x: pos.x, y: pos.y,
-      ammo: CATALOG[item.key].ammo, cd: 0,
+      ammo: _a, initialAmmo: _a, cd: 0,
       prepareTarget: null, prepareUntil: 0
     });
   }
@@ -3322,6 +3446,12 @@ function generateAutoAttack() {
 // =============================================================
 // אתגר הגנה
 // =============================================================
+function calcAutoAmmo(key, totalThreats, numBatteries) {
+  const c = CATALOG[key];
+  if (c.kind !== 'battery') return c.ammo;
+  return Math.max(c.ammo, Math.ceil(totalThreats / Math.max(numBatteries, 1) / c.hitRate * 1.2));
+}
+
 function startDefenseChallenge(difficulty = 'medium') {
   resetAll();
   state.challengeMode = 'defense-challenge';
@@ -3354,6 +3484,11 @@ function startDefenseChallenge(difficulty = 'medium') {
       tgt.name
     ));
   }
+
+  let numBudgetBatteries = 0;
+  for (const k of BATTERY_KEYS) numBudgetBatteries += (profile.budget[k] || 0);
+  state.autoAmmo = {};
+  for (const k of BATTERY_KEYS) state.autoAmmo[k] = calcAutoAmmo(k, attackSize, numBudgetBatteries);
 
   state.budget = profile.budget;
   switchSide('blue');
