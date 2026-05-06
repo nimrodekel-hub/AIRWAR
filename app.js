@@ -528,6 +528,10 @@ function bindControls() {
     resetAll();
     showStartModal();
   });
+  document.getElementById('back-to-selection').addEventListener('click', () => {
+    resetAll();
+    showStartModal();
+  });
   document.querySelectorAll('.diff-btn[data-attack]').forEach(btn => {
     btn.addEventListener('click', () => startAttackChallenge(btn.dataset.attack));
   });
@@ -1019,7 +1023,13 @@ function panBy(dx, dy) {
 }
 
 function resetView() {
-  state.viewport = { offsetX: 0, offsetY: 0, scale: 1 };
+  const s = 0.85;
+  const cx = 720, cy = 410;
+  state.viewport = {
+    offsetX: W / 2 - cx * s,
+    offsetY: H / 2 - cy * s,
+    scale: s
+  };
 }
 
 function onScrubberChange(ev) {
@@ -1063,6 +1073,55 @@ function switchSide(side) {
   setStatus(side === 'blue' ? 'צד כחול - בחר אמצעי הגנה' : 'צד אדום - בחר איום');
 }
 
+function showBackButton() {
+  document.getElementById('side-toggle').style.display = 'none';
+  document.getElementById('back-to-selection').style.display = '';
+}
+
+function showSideToggle() {
+  document.getElementById('side-toggle').style.display = '';
+  document.getElementById('back-to-selection').style.display = 'none';
+  document.getElementById('step-guide-panel').style.display = 'none';
+}
+
+function updateStepGuide() {
+  const panel = document.getElementById('step-guide-panel');
+  const guide = document.getElementById('step-guide');
+
+  if (state.challengeMode !== 'defense-challenge' && state.challengeMode !== 'attack-challenge') {
+    panel.style.display = 'none';
+    return;
+  }
+
+  panel.style.display = '';
+  let steps;
+
+  if (state.challengeMode === 'defense-challenge') {
+    const hasBatteries = state.defenses.some(d => CATALOG[d.key].kind === 'battery');
+    const hasRadars = state.defenses.some(d => CATALOG[d.key].kind === 'radar');
+    steps = [
+      { label: '1️⃣ פרוס סוללות הגנה על המפה', done: hasBatteries, current: !hasBatteries },
+      { label: '2️⃣ הוסף מכ"מים להרחבת הכיסוי', done: hasRadars, current: hasBatteries && !hasRadars },
+      { label: '3️⃣ לחץ "הפעל סימולציה"', done: false, current: hasBatteries }
+    ];
+  } else {
+    const hasThreats = state.threats.length > 0;
+    const isPlacing = state.mode === 'placing';
+    const pickingOrigin = state.placeStep === 'origin';
+    const pickingTarget = state.placeStep === 'target';
+    steps = [
+      { label: '1️⃣ בחר סוג איום מהתפריט', done: isPlacing || hasThreats, current: !isPlacing && !hasThreats },
+      { label: '2️⃣ לחץ מחוץ לגבולות (נקודת מוצא)', done: pickingTarget || (!pickingOrigin && hasThreats), current: pickingOrigin },
+      { label: '3️⃣ לחץ על יעד אסטרטגי', done: !pickingTarget && hasThreats, current: pickingTarget },
+      { label: '4️⃣ לחץ "הפעל סימולציה"', done: false, current: hasThreats && !isPlacing }
+    ];
+  }
+
+  guide.innerHTML = steps.map(s =>
+    `<div class="step ${s.done ? 'done' : s.current ? 'current' : 'pending'}">${s.label}</div>`
+  ).join('');
+}
+
 function selectPlace(key) {
   const c = CATALOG[key];
   if (state.mode === 'sim') return;
@@ -1097,6 +1156,7 @@ function selectPlace(key) {
     setStatus(`מציב ${c.name} - לחץ על המפה`);
   }
   refreshButtonStates();
+  updateStepGuide();
 }
 
 function refreshButtonStates() {
@@ -1156,6 +1216,7 @@ function onCanvasClick(ev) {
         state.placeOrigin = { x: p.x, y: p.y };
         state.placeStep = 'target';
         setStatus(`${c.name} מ-(${Math.round(p.x)}, ${Math.round(p.y)}) - בחר יעד אסטרטגי`);
+        updateStepGuide();
         return;
       }
       if (state.placeStep === 'target') {
@@ -1181,6 +1242,7 @@ function onCanvasClick(ev) {
           state.placeOrigin = null;
           setStatus(`${c.name} - לחץ על נקודת מוצא לאיום הבא (${used}/${max} הוצבו)`);
         }
+        updateStepGuide();
         return;
       }
     }
@@ -1221,7 +1283,10 @@ function onMouseDown(ev) {
   if (state.mode === 'sim' || state.mode === 'placing' || state.mode === 'deleting') return;
   const p = getPos(ev);
   const ent = findEntityAt(p.x, p.y);
-  if (ent) state.drag = { ent, ox: p.x - ent.x, oy: p.y - ent.y, moved: false };
+  if (ent) {
+    if (state.challengeMode === 'defense-challenge' && state.threats.includes(ent)) return;
+    state.drag = { ent, ox: p.x - ent.x, oy: p.y - ent.y, moved: false };
+  }
 }
 
 function onMouseMove(ev) {
@@ -1289,6 +1354,7 @@ function placeAt(key, x, y) {
     });
   }
   if (state.budget) renderBudget();
+  updateStepGuide();
 }
 
 function makeThreat(key, sx, sy, tx, ty, targetName) {
@@ -1311,8 +1377,13 @@ function pickTarget() {
 }
 
 function deleteEntity(e) {
+  if (state.challengeMode === 'defense-challenge' && state.threats.includes(e)) {
+    setStatus('⚠ איומי מערכת לא ניתנים למחיקה במשימת הגנה');
+    return;
+  }
   state.defenses = state.defenses.filter(x => x !== e);
   state.threats  = state.threats.filter(x => x !== e);
+  updateStepGuide();
 }
 
 function toggleDelete() {
@@ -1335,6 +1406,7 @@ function clearThreats() {
   state.serialCounters = {};
   state.results = null; renderResults();
   setStatus('נוקו האיומים');
+  updateStepGuide();
 }
 
 function resetAll() {
@@ -1357,12 +1429,13 @@ function resetAll() {
   // Regenerate the country borders and target locations so each game is fresh
   regenerateLand();
   regenerateTargets();
-  // Reset viewport to default
-  state.viewport = { offsetX: 0, offsetY: 0, scale: 1 };
+  resetView();
   hideBanner();
   refreshButtonStates();
   renderBudget();
   renderResults();
+  showSideToggle();
+  updateStepGuide();
   setStatus('המפה אופסה - מפה ויעדים חדשים');
 }
 
@@ -3185,6 +3258,8 @@ function startAttackChallenge(difficulty) {
     ''
   );
   setStatus(`משימת התקפה ${profile.label} - בחר סוג איום מהתפריט`);
+  showBackButton();
+  updateStepGuide();
 }
 
 // =============================================================
@@ -3290,6 +3365,8 @@ function startDefenseChallenge(difficulty = 'medium') {
     ''
   );
   renderBudget();
+  showBackButton();
+  updateStepGuide();
 }
 
 function renderBudget() {

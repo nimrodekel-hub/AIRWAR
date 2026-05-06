@@ -4,21 +4,27 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>משחק מלחמה - הגנה אווירית | רפובליקת טליאריה</title>
-  <link rel="stylesheet" href="styles.css?v=20260501z">
+  <link rel="stylesheet" href="styles.css?v=20260502a">
 </head>
 <body>
   <div id="app">
     <aside id="sidebar">
       <header>
         <h1>פיקוד הגנה אווירית</h1>
-        <div class="subtitle">משחק מלחמה: כחול נגד אדום <span class="version-tag">v20260501z</span></div>
+        <div class="subtitle">משחק מלחמה: כחול נגד אדום <span class="version-tag">v20260502a</span></div>
         <button id="open-tutorial" class="instructions-btn">📘 הוראות המשחק</button>
         <button id="open-start" class="newgame-btn">🆕 משחק חדש</button>
-        <div class="side-toggle">
+        <div class="side-toggle" id="side-toggle">
           <button class="side-btn blue active" data-side="blue">🔵 כחול - הגנה</button>
           <button class="side-btn red" data-side="red">🔴 אדום - התקפה</button>
         </div>
+        <button id="back-to-selection" class="back-btn" style="display:none">↩ חזור לבחירת משחק</button>
       </header>
+
+      <section class="panel" id="step-guide-panel" style="display:none">
+        <h2>📋 מה השלב הבא?</h2>
+        <div id="step-guide"></div>
+      </section>
 
       <section class="panel" id="blue-panel">
         <h2>🔵 סוללות נ"מ (כחול)</h2>
@@ -201,6 +207,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260501z"></script>
+  <script src="app.js?v=20260502a"></script>
 </body>
 </html>

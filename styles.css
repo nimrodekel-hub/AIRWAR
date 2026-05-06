@@ -800,6 +800,71 @@ html, body {
 
 #tutorial-modal { z-index: 1100; }
 
+.back-btn {
+  width: 100%;
+  background: #2a4571;
+  color: #d6e0f0;
+  border: 1px solid #4a6b9c;
+  border-radius: 4px;
+  padding: 9px 12px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-top: 10px;
+}
+
+.back-btn:hover {
+  background: #355489;
+  border-color: #5fa8d3;
+}
+
+#step-guide-panel {
+  background: rgba(95, 168, 211, 0.06);
+  border-color: #5fa8d3;
+}
+
+#step-guide-panel h2 {
+  color: #5fa8d3;
+}
+
+#step-guide .step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  margin: 4px 0;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  transition: all 0.15s ease;
+}
+
+#step-guide .step.current {
+  background: rgba(251, 191, 36, 0.18);
+  border-right: 3px solid #fbbf24;
+  color: #fde68a;
+  font-weight: 700;
+  box-shadow: 0 0 8px rgba(251, 191, 36, 0.15);
+}
+
+#step-guide .step.done {
+  background: rgba(95, 168, 107, 0.10);
+  border-right: 3px solid #5fa86b;
+  color: #86efac;
+}
+
+#step-guide .step.pending {
+  color: #6c7a8c;
+  border-right: 3px solid #1f2a3d;
+}
+
+#step-guide .step .icon {
+  font-size: 14px;
+  width: 18px;
+  text-align: center;
+}
+
 .tutorial-step h3 {
   color: #5fa8d3;
   font-size: 16px;
