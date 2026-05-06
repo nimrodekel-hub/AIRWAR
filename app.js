@@ -774,8 +774,8 @@ const TUTORIAL_STEPS = [
       </ul>
       <p>היעדים מסומנים עם <b>הילה צהובה בולטת</b> כדי שיהיה קל לראות אותם גם מתחת לסוללות.</p>
       <h4>⛰ טופוגרפיה - רכסי הרים</h4>
-      <p>בכל משחק חדש המערכת מייצרת <b>2 רכסי הרים</b> אקראיים בתוך המדינה, בגבהים של <b>2,000-4,000 מטר</b> (2-4 ק"מ MSL). הרכסים מסומנים בקו רכס לבן וצל חום, ומוצגים גם בתיוג הגובה שלהם.</p>
-      <p>ההרים <b style="color:#fbbf24">חוסמים קו ראיה (LOS)</b> - מכ"ם או סוללה שמסתתר מאחורי רכס לא יכולים לזהות או ליירט איום מהצד השני, כל עוד האיום נמוך מצמרת הרכס.</p>
+      <p>בכל משחק חדש המערכת מייצרת <b>2 רכסי הרים</b> אקראיים בתוך המדינה, בגבהים של <b>2,000-4,000 מטר</b>. הרכסים מסומנים בקו רכס לבן וצל חום, ומוצגים גם בתיוג הגובה שלהם.</p>
+      <p>ההרים <b style="color:#fbbf24">חוסמים קו ראיה (LOS - Line Of Sight)</b> - מכ"ם או סוללה שמסתתר מאחורי רכס לא יכולים לזהות או ליירט איום מהצד השני, כל עוד האיום נמוך מצמרת הרכס.</p>
       <div class="tip">🎲 בכל פעם שתאפס את המפה - גבולות המדינה, מיקומי היעדים <u>וגם רכסי ההרים</u> יוגרלו מחדש כדי לוודא שכל משחק שונה ומאתגר.</div>
     `
   },
@@ -860,39 +860,47 @@ const TUTORIAL_STEPS = [
       <div class="tutorial-figure">
         <svg viewBox="0 0 460 220" xmlns="http://www.w3.org/2000/svg">
           <rect width="460" height="220" fill="#0a1628"/>
-          <circle cx="320" cy="110" r="105" fill="rgba(6,182,212,0.07)" stroke="#06b6d4" stroke-width="1" stroke-dasharray="5,5"/>
-          <text x="320" y="20" text-anchor="middle" fill="#06b6d4" font-size="10" font-weight="bold">Long-Range Radar coverage</text>
-          <circle cx="320" cy="110" r="10" fill="#06b6d4" stroke="#0a0e14" stroke-width="2"/>
-          <line x1="320" y1="100" x2="320" y2="105" stroke="#0a0e14" stroke-width="2"/>
-          <text x="320" y="135" text-anchor="middle" fill="#06b6d4" font-size="9">Radar</text>
-          <circle cx="220" cy="110" r="50" fill="rgba(245,158,11,0.12)" stroke="#f59e0b" stroke-width="1.5"/>
-          <text x="220" y="55" text-anchor="middle" fill="#f59e0b" font-size="9" font-weight="bold">Patriot range</text>
-          <polygon points="220,98 233,110 220,122 207,110" fill="#f59e0b" stroke="#0a0e14" stroke-width="1.5"/>
-          <text x="220" y="138" text-anchor="middle" fill="#f59e0b" font-size="9">Patriot</text>
-          <g>
-            <polygon points="80,105 90,110 80,115 84,110" fill="#dc2626" stroke="#000" stroke-width="0.5"/>
-            <text x="80" y="95" text-anchor="middle" fill="#dc2626" font-size="9">Threat</text>
-            <line x1="86" y1="110" x2="220" y2="110" stroke="#dc2626" stroke-width="0.7" stroke-dasharray="3,3"/>
-          </g>
-          <g>
-            <line x1="320" y1="110" x2="170" y2="110" stroke="#06b6d4" stroke-width="1" stroke-dasharray="3,2"/>
-            <text x="190" y="100" fill="#06b6d4" font-size="8">radar tracking</text>
-          </g>
-          <g>
-            <circle cx="220" cy="110" r="14" fill="none" stroke="#06b6d4" stroke-width="2"/>
-            <text x="220" y="170" text-anchor="middle" fill="#06b6d4" font-size="9" font-weight="bold">Battery prepares early</text>
-            <text x="220" y="183" text-anchor="middle" fill="#7e91a8" font-size="8">↑ intercept point lands inside Patriot range</text>
-          </g>
-          <text x="230" y="208" text-anchor="middle" fill="#7e91a8" font-size="9">Threat enters Patriot range → fire (already prepared)</text>
+          <!-- Radar coverage (large, on the LEFT — closer to threat) -->
+          <circle cx="220" cy="110" r="150" fill="rgba(6,182,212,0.07)" stroke="#06b6d4" stroke-width="1" stroke-dasharray="5,5"/>
+          <text x="120" y="20" text-anchor="middle" fill="#06b6d4" font-size="10" font-weight="bold">Long-Range Radar coverage</text>
+          <!-- Battery range (smaller, on the RIGHT — the weapon system) -->
+          <circle cx="370" cy="110" r="55" fill="rgba(245,158,11,0.12)" stroke="#f59e0b" stroke-width="1.5"/>
+          <text x="370" y="46" text-anchor="middle" fill="#f59e0b" font-size="9" font-weight="bold">Patriot range</text>
+          <!-- Battery (rightmost) -->
+          <polygon points="370,98 383,110 370,122 357,110" fill="#f59e0b" stroke="#0a0e14" stroke-width="1.5"/>
+          <text x="370" y="140" text-anchor="middle" fill="#f59e0b" font-size="9">Patriot (battery)</text>
+          <!-- Radar (LEFT of battery, between threat and battery) -->
+          <circle cx="220" cy="110" r="10" fill="#06b6d4" stroke="#0a0e14" stroke-width="2"/>
+          <line x1="220" y1="100" x2="220" y2="105" stroke="#0a0e14" stroke-width="2"/>
+          <text x="220" y="135" text-anchor="middle" fill="#06b6d4" font-size="9">Radar</text>
+          <!-- Threat coming from far LEFT -->
+          <polygon points="50,107 62,113 50,119 56,113" fill="#dc2626" stroke="#000" stroke-width="0.5"/>
+          <text x="56" y="98" text-anchor="middle" fill="#dc2626" font-size="9">Threat →</text>
+          <!-- Threat path: enters radar first, then battery -->
+          <line x1="62" y1="113" x2="350" y2="113" stroke="#dc2626" stroke-width="1" stroke-dasharray="4,3"/>
+          <polygon points="350,109 358,113 350,117" fill="#dc2626"/>
+          <!-- Annotation: detection point (when threat enters radar coverage) -->
+          <line x1="72" y1="142" x2="72" y2="160" stroke="#06b6d4" stroke-width="1"/>
+          <circle cx="72" cy="113" r="3.5" fill="none" stroke="#06b6d4" stroke-width="1.5"/>
+          <text x="72" y="173" text-anchor="middle" fill="#06b6d4" font-size="8" font-weight="bold">1. נכנס למכ"ם</text>
+          <text x="72" y="184" text-anchor="middle" fill="#7e91a8" font-size="8">→ מתחיל גילוי</text>
+          <!-- Annotation: battery prepares early -->
+          <line x1="220" y1="142" x2="220" y2="160" stroke="#fbbf24" stroke-width="1"/>
+          <text x="220" y="173" text-anchor="middle" fill="#fbbf24" font-size="8" font-weight="bold">2. הסוללה מתכוננת</text>
+          <text x="220" y="184" text-anchor="middle" fill="#7e91a8" font-size="8">RT - בזמן שעדיין מחוץ לטווח</text>
+          <!-- Annotation: enters battery range, fires -->
+          <line x1="320" y1="142" x2="320" y2="160" stroke="#f59e0b" stroke-width="1"/>
+          <text x="320" y="173" text-anchor="middle" fill="#f59e0b" font-size="8" font-weight="bold">3. נכנס לסוללה</text>
+          <text x="320" y="184" text-anchor="middle" fill="#7e91a8" font-size="8">→ שיגור מיידי</text>
         </svg>
-        <div class="caption">המכ"ם רואה את האיום הרבה לפני שהוא נכנס לטווח של פטריוט. הסוללה מתחילה הכנה מוקדמת - זה מאריך את חלון היירוט.</div>
+        <div class="caption">המכ"ם נמצא קדימה (משמאל לסוללה) - רואה את האיום הרבה לפני שהוא נכנס לטווח הסוללה. הסוללה מבצעת הכנה מוקדמת בזמן שהאיום עדיין מחוץ לטווחה.</div>
       </div>
       <div class="tip">📡 מכ"ם ארוך-טווח לפני סוללת Patriot מוסיף משמעותית את חלון היירוט שלה - זה אפקט סינרגטי מועיל ביותר.</div>
-      <h4>⛰ קו ראיה (LOS) ומיסוך טופוגרפי</h4>
+      <h4>⛰ קו ראיה (LOS - Line Of Sight) ומיסוך טופוגרפי</h4>
       <p>כל מכ"ם וכל סוללה <b>חייבים קו ראיה ישיר</b> אל האיום כדי לזהות / ליירט אותו. אם רכס הרים נמצא בין הסנסור לאיום, והאיום טס נמוך מהפסגה - <b style="color:#dc2626">האיום מוסתר</b>.</p>
       <ul>
-        <li>איום שטס בגובה <b>2 ק"מ MSL</b> מאחורי רכס בגובה <b>3.5 ק"מ</b> - בלתי-נראה לחלוטין למכ"ם שמולו.</li>
-        <li>ברגע שהאיום עולה מעל גובה הרכס (טופוגרפיה תורמת לגובה ה-MSL שלו), הוא <b>חוזר להיות גלוי</b>.</li>
+        <li>איום שטס בגובה <b>2 ק"מ</b> מאחורי רכס בגובה <b>3.5 ק"מ</b> - בלתי-נראה לחלוטין למכ"ם שמולו.</li>
+        <li>ברגע שהאיום עולה מעל גובה הרכס (טופוגרפיה תורמת לגובהו האבסולוטי), הוא <b>חוזר להיות גלוי</b>.</li>
         <li>טקטית: <b>הצב מכ"מים בקצוות</b> כך שיראו עוקפים מסביב להרים, לא רק ישירות מצד אחד.</li>
       </ul>
       <div class="tip">⛰ <b>טיפ:</b> איום עם RCS נמוך + מיסוך טופוגרפי = הרבה זמן בלתי-מזוהה. שימוש מוצלח בהרים יכול ליצור פירצות בכיסוי ההגנה.</div>
@@ -913,22 +921,23 @@ const TUTORIAL_STEPS = [
       <ul>
         <li><b>Fighter Jet (RCS 1.0)</b>: 100% מהטווח. נראה היטב.</li>
         <li><b>Helicopter (RCS 0.7)</b>: ~91% מהטווח.</li>
-        <li><b>UAV (RCS 0.1)</b>: <b>רק ~56%</b> מהטווח. כטב"מים מאוד קשים לאיתור (סטילת'י).</li>
+        <li><b>UAV (RCS 0.1)</b>: <b>רק ~56%</b> מהטווח. כטב"מים מאוד קשים לאיתור.</li>
       </ul>
       <div class="tip">⚠ <b>גובה משנה הכל:</b> מסוק בגובה 0.8 ק"מ לא יכול להיות מיורט ע"י David's Sling (גובה מינימום 5 ק"מ). מטוס קרב בגובה 10 ק"מ לא ניתן לתפוס ע"י SA-8 (גובה מקסימום 5).</div>
-      <h4>🏔 גובה דינאמי (AGL ↔ MSL)</h4>
-      <p>הערך בקטלוג הוא <b>AGL (Above Ground Level)</b> - גובה מעל הקרקע. אבל מעטפת הסוללה והגלוי-בלתי-גלוי נקבעים לפי <b>MSL (Above Sea Level)</b>.</p>
-      <p>כשאיום עובר מעל רכס הרים, גובה ה-MSL שלו <b>עולה ויורד דינאמית</b> - תראה זאת בתיוג הגובה שמעל לאיום (לדוגמה: <code>UAV-3 · 5.4km MSL</code>).</p>
+      <h4>🏔 גובה דינאמי - AGL מול גובה אבסולוטי</h4>
+      <p>הערך בקטלוג של כל איום הוא <b>AGL (Above Ground Level)</b> - גובה הטיסה <u>מעל פני הקרקע</u>. האיום שומר על הגובה הזה לכל אורך הטיסה.</p>
+      <p>אבל מעטפת הסוללה והגלוי-בלתי-גלוי נקבעים לפי <b>הגובה האבסולוטי</b> (גובה מעל פני הים). הסוללות פרוסות במישור ולצורך פשטות נחשבות בגובה 0, אבל המטוס שטס בגובה קבוע מעל פני הקרקע - <b>הגובה האבסולוטי שלו משתנה</b> כשהוא עובר מעל הרים.</p>
+      <p>תראה זאת בתיוג שמעל לאיום (לדוגמה: <code>UAV-3 · 5.4km</code> - הגובה האבסולוטי הנוכחי).</p>
       <ul>
-        <li>UAV ב-2 ק"מ AGL מעל קרקע שטוחה = 2 ק"מ MSL.</li>
-        <li>אותו UAV מעל רכס בגובה 3.5 ק"מ = <b>5.5 ק"מ MSL</b> - מעל מעטפת SA-8 (max 5)!</li>
+        <li>UAV ב-2 ק"מ AGL מעל קרקע שטוחה = 2 ק"מ גובה אבסולוטי.</li>
+        <li>אותו UAV מעל רכס בגובה 3.5 ק"מ = <b>5.5 ק"מ גובה אבסולוטי</b> - מעל מעטפת SA-8 (max 5)!</li>
         <li>תוצאה: SA-8 לא תוכל ליירט אותו בעת המעבר מעל הרכס, גם אם המרחק מאפשר.</li>
       </ul>
       <h4>🎨 אייקונים מובחנים על המפה</h4>
       <ul>
         <li><b style="color:#dc2626">Fighter Jet</b> - מטוס סילון עם חרטום מחודד וכנפי דלתא.</li>
         <li><b style="color:#a855f7">Helicopter</b> - גוף מסוק עם זרוע זנב ודיסקת רוטור שקופה.</li>
-        <li><b style="color:#fbbf24">UAV</b> - קוודקופטר עם 4 זרועות ופרופלרים.</li>
+        <li><b style="color:#fbbf24">UAV</b> - כטב"ם בעל גוף ארוך, כנפיים סוויפ ו-V-tail בזנב.</li>
       </ul>
     `
   },
@@ -939,8 +948,8 @@ const TUTORIAL_STEPS = [
       <ol style="list-style:decimal;padding-right:20px">
         <li style="margin:8px 0"><b>1. גילוי</b> - הסוללה מגלה את האיום (ע"י המכ"ם שלה או ע"י מכ"ם חיצוני).</li>
         <li style="margin:8px 0"><b>2. זמן תגובה (RT)</b> - הסוללה "מתכוננת" לירות. תראה <b>עיגול צהוב מתמלא</b> סביב הסוללה. בזמן הזה האיום ממשיך לנוע.</li>
-        <li style="margin:8px 0"><b>3. שיגור הטיל</b> - בסוף ה-RT הטיל יוצא. המערכת מחשבת את <b>נקודת הפגיעה החזויה</b> (לד-פרסוייט).</li>
-        <li style="margin:8px 0"><b>4. תוצאה</b> - אם נקודת הפגיעה בתוך הטווח, תבוצע הגרלה לפי PK. אחרת - "אאוט-אוף-ריינג'".</li>
+        <li style="margin:8px 0"><b>3. שיגור הטיל</b> - בסוף ה-RT הטיל יוצא. המערכת מחשבת את <b>נקודת הפגיעה החזויה</b> מתוך מהירות הטיל ומסלול האיום.</li>
+        <li style="margin:8px 0"><b>4. תוצאה</b> - תבוצע הגרלה לפי אחוזי ה-<b>PK</b>, והמערכת מחשבת האם בוצע יירוט או שהייתה החטאה.</li>
       </ol>
       <div class="tutorial-figure">
         <svg viewBox="0 0 460 220" xmlns="http://www.w3.org/2000/svg">
@@ -965,7 +974,7 @@ const TUTORIAL_STEPS = [
           <line x1="285" y1="100" x2="320" y2="80" stroke="#fef3c7" stroke-width="2"/>
           <circle cx="320" cy="80" r="2.5" fill="#fbbf24"/>
           <polygon points="328,72 336,76 328,80 332,76" fill="#dc2626" stroke="#000" stroke-width="0.5"/>
-          <text x="285" y="200" text-anchor="middle" fill="#7e91a8" font-size="8">לד-פרסוייט</text>
+          <text x="285" y="200" text-anchor="middle" fill="#7e91a8" font-size="8">חישוב נקודת פגיעה</text>
           <line x1="345" y1="20" x2="345" y2="200" stroke="#1f2a3d" stroke-width="1"/>
           <text x="402" y="14" text-anchor="middle" fill="#dc2626" font-size="9" font-weight="bold">4. תוצאה</text>
           <polygon points="402,90 412,100 402,110 392,100" fill="#f59e0b" stroke="#000" stroke-width="1"/>
@@ -1485,7 +1494,7 @@ function onMouseMove(ev) {
     } else if (c.kind === 'threat') {
       lines[0] = `<b>${c.name} <span style="color:#fbbf24">[${ent.label}]</span></b>`;
       lines.push(`יעד: ${ent.target}`);
-      lines.push(`מהירות: ${c.speed} | גובה: ${(c.altitude + getTerrainAlt(ent.x, ent.y)).toFixed(1)} ק"מ MSL (AGL ${c.altitude})`);
+      lines.push(`מהירות: ${c.speed} | גובה אבסולוטי: ${(c.altitude + getTerrainAlt(ent.x, ent.y)).toFixed(1)} ק"מ (AGL ${c.altitude})`);
       lines.push(`סטטוס: ${ent.status === 'destroyed' ? 'הושמד' : ent.status === 'reached' ? 'הגיע ליעד' : 'פעיל'}`);
     }
     tooltip.innerHTML = lines.join('<br>');
@@ -2368,9 +2377,9 @@ function drawThreats() {
     else drawDrone();
     ctx.restore();
 
-    // Label with MSL altitude
+    // Label with absolute altitude (changes over terrain)
     const altMSL = c.altitude + getTerrainAlt(t.x, t.y);
-    const labelText = `${t.label} · ${altMSL.toFixed(1)}km MSL`;
+    const labelText = `${t.label} · ${altMSL.toFixed(1)}km`;
     ctx.font = 'bold 11px monospace';
     const tw = ctx.measureText(labelText).width;
     const padX = 5, padY = 2;
