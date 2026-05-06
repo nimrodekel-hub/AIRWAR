@@ -206,15 +206,60 @@ function regenerateMountains() {
     const dx = x2 - x1, dy = y2 - y1;
     const rlen = Math.hypot(dx, dy) || 1;
     const nx = -dy / rlen, ny = dx / rlen;
-    const segs = 10;
+    const segs = 12;
     const ridgePts = [[x1, y1]];
     for (let i = 1; i < segs; i++) {
       const ft = i / segs;
-      const jitter = (Math.random() - 0.5) * 16;
+      const jitter = (Math.random() - 0.5) * 18;
       ridgePts.push([x1 + ft*dx + nx*jitter, y1 + ft*dy + ny*jitter]);
     }
     ridgePts.push([x2, y2]);
-    MOUNTAINS.push({ x1, y1, x2, y2, peak, sigma, ridgePts });
+
+    // Pre-compute snow patches near the highest ridge points
+    const snowPatches = [];
+    for (let i = 1; i < ridgePts.length - 1; i++) {
+      if (Math.random() < 0.55) {
+        const [px, py] = ridgePts[i];
+        snowPatches.push({
+          cx: px + (Math.random() - 0.5) * 3,
+          cy: py + 1.5 + Math.random() * 3,
+          rx: 4 + Math.random() * 4,
+          ry: 1.8 + Math.random() * 1.6
+        });
+      }
+    }
+
+    // Pre-compute tree dots scattered around the mountain base
+    const treeDots = [];
+    const spread = sigma * 2.4;
+    for (let i = 0; i < 38; i++) {
+      const f = Math.random();
+      const side = Math.random() < 0.5 ? 1 : -1;
+      const offset = spread * (0.78 + Math.random() * 0.18);
+      treeDots.push({
+        x: x1 + dx * f + nx * offset * side + (Math.random() - 0.5) * 5,
+        y: y1 + dy * f + ny * offset * side + (Math.random() - 0.5) * 5,
+        s: 0.6 + Math.random() * 0.7,
+        shade: Math.random() < 0.5 ? 0 : 1
+      });
+    }
+
+    // Pre-compute hatching strokes on the shadow side (rock texture)
+    const hatches = [];
+    for (let i = 0; i < 22; i++) {
+      const f = 0.08 + Math.random() * 0.84;
+      const offset = spread * (0.25 + Math.random() * 0.5);
+      const baseX = x1 + dx * f - nx * offset;
+      const baseY = y1 + dy * f - ny * offset;
+      hatches.push({
+        x1: baseX,
+        y1: baseY,
+        x2: baseX + nx * (2.5 + Math.random() * 3),
+        y2: baseY + ny * (2.5 + Math.random() * 3)
+      });
+    }
+
+    MOUNTAINS.push({ x1, y1, x2, y2, peak, sigma, ridgePts, snowPatches, treeDots, hatches });
     placed++;
   }
 }
@@ -369,6 +414,12 @@ function pointInPolygon(x, y, poly) {
 
 function isInsideCountry(x, y) {
   return pointInPolygon(x, y, LAND_POLYGON);
+}
+
+// Red zone — the only valid origin for hostile aircraft.
+// World 1200×800; red strip is x∈[0,380].
+function isInsideRedZone(x, y) {
+  return x >= 0 && x <= 380 && y >= 0 && y <= 800;
 }
 
 // ---- Miss reason labels (Hebrew UI) ----
@@ -1324,8 +1375,8 @@ function onCanvasClick(ev) {
     // Three-click attack-challenge threat placement
     if (state.attackChallenge && c.kind === 'threat') {
       if (state.placeStep === 'origin') {
-        if (isInsideCountry(p.x, p.y)) {
-          flashStatus('⚠ נקודת המוצא חייבת להיות מחוץ לגבולות המדינה!', 'origin');
+        if (!isInsideRedZone(p.x, p.y)) {
+          flashStatus('⚠ נקודת המוצא חייבת להיות בתוך האזור האדום!', 'origin');
           return;
         }
         state.placeOrigin = { x: p.x, y: p.y };
@@ -1386,7 +1437,7 @@ function flashStatus(msg, returnStep) {
   _flashTimer = setTimeout(() => {
     if (state.placeStep === 'origin') {
       const c = CATALOG[state.placeKey];
-      setStatus(`${c.name} - לחץ על המפה מחוץ לגבולות המדינה (נקודת מוצא)`);
+      setStatus(`${c.name} - לחץ בתוך האזור האדום (נקודת מוצא)`);
     } else if (state.placeStep === 'target') {
       const c = CATALOG[state.placeKey];
       setStatus(`${c.name} - בחר יעד אסטרטגי`);
@@ -1639,25 +1690,23 @@ function drawPlacementGuide() {
   if (!c || c.kind !== 'threat') return;
 
   if (state.placeStep === 'origin') {
-    // Show whether the cursor is in a valid (outside-country) location
-    const inside = isInsideCountry(state.mouseX, state.mouseY);
+    // Origin must be inside the red zone (not just outside country)
+    const valid = isInsideRedZone(state.mouseX, state.mouseY);
     ctx.beginPath();
     ctx.arc(state.mouseX, state.mouseY, 12, 0, Math.PI * 2);
-    ctx.strokeStyle = inside ? '#dc2626' : '#5fa86b';
+    ctx.strokeStyle = valid ? '#5fa86b' : '#dc2626';
     ctx.lineWidth = 2;
-    ctx.setLineDash(inside ? [3, 3] : []);
+    ctx.setLineDash(valid ? [] : [3, 3]);
     ctx.stroke();
     ctx.setLineDash([]);
-    if (inside) {
-      ctx.fillStyle = '#dc2626';
-      ctx.font = 'bold 11px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('✗ בתוך המדינה', state.mouseX, state.mouseY - 18);
-    } else {
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'center';
+    if (valid) {
       ctx.fillStyle = '#5fa86b';
-      ctx.font = 'bold 11px sans-serif';
-      ctx.textAlign = 'center';
       ctx.fillText('✓ נקודת מוצא תקינה', state.mouseX, state.mouseY - 18);
+    } else {
+      ctx.fillStyle = '#dc2626';
+      ctx.fillText('✗ מחוץ לאזור האדום', state.mouseX, state.mouseY - 18);
     }
   } else if (state.placeStep === 'target' && state.placeOrigin) {
     const o = state.placeOrigin;
@@ -1839,36 +1888,65 @@ function drawMountains() {
     const nx = -dy / len, ny = dx / len;
     const spread = m.sigma * 2.4;
 
-    // Shadow cast (slightly offset, dark) — gives 3-D depth
+    // 1. Cast shadow — softens edges, adds 3-D feel
     ctx.beginPath();
-    ctx.moveTo(m.x1 + nx * spread + 4, m.y1 + ny * spread + 5);
-    ctx.lineTo(m.x1 - nx * spread + 4, m.y1 - ny * spread + 5);
-    ctx.lineTo(m.x2 - nx * spread + 4, m.y2 - ny * spread + 5);
-    ctx.lineTo(m.x2 + nx * spread + 4, m.y2 + ny * spread + 5);
+    ctx.moveTo(m.x1 + nx * spread + 5, m.y1 + ny * spread + 6);
+    ctx.lineTo(m.x1 - nx * spread + 5, m.y1 - ny * spread + 6);
+    ctx.lineTo(m.x2 - nx * spread + 5, m.y2 - ny * spread + 6);
+    ctx.lineTo(m.x2 + nx * spread + 5, m.y2 + ny * spread + 6);
     ctx.closePath();
-    ctx.fillStyle = 'rgba(10, 8, 5, 0.32)';
+    ctx.fillStyle = 'rgba(4, 3, 2, 0.42)';
     ctx.fill();
 
-    // Main body: gradient lit from upper-left (nx,ny points toward light)
-    const litX = m.x1 + nx * spread, litY = m.y1 + ny * spread;
-    const shadX = m.x1 - nx * spread, shadY = m.y1 - ny * spread;
-    const bodyGrad = ctx.createLinearGradient(litX, litY, shadX, shadY);
-    const r = 80 + Math.floor(m.peak * 18), g = 65 + Math.floor(m.peak * 10), b = 48;
-    bodyGrad.addColorStop(0.0, `rgba(${r + 20}, ${g + 14}, ${b + 10}, 0.58)`);
-    bodyGrad.addColorStop(0.45, `rgba(${r}, ${g}, ${b}, 0.50)`);
-    bodyGrad.addColorStop(1.0, `rgba(${Math.max(r - 30, 30)}, ${Math.max(g - 22, 22)}, ${Math.max(b - 14, 14)}, 0.62)`);
-
+    // 2. Foothill / forested base (greenish-brown)
     ctx.beginPath();
     ctx.moveTo(m.x1 + nx * spread, m.y1 + ny * spread);
     ctx.lineTo(m.x1 - nx * spread, m.y1 - ny * spread);
     ctx.lineTo(m.x2 - nx * spread, m.y2 - ny * spread);
     ctx.lineTo(m.x2 + nx * spread, m.y2 + ny * spread);
     ctx.closePath();
+    ctx.fillStyle = 'rgba(48, 60, 38, 0.55)';
+    ctx.fill();
+
+    // 3. Tree-line vegetation dots scattered at base
+    for (const t of m.treeDots) {
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, t.s, 0, Math.PI * 2);
+      ctx.fillStyle = t.shade ? 'rgba(28, 52, 30, 0.78)' : 'rgba(38, 62, 36, 0.72)';
+      ctx.fill();
+    }
+
+    // 4. Mid-elevation rocky body — gradient lit from upper-left
+    const litX = m.x1 + nx * spread * 0.7, litY = m.y1 + ny * spread * 0.7;
+    const shadX = m.x1 - nx * spread * 0.7, shadY = m.y1 - ny * spread * 0.7;
+    const bodyGrad = ctx.createLinearGradient(litX, litY, shadX, shadY);
+    bodyGrad.addColorStop(0.0, 'rgba(155, 130, 95,  0.78)');
+    bodyGrad.addColorStop(0.4, 'rgba(110, 88,  62,  0.7)');
+    bodyGrad.addColorStop(0.8, 'rgba(65,  50,  32,  0.78)');
+    bodyGrad.addColorStop(1.0, 'rgba(30,  22,  14,  0.85)');
+
+    const midSpread = spread * 0.7;
+    ctx.beginPath();
+    ctx.moveTo(m.x1 + nx * midSpread, m.y1 + ny * midSpread);
+    ctx.lineTo(m.x1 - nx * midSpread, m.y1 - ny * midSpread);
+    ctx.lineTo(m.x2 - nx * midSpread, m.y2 - ny * midSpread);
+    ctx.lineTo(m.x2 + nx * midSpread, m.y2 + ny * midSpread);
+    ctx.closePath();
     ctx.fillStyle = bodyGrad;
     ctx.fill();
 
-    // Topographic contour lines
-    for (const fr of [0.75, 0.5, 0.28]) {
+    // 5. Rock-texture hatching strokes on the shadow side
+    ctx.strokeStyle = 'rgba(28, 20, 10, 0.55)';
+    ctx.lineWidth = 0.7;
+    for (const h of m.hatches) {
+      ctx.beginPath();
+      ctx.moveTo(h.x1, h.y1);
+      ctx.lineTo(h.x2, h.y2);
+      ctx.stroke();
+    }
+
+    // 6. Topographic contour lines
+    for (const fr of [0.85, 0.6, 0.32]) {
       const s = spread * fr;
       ctx.beginPath();
       ctx.moveTo(m.x1 + nx * s, m.y1 + ny * s);
@@ -1876,36 +1954,50 @@ function drawMountains() {
       ctx.lineTo(m.x2 - nx * s, m.y2 - ny * s);
       ctx.lineTo(m.x2 + nx * s, m.y2 + ny * s);
       ctx.closePath();
-      ctx.strokeStyle = `rgba(130, 105, 78, ${0.10 + (1 - fr) * 0.2})`;
+      ctx.strokeStyle = `rgba(60, 42, 22, ${0.16 + (1 - fr) * 0.22})`;
       ctx.lineWidth = 0.7;
       ctx.stroke();
     }
 
-    // Snow cap
-    const snowW = spread * 0.2;
-    ctx.beginPath();
-    ctx.moveTo(m.x1 + nx * snowW, m.y1 + ny * snowW);
-    ctx.lineTo(m.x1 - nx * snowW, m.y1 - ny * snowW);
-    ctx.lineTo(m.x2 - nx * snowW, m.y2 - ny * snowW);
-    ctx.lineTo(m.x2 + nx * snowW, m.y2 + ny * snowW);
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(235, 238, 255, 0.2)';
-    ctx.fill();
+    // 7. Snow patches on lit side near peaks
+    for (const s of m.snowPatches) {
+      ctx.beginPath();
+      ctx.ellipse(s.cx, s.cy, s.rx, s.ry, 0, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(248, 250, 255, 0.78)';
+      ctx.fill();
+      // Soft outer halo
+      ctx.beginPath();
+      ctx.ellipse(s.cx, s.cy, s.rx + 1.2, s.ry + 0.6, 0, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(248, 250, 255, 0.18)';
+      ctx.fill();
+    }
 
-    // Jagged ridge line
+    // 8. Jagged ridge silhouette (multi-peak crest)
     ctx.beginPath();
     ctx.moveTo(m.ridgePts[0][0], m.ridgePts[0][1]);
     for (let i = 1; i < m.ridgePts.length; i++) ctx.lineTo(m.ridgePts[i][0], m.ridgePts[i][1]);
-    ctx.strokeStyle = 'rgba(228, 222, 215, 0.82)';
-    ctx.lineWidth = 1.8;
+    ctx.strokeStyle = 'rgba(238, 232, 220, 0.92)';
+    ctx.lineWidth = 1.7;
     ctx.stroke();
 
-    // Elevation label
+    // Subtle ridge shadow line just below the crest
+    ctx.beginPath();
+    ctx.moveTo(m.ridgePts[0][0] - nx * 1.2, m.ridgePts[0][1] - ny * 1.2);
+    for (let i = 1; i < m.ridgePts.length; i++) {
+      ctx.lineTo(m.ridgePts[i][0] - nx * 1.2, m.ridgePts[i][1] - ny * 1.2);
+    }
+    ctx.strokeStyle = 'rgba(20, 14, 8, 0.45)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // 9. Elevation label with shadow
     const midX = (m.x1 + m.x2) / 2;
     const midY = (m.y1 + m.y2) / 2;
     ctx.font = 'bold 10px monospace';
     ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(255, 248, 238, 0.9)';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillText(`▲ ${(m.peak * 1000).toFixed(0)}m`, midX + 1, midY - spread * 0.28 - 3);
+    ctx.fillStyle = 'rgba(255, 250, 238, 0.95)';
     ctx.fillText(`▲ ${(m.peak * 1000).toFixed(0)}m`, midX, midY - spread * 0.28 - 4);
   }
 }
@@ -1993,9 +2085,9 @@ function drawCoverage() {
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Rotating sweep wedge (always visible — gives radar life)
-      const sweepAng = (now * 1.1 + d.x * 0.009) * Math.PI * 2;
-      const wedge = Math.PI * 0.16;
+      // Rotating sweep wedge — slow, calm rotation (~6 RPM)
+      const sweepAng = (now * 0.18 + d.x * 0.009) * Math.PI * 2;
+      const wedge = Math.PI * 0.18;
       ctx.save();
       ctx.beginPath();
       ctx.moveTo(d.x, d.y);
@@ -2201,22 +2293,23 @@ function drawThreatPaths() {
   for (const t of state.threats) {
     if (t.status === 'destroyed') continue;
     const c = CATALOG[t.key];
+    // Full origin-to-target path, clearly visible
     ctx.beginPath();
     ctx.moveTo(t.sx, t.sy);
     ctx.lineTo(t.tx, t.ty);
-    ctx.strokeStyle = c.color + '35';
-    ctx.setLineDash([6, 7]);
-    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = c.color + '88';
+    ctx.setLineDash([7, 6]);
+    ctx.lineWidth = 1.5;
     ctx.stroke();
     ctx.setLineDash([]);
-    // Remaining path (threat → target) slightly brighter
+    // Remaining path (current → target) brighter solid
     if (t.status === 'inflight') {
       ctx.beginPath();
       ctx.moveTo(t.x, t.y);
       ctx.lineTo(t.tx, t.ty);
-      ctx.strokeStyle = c.color + '55';
-      ctx.setLineDash([4, 5]);
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = c.color + 'cc';
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 1.4;
       ctx.stroke();
       ctx.setLineDash([]);
     }
@@ -2319,44 +2412,90 @@ function drawFighter() {
 }
 function drawHelo() {
   const fillStyle = ctx.fillStyle;
-  // Main body (pod)
+  // Tail boom (long thin tube extending rearward)
   ctx.beginPath();
-  ctx.ellipse(0, 0, 4, 2.4, 0, 0, Math.PI * 2);
-  ctx.fill(); ctx.stroke();
-  // Tail boom
+  ctx.moveTo(-2, -0.2); ctx.lineTo(-9, -0.4);
+  ctx.lineWidth = 1.5; ctx.stroke();
+  // Tail vertical fin
   ctx.beginPath();
-  ctx.moveTo(-3.5, 0); ctx.lineTo(-8, 0);
-  ctx.lineWidth = 1.4; ctx.stroke();
-  // Tail rotor (vertical)
+  ctx.moveTo(-9, -0.4); ctx.lineTo(-9.2, -2.8);
+  ctx.lineTo(-7.8, -0.4);
+  ctx.closePath();
+  ctx.fillStyle = fillStyle; ctx.fill(); ctx.stroke();
+  // Tail rotor (small vertical disc at end)
   ctx.beginPath();
-  ctx.moveTo(-8, -1.8); ctx.lineTo(-8, 1.8);
-  ctx.lineWidth = 1.2; ctx.stroke();
-  ctx.lineWidth = 1;
-  // Main rotor disc (translucent blade arc)
+  ctx.moveTo(-9.7, -1.2); ctx.lineTo(-8.7, -1.2);
+  ctx.lineWidth = 0.8; ctx.stroke();
+  // Landing skid
+  ctx.beginPath();
+  ctx.moveTo(-1.5, 2.5); ctx.lineTo(3.0, 2.5);
+  ctx.lineWidth = 0.55; ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-0.6, 1.6); ctx.lineTo(-0.6, 2.5);
+  ctx.moveTo(2.0, 1.6); ctx.lineTo(2.0, 2.5);
+  ctx.stroke();
+  // Main body (rounded teardrop — cockpit + cabin)
+  ctx.beginPath();
+  ctx.ellipse(0.8, 0, 3.6, 2.0, 0, 0, Math.PI * 2);
+  ctx.fillStyle = fillStyle; ctx.fill(); ctx.stroke();
+  // Cockpit window (lighter front section)
+  ctx.beginPath();
+  ctx.ellipse(2.7, -0.2, 1.4, 1.1, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(160, 200, 230, 0.5)';
+  ctx.fill();
+  // Rotor mast
+  ctx.fillStyle = fillStyle;
+  ctx.fillRect(0.3, -2.6, 1.0, 0.9);
+  // Main rotor disc (translucent — gives motion-blur look)
   ctx.save();
-  ctx.globalAlpha = 0.5;
+  ctx.globalAlpha = 0.55;
   ctx.strokeStyle = fillStyle;
+  ctx.lineWidth = 1.4;
   ctx.beginPath();
-  ctx.moveTo(-7, -2); ctx.lineTo(7, -2);
-  ctx.lineWidth = 1.4; ctx.stroke();
+  ctx.moveTo(-5.5, -2.7); ctx.lineTo(7, -2.7);
+  ctx.stroke();
+  ctx.globalAlpha = 0.22;
+  ctx.fillStyle = fillStyle;
+  ctx.beginPath();
+  ctx.ellipse(0.7, -2.7, 6.4, 0.55, 0, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 }
+
 function drawDrone() {
+  // Fixed-wing UAV (Predator-style): slim fuselage, swept wings, V-tail, sensor dome
   const fillStyle = ctx.fillStyle;
-  // Quadcopter: small central body + four rotor pods on X-arms
+  // Wings — swept back from mid-fuselage
   ctx.beginPath();
-  ctx.arc(0, 0, 1.6, 0, Math.PI * 2);
+  ctx.moveTo(0.5, -0.5);
+  ctx.lineTo(-2.5, -5.5);
+  ctx.lineTo(-1.0, -5.6);
+  ctx.lineTo(2.2, -0.4);
+  ctx.lineTo(-1.0, 5.6);
+  ctx.lineTo(-2.5, 5.5);
+  ctx.lineTo(0.5, 0.5);
+  ctx.closePath();
+  ctx.fillStyle = fillStyle; ctx.fill(); ctx.stroke();
+  // Fuselage — long thin tube with pointed nose
+  ctx.beginPath();
+  ctx.moveTo(7, 0);
+  ctx.lineTo(5.5, -0.9);
+  ctx.lineTo(-5, -1.1);
+  ctx.lineTo(-5.5, 0);
+  ctx.lineTo(-5, 1.1);
+  ctx.lineTo(5.5, 0.9);
+  ctx.closePath();
   ctx.fill(); ctx.stroke();
-  ctx.lineWidth = 0.8;
-  for (const [px, py] of [[2.6, 2.6], [2.6, -2.6], [-2.6, 2.6], [-2.6, -2.6]]) {
-    ctx.beginPath();
-    ctx.moveTo(0, 0); ctx.lineTo(px, py);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(px, py, 1.1, 0, Math.PI * 2);
-    ctx.fillStyle = fillStyle; ctx.fill(); ctx.stroke();
-  }
-  ctx.lineWidth = 1;
+  // Sensor dome on top of fuselage (signature UAV feature)
+  ctx.beginPath();
+  ctx.arc(2.5, -1.4, 1.1, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
+  // V-tail (two angled fins at rear)
+  ctx.beginPath();
+  ctx.moveTo(-4.5, -0.8); ctx.lineTo(-6.5, -2.6);
+  ctx.moveTo(-4.5,  0.8); ctx.lineTo(-6.5,  2.6);
+  ctx.lineWidth = 0.9; ctx.stroke();
+  ctx.lineWidth = 0.45;
 }
 
 function drawMissiles() {
@@ -3847,15 +3986,9 @@ function startDefenseChallenge(difficulty = 'medium') {
     else if (r < 0.4) key = 'helicopter';
     else key = 'uav';
     const tgt = TARGETS[Math.floor(Math.random() * TARGETS.length)];
-    let sx, sy;
-    const fromNorth = Math.random() < (difficulty === 'hard' ? 0.4 : 0.3);
-    if (fromNorth) {
-      sx = 150 + Math.random() * (profile.jitterX + 500);
-      sy = 20 + Math.random() * 60;
-    } else {
-      sx = 20 + Math.random() * profile.jitterX;
-      sy = profile.baseY + Math.random() * profile.jitterY;
-    }
+    // Spawn only from inside the red zone (x ∈ [10, 370], y ∈ [10, 790])
+    const sx = 10 + Math.random() * 360;
+    const sy = 10 + Math.random() * 780;
     state.threats.push(makeThreat(
       key, sx, sy,
       tgt.x + (Math.random() - 0.5) * 30,
