@@ -1570,11 +1570,19 @@ function loop(ts) {
 
 function draw() {
   ctx.clearRect(0, 0, W, H);
-  // Sea always fills the visible canvas regardless of zoom/pan
-  const grad = ctx.createLinearGradient(0, 0, W, H);
-  grad.addColorStop(0, '#0a1628');
-  grad.addColorStop(1, '#050b18');
-  ctx.fillStyle = grad;
+  // Deep ocean: radial gradient centered on the map
+  const seaGrad = ctx.createRadialGradient(W * 0.5, H * 0.45, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.76);
+  seaGrad.addColorStop(0,   '#0d1c34');
+  seaGrad.addColorStop(0.4, '#081020');
+  seaGrad.addColorStop(0.75,'#060c18');
+  seaGrad.addColorStop(1,   '#030609');
+  ctx.fillStyle = seaGrad;
+  ctx.fillRect(0, 0, W, H);
+  // Edge vignette
+  const vig = ctx.createRadialGradient(W / 2, H / 2, H * 0.28, W / 2, H / 2, Math.max(W, H) * 0.72);
+  vig.addColorStop(0, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, 'rgba(0,0,0,0.52)');
+  ctx.fillStyle = vig;
   ctx.fillRect(0, 0, W, H);
   // Apply viewport transform - everything map-related scales and pans together.
   // HUD (drawn after restore) stays in screen space.
@@ -1689,56 +1697,139 @@ function drawPlacementGuide() {
 // Drawn inside the viewport transform - grid + red-zone label move with the map
 function drawBackground() {
   const WORLD_W = 1200, WORLD_H = 800;
-  // Grid
-  ctx.strokeStyle = 'rgba(95, 168, 211, 0.04)';
-  ctx.lineWidth = 1;
-  for (let x = 0; x < WORLD_W; x += 50) {
+
+  // Major grid lines (100km)
+  ctx.strokeStyle = 'rgba(95, 168, 211, 0.07)';
+  ctx.lineWidth = 0.6;
+  for (let x = 0; x <= WORLD_W; x += 100) {
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD_H); ctx.stroke();
   }
-  for (let y = 0; y < WORLD_H; y += 50) {
+  for (let y = 0; y <= WORLD_H; y += 100) {
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WORLD_W, y); ctx.stroke();
   }
-  // Red zone band & label
-  ctx.fillStyle = 'rgba(220, 38, 38, 0.06)';
+  // Minor grid (50km)
+  ctx.strokeStyle = 'rgba(95, 168, 211, 0.028)';
+  ctx.lineWidth = 0.4;
+  for (let x = 50; x < WORLD_W; x += 100) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD_H); ctx.stroke();
+  }
+  for (let y = 50; y < WORLD_H; y += 100) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WORLD_W, y); ctx.stroke();
+  }
+
+  // Grid coordinate labels
+  ctx.fillStyle = 'rgba(95, 168, 211, 0.18)';
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'right';
+  for (let x = 100; x < WORLD_W; x += 100) {
+    ctx.fillText(x, x - 2, 10);
+  }
+  for (let y = 100; y < WORLD_H; y += 100) {
+    ctx.fillText(y, 28, y - 2);
+  }
+
+  // Red zone - diagonal hazard stripe
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, 380, WORLD_H);
+  ctx.clip();
+  ctx.fillStyle = 'rgba(180, 20, 20, 0.07)';
   ctx.fillRect(0, 0, 380, WORLD_H);
-  ctx.fillStyle = 'rgba(220, 38, 38, 0.4)';
-  ctx.font = 'bold 14px sans-serif';
+  ctx.strokeStyle = 'rgba(220, 38, 38, 0.07)';
+  ctx.lineWidth = 18;
+  for (let i = -WORLD_H; i < 380 + WORLD_H; i += 36) {
+    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i + WORLD_H, WORLD_H); ctx.stroke();
+  }
+  ctx.restore();
+
+  // Red zone border
+  ctx.beginPath();
+  ctx.moveTo(380, 0); ctx.lineTo(380, WORLD_H);
+  ctx.strokeStyle = 'rgba(220, 38, 38, 0.22)';
+  ctx.setLineDash([8, 6]);
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Red zone labels
+  ctx.fillStyle = 'rgba(220, 38, 38, 0.52)';
+  ctx.font = 'bold 11px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText('Red Zone (Threat Origin)', 190, 30);
+  ctx.fillText('RED ZONE', 190, 18);
+  ctx.fillStyle = 'rgba(220, 38, 38, 0.3)';
+  ctx.font = '9px monospace';
+  ctx.fillText('THREAT ORIGIN', 190, 30);
 }
 
 function drawCountry() {
   const land = LAND_POLYGON;
-  ctx.fillStyle = '#1a3148';
-  ctx.strokeStyle = '#3a6b8c';
-  ctx.lineWidth = 2;
+
+  // --- Terrain fill (clip to country border) ---
+  ctx.save();
   ctx.beginPath();
   ctx.moveTo(land[0][0], land[0][1]);
   for (let i = 1; i < land.length; i++) ctx.lineTo(land[i][0], land[i][1]);
   ctx.closePath();
-  ctx.fill();
+  ctx.clip();
+
+  // Green terrain gradient - lit from upper-left
+  const tGrad = ctx.createRadialGradient(660, 330, 20, 740, 430, 370);
+  tGrad.addColorStop(0.0, '#234e38');   // bright highland green
+  tGrad.addColorStop(0.3, '#1d4330');   // forest green
+  tGrad.addColorStop(0.6, '#183a29');   // deeper forest
+  tGrad.addColorStop(0.85,'#123021');   // shadowed valleys
+  tGrad.addColorStop(1.0, '#0d2218');   // dark coast
+  ctx.fillStyle = tGrad;
+  ctx.fillRect(350, 50, 800, 700);
+
+  // Subtle coastal shading — darker strip near boundary
+  const coastGrad = ctx.createRadialGradient(720, 410, 240, 720, 410, 380);
+  coastGrad.addColorStop(0, 'rgba(0,0,0,0)');
+  coastGrad.addColorStop(1, 'rgba(0,0,0,0.28)');
+  ctx.fillStyle = coastGrad;
+  ctx.fillRect(350, 50, 800, 700);
+
+  ctx.restore();
+
+  // Outer glow border
+  ctx.beginPath();
+  ctx.moveTo(land[0][0], land[0][1]);
+  for (let i = 1; i < land.length; i++) ctx.lineTo(land[i][0], land[i][1]);
+  ctx.closePath();
+  ctx.strokeStyle = 'rgba(60, 140, 90, 0.14)';
+  ctx.lineWidth = 7;
   ctx.stroke();
-  // In attack-challenge placement step 'origin' show the border highlighted
+
+  // Main border
+  ctx.beginPath();
+  ctx.moveTo(land[0][0], land[0][1]);
+  for (let i = 1; i < land.length; i++) ctx.lineTo(land[i][0], land[i][1]);
+  ctx.closePath();
+  ctx.strokeStyle = 'rgba(70, 165, 115, 0.52)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Attack-challenge border highlight
   if (state.attackChallenge && state.placeStep === 'origin') {
-    ctx.strokeStyle = 'rgba(220, 38, 38, 0.7)';
-    ctx.setLineDash([6, 4]);
-    ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(land[0][0], land[0][1]);
     for (let i = 1; i < land.length; i++) ctx.lineTo(land[i][0], land[i][1]);
     ctx.closePath();
+    ctx.strokeStyle = 'rgba(220, 38, 38, 0.72)';
+    ctx.setLineDash([6, 4]);
+    ctx.lineWidth = 3;
     ctx.stroke();
     ctx.setLineDash([]);
   }
 
-  // Country label
-  ctx.fillStyle = 'rgba(95, 168, 211, 0.35)';
-  ctx.font = 'bold 28px serif';
+  // Country name
+  ctx.fillStyle = 'rgba(160, 220, 180, 0.26)';
+  ctx.font = 'bold 27px serif';
   ctx.textAlign = 'center';
-  ctx.fillText('Republic of Taliaria', 720, 160);
-  ctx.font = '12px sans-serif';
-  ctx.fillStyle = 'rgba(95, 168, 211, 0.5)';
-  ctx.fillText('Air Defense Command', 720, 178);
+  ctx.fillText('Republic of Taliaria', 720, 162);
+  ctx.font = '10px monospace';
+  ctx.fillStyle = 'rgba(110, 185, 140, 0.32)';
+  ctx.fillText('AIR DEFENSE COMMAND', 720, 176);
 }
 
 function drawMountains() {
@@ -1746,18 +1837,38 @@ function drawMountains() {
     const dx = m.x2 - m.x1, dy = m.y2 - m.y1;
     const len = Math.hypot(dx, dy) || 1;
     const nx = -dy / len, ny = dx / len;
-    const spread = m.sigma * 2.2;
-    // Filled mountain base
+    const spread = m.sigma * 2.4;
+
+    // Shadow cast (slightly offset, dark) — gives 3-D depth
+    ctx.beginPath();
+    ctx.moveTo(m.x1 + nx * spread + 4, m.y1 + ny * spread + 5);
+    ctx.lineTo(m.x1 - nx * spread + 4, m.y1 - ny * spread + 5);
+    ctx.lineTo(m.x2 - nx * spread + 4, m.y2 - ny * spread + 5);
+    ctx.lineTo(m.x2 + nx * spread + 4, m.y2 + ny * spread + 5);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(10, 8, 5, 0.32)';
+    ctx.fill();
+
+    // Main body: gradient lit from upper-left (nx,ny points toward light)
+    const litX = m.x1 + nx * spread, litY = m.y1 + ny * spread;
+    const shadX = m.x1 - nx * spread, shadY = m.y1 - ny * spread;
+    const bodyGrad = ctx.createLinearGradient(litX, litY, shadX, shadY);
+    const r = 80 + Math.floor(m.peak * 18), g = 65 + Math.floor(m.peak * 10), b = 48;
+    bodyGrad.addColorStop(0.0, `rgba(${r + 20}, ${g + 14}, ${b + 10}, 0.58)`);
+    bodyGrad.addColorStop(0.45, `rgba(${r}, ${g}, ${b}, 0.50)`);
+    bodyGrad.addColorStop(1.0, `rgba(${Math.max(r - 30, 30)}, ${Math.max(g - 22, 22)}, ${Math.max(b - 14, 14)}, 0.62)`);
+
     ctx.beginPath();
     ctx.moveTo(m.x1 + nx * spread, m.y1 + ny * spread);
     ctx.lineTo(m.x1 - nx * spread, m.y1 - ny * spread);
     ctx.lineTo(m.x2 - nx * spread, m.y2 - ny * spread);
     ctx.lineTo(m.x2 + nx * spread, m.y2 + ny * spread);
     ctx.closePath();
-    ctx.fillStyle = 'rgba(75, 60, 48, 0.38)';
+    ctx.fillStyle = bodyGrad;
     ctx.fill();
-    // Contour lines
-    for (const fr of [0.65, 0.35]) {
+
+    // Topographic contour lines
+    for (const fr of [0.75, 0.5, 0.28]) {
       const s = spread * fr;
       ctx.beginPath();
       ctx.moveTo(m.x1 + nx * s, m.y1 + ny * s);
@@ -1765,33 +1876,37 @@ function drawMountains() {
       ctx.lineTo(m.x2 - nx * s, m.y2 - ny * s);
       ctx.lineTo(m.x2 + nx * s, m.y2 + ny * s);
       ctx.closePath();
-      ctx.strokeStyle = `rgba(140, 115, 92, ${0.18 + (1 - fr) * 0.22})`;
-      ctx.lineWidth = 0.8;
+      ctx.strokeStyle = `rgba(130, 105, 78, ${0.10 + (1 - fr) * 0.2})`;
+      ctx.lineWidth = 0.7;
       ctx.stroke();
     }
+
     // Snow cap
+    const snowW = spread * 0.2;
     ctx.beginPath();
-    ctx.moveTo(m.x1 + nx * 12, m.y1 + ny * 12);
-    ctx.lineTo(m.x1 - nx * 12, m.y1 - ny * 12);
-    ctx.lineTo(m.x2 - nx * 12, m.y2 - ny * 12);
-    ctx.lineTo(m.x2 + nx * 12, m.y2 + ny * 12);
+    ctx.moveTo(m.x1 + nx * snowW, m.y1 + ny * snowW);
+    ctx.lineTo(m.x1 - nx * snowW, m.y1 - ny * snowW);
+    ctx.lineTo(m.x2 - nx * snowW, m.y2 - ny * snowW);
+    ctx.lineTo(m.x2 + nx * snowW, m.y2 + ny * snowW);
     ctx.closePath();
-    ctx.fillStyle = 'rgba(235, 235, 248, 0.13)';
+    ctx.fillStyle = 'rgba(235, 238, 255, 0.2)';
     ctx.fill();
-    // Jagged ridgeline
+
+    // Jagged ridge line
     ctx.beginPath();
     ctx.moveTo(m.ridgePts[0][0], m.ridgePts[0][1]);
     for (let i = 1; i < m.ridgePts.length; i++) ctx.lineTo(m.ridgePts[i][0], m.ridgePts[i][1]);
-    ctx.strokeStyle = 'rgba(215, 210, 205, 0.78)';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(228, 222, 215, 0.82)';
+    ctx.lineWidth = 1.8;
     ctx.stroke();
+
     // Elevation label
     const midX = (m.x1 + m.x2) / 2;
     const midY = (m.y1 + m.y2) / 2;
-    ctx.font = 'bold 10px sans-serif';
+    ctx.font = 'bold 10px monospace';
     ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(255, 248, 240, 0.88)';
-    ctx.fillText(`▲ ${(m.peak * 1000).toFixed(0)}m`, midX, midY - spread * 0.25 - 4);
+    ctx.fillStyle = 'rgba(255, 248, 238, 0.9)';
+    ctx.fillText(`▲ ${(m.peak * 1000).toFixed(0)}m`, midX, midY - spread * 0.28 - 4);
   }
 }
 
@@ -1842,8 +1957,8 @@ function drawTargets() {
       ctx.fill(); ctx.stroke();
     }
     ctx.fillStyle = '#fde68a';
-    ctx.font = '11px sans-serif';
-    ctx.fillText(t.name, t.x, t.y - 12);
+    ctx.font = 'bold 11px monospace';
+    ctx.fillText(t.name, t.x, t.y - 14);
   }
 }
 
@@ -1859,31 +1974,63 @@ function drawStar(cx, cy, r, points) {
 }
 
 function drawCoverage() {
+  const now = Date.now() / 1000;
   for (const d of state.defenses) {
     const c = CATALOG[d.key];
     if (c.kind === 'radar') {
+      // Gradient fill for detection zone
+      const rGrad = ctx.createRadialGradient(d.x, d.y, 0, d.x, d.y, c.detection);
+      rGrad.addColorStop(0,   c.color + '22');
+      rGrad.addColorStop(0.6, c.color + '0e');
+      rGrad.addColorStop(1,   c.color + '04');
       ctx.beginPath();
       ctx.arc(d.x, d.y, c.detection, 0, Math.PI * 2);
-      ctx.fillStyle = c.color + '15';
+      ctx.fillStyle = rGrad;
       ctx.fill();
-      ctx.strokeStyle = c.color + '88';
-      ctx.setLineDash([4, 6]);
+      ctx.strokeStyle = c.color + '60';
+      ctx.setLineDash([5, 8]);
       ctx.lineWidth = 1;
       ctx.stroke();
       ctx.setLineDash([]);
-    } else if (c.kind === 'battery') {
+
+      // Rotating sweep wedge (always visible — gives radar life)
+      const sweepAng = (now * 1.1 + d.x * 0.009) * Math.PI * 2;
+      const wedge = Math.PI * 0.16;
+      ctx.save();
       ctx.beginPath();
-      ctx.arc(d.x, d.y, c.maxRange, 0, Math.PI * 2);
+      ctx.moveTo(d.x, d.y);
+      ctx.arc(d.x, d.y, c.detection, sweepAng - wedge, sweepAng);
+      ctx.closePath();
       ctx.fillStyle = c.color + '18';
       ctx.fill();
-      ctx.strokeStyle = c.color + 'cc';
-      ctx.lineWidth = 1.5;
+      // Leading edge bright line
+      ctx.beginPath();
+      ctx.moveTo(d.x, d.y);
+      ctx.lineTo(d.x + Math.cos(sweepAng) * c.detection, d.y + Math.sin(sweepAng) * c.detection);
+      ctx.strokeStyle = c.color + '90';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.restore();
+
+    } else if (c.kind === 'battery') {
+      // Gradient fill for engagement zone
+      const eGrad = ctx.createRadialGradient(d.x, d.y, c.minRange, d.x, d.y, c.maxRange);
+      eGrad.addColorStop(0,   c.color + '22');
+      eGrad.addColorStop(0.7, c.color + '12');
+      eGrad.addColorStop(1,   c.color + '05');
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, c.maxRange, 0, Math.PI * 2);
+      ctx.fillStyle = eGrad;
+      ctx.fill();
+      ctx.strokeStyle = c.color + 'b8';
+      ctx.lineWidth = 1.4;
       ctx.stroke();
       if (c.minRange > 5) {
         ctx.beginPath();
         ctx.arc(d.x, d.y, c.minRange, 0, Math.PI * 2);
-        ctx.strokeStyle = c.color + '66';
+        ctx.strokeStyle = c.color + '55';
         ctx.setLineDash([3, 3]);
+        ctx.lineWidth = 1;
         ctx.stroke();
         ctx.setLineDash([]);
       }
@@ -1958,38 +2105,64 @@ function drawDefenses() {
     ctx.save();
     if (depleted) ctx.globalAlpha = 0.35;
     ctx.translate(d.x, d.y);
-    ctx.fillStyle = c.color;
-    ctx.strokeStyle = '#0a0e14';
-    ctx.lineWidth = 2;
+
     if (c.kind === 'radar') {
-      // dish
-      ctx.beginPath();
-      ctx.arc(0, 0, 9, 0, Math.PI * 2);
-      ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#0a0e14';
-      ctx.fillRect(-1, -9, 2, 5);
+      // Drop shadow
+      ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 6; ctx.shadowOffsetX = 1; ctx.shadowOffsetY = 2;
+      // Outer ring
+      ctx.beginPath(); ctx.arc(0, 0, 11, 0, Math.PI * 2);
+      ctx.fillStyle = c.color + '22'; ctx.fill();
+      ctx.strokeStyle = c.color; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+      // Inner ring
+      ctx.beginPath(); ctx.arc(0, 0, 7, 0, Math.PI * 2);
+      ctx.strokeStyle = c.color + 'cc'; ctx.lineWidth = 1; ctx.stroke();
+      // Crosshair
+      ctx.strokeStyle = c.color + 'aa'; ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.moveTo(-11, 0); ctx.lineTo(11, 0); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, -11); ctx.lineTo(0, 11); ctx.stroke();
+      // Center dot
+      ctx.beginPath(); ctx.arc(0, 0, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = c.color; ctx.fill();
     } else {
-      // battery: hex
+      // Battery hexagon with glow
+      ctx.shadowColor = c.color; ctx.shadowBlur = depleted ? 0 : 8;
       ctx.beginPath();
       for (let i = 0; i < 6; i++) {
         const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
-        const x = Math.cos(a) * 11, y = Math.sin(a) * 11;
+        const x = Math.cos(a) * 12, y = Math.sin(a) * 12;
         if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
       }
       ctx.closePath();
-      ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 9px sans-serif';
+      // Gradient fill (lit from top)
+      const hxGrad = ctx.createLinearGradient(0, -12, 0, 12);
+      hxGrad.addColorStop(0, c.color + 'dd');
+      hxGrad.addColorStop(1, c.color + '88');
+      ctx.fillStyle = hxGrad; ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 1.8; ctx.stroke();
+      // Inner outline
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
+        const x = Math.cos(a) * 8.5, y = Math.sin(a) * 8.5;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 0.8; ctx.stroke();
+      // Abbreviation label
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.font = 'bold 8px monospace';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(c.short, 0, 0.5);
     }
     ctx.restore();
 
     // Short label below
-    ctx.fillStyle = depleted ? '#7e91a8' : '#d6e0f0';
-    ctx.font = '10px sans-serif';
+    ctx.fillStyle = depleted ? 'rgba(126,145,168,0.7)' : 'rgba(198,214,230,0.85)';
+    ctx.font = '9px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(c.short, d.x, d.y + 24);
+    ctx.fillText(c.short, d.x, d.y + 26);
 
     // Ammo counter pill (only for batteries)
     if (c.kind === 'battery') {
@@ -2027,14 +2200,26 @@ function drawDefenses() {
 function drawThreatPaths() {
   for (const t of state.threats) {
     if (t.status === 'destroyed') continue;
+    const c = CATALOG[t.key];
     ctx.beginPath();
     ctx.moveTo(t.sx, t.sy);
     ctx.lineTo(t.tx, t.ty);
-    ctx.strokeStyle = 'rgba(251, 191, 36, 0.25)';
-    ctx.setLineDash([5, 6]);
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = c.color + '35';
+    ctx.setLineDash([6, 7]);
+    ctx.lineWidth = 1.2;
     ctx.stroke();
     ctx.setLineDash([]);
+    // Remaining path (threat → target) slightly brighter
+    if (t.status === 'inflight') {
+      ctx.beginPath();
+      ctx.moveTo(t.x, t.y);
+      ctx.lineTo(t.tx, t.ty);
+      ctx.strokeStyle = c.color + '55';
+      ctx.setLineDash([4, 5]);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
   }
 }
 
@@ -2042,31 +2227,61 @@ function drawThreats() {
   for (const t of state.threats) {
     const c = CATALOG[t.key];
     if (t.status === 'destroyed') continue;
+
+    const ang = Math.atan2(t.ty - t.sy, t.tx - t.sx);
+
+    // Engine contrail / exhaust trail behind the threat
+    const trailLen = t.key === 'fighter' ? 30 : t.key === 'helicopter' ? 14 : 10;
+    const cdx = Math.cos(ang), cdy = Math.sin(ang);
+    const trailGrad = ctx.createLinearGradient(
+      t.x, t.y,
+      t.x - cdx * trailLen, t.y - cdy * trailLen
+    );
+    trailGrad.addColorStop(0, c.color + 'b0');
+    trailGrad.addColorStop(1, c.color + '00');
+    ctx.beginPath();
+    ctx.moveTo(t.x, t.y);
+    ctx.lineTo(t.x - cdx * trailLen, t.y - cdy * trailLen);
+    ctx.strokeStyle = trailGrad;
+    ctx.lineWidth = t.key === 'fighter' ? 2.5 : 1.8;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    ctx.lineCap = 'butt';
+
+    // Outer glow halo
+    const haloR = t.key === 'fighter' ? 20 : 14;
+    const halo = ctx.createRadialGradient(t.x, t.y, 2, t.x, t.y, haloR);
+    halo.addColorStop(0, c.color + '40');
+    halo.addColorStop(1, c.color + '00');
+    ctx.beginPath(); ctx.arc(t.x, t.y, haloR, 0, Math.PI * 2);
+    ctx.fillStyle = halo; ctx.fill();
+
+    // Icon — scaled up 2.8×
     ctx.save();
     ctx.translate(t.x, t.y);
-    const ang = Math.atan2(t.ty - t.sy, t.tx - t.sx);
     ctx.rotate(ang);
+    ctx.scale(2.8, 2.8);
     ctx.fillStyle = c.color;
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.75)';
+    ctx.lineWidth = 0.45;
     if (t.key === 'fighter') drawFighter();
     else if (t.key === 'helicopter') drawHelo();
     else drawDrone();
     ctx.restore();
 
-    // Prominent serial label with MSL altitude (changes as it flies over terrain)
+    // Label with MSL altitude
     const altMSL = c.altitude + getTerrainAlt(t.x, t.y);
     const labelText = `${t.label} · ${altMSL.toFixed(1)}km MSL`;
-    ctx.font = 'bold 11px ui-monospace, "SF Mono", Menlo, monospace';
+    ctx.font = 'bold 11px monospace';
     const tw = ctx.measureText(labelText).width;
     const padX = 5, padY = 2;
-    const bx = t.x - tw/2 - padX;
-    const by = t.y + 13;
-    const bw = tw + padX*2;
+    const bx = t.x - tw / 2 - padX;
+    const by = t.y + 16;
+    const bw = tw + padX * 2;
     const bh = 14 + padY;
-    ctx.fillStyle = 'rgba(8, 12, 22, 0.92)';
+    ctx.fillStyle = 'rgba(6, 10, 18, 0.93)';
     ctx.strokeStyle = c.color;
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 1.2;
     if (ctx.roundRect) {
       ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 7); ctx.fill(); ctx.stroke();
     } else {
@@ -2075,7 +2290,7 @@ function drawThreats() {
     ctx.fillStyle = c.color;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(labelText, t.x, by + bh/2);
+    ctx.fillText(labelText, t.x, by + bh / 2);
     ctx.textBaseline = 'alphabetic';
   }
 }
@@ -2146,37 +2361,68 @@ function drawDrone() {
 
 function drawMissiles() {
   for (const m of state.missiles) {
-    ctx.beginPath();
-    ctx.moveTo(m.x, m.y);
-    const back = 8;
     const dx = m.tx - m.sx, dy = m.ty - m.sy;
     const len = Math.hypot(dx, dy) || 1;
-    ctx.lineTo(m.x - (dx / len) * back, m.y - (dy / len) * back);
-    ctx.strokeStyle = '#fef3c7';
-    ctx.lineWidth = 2;
+    const ux = dx / len, uy = dy / len;
+
+    // Fire trail — gradient from bright white-yellow at head to transparent
+    const trailLen = 18;
+    const tGrad = ctx.createLinearGradient(
+      m.x, m.y,
+      m.x - ux * trailLen, m.y - uy * trailLen
+    );
+    tGrad.addColorStop(0,   'rgba(255, 252, 210, 0.95)');
+    tGrad.addColorStop(0.35,'rgba(255, 200, 60,  0.7)');
+    tGrad.addColorStop(0.7, 'rgba(255, 110, 20,  0.35)');
+    tGrad.addColorStop(1,   'rgba(255, 60,  10,  0)');
+    ctx.beginPath();
+    ctx.moveTo(m.x, m.y);
+    ctx.lineTo(m.x - ux * trailLen, m.y - uy * trailLen);
+    ctx.strokeStyle = tGrad;
+    ctx.lineWidth = 2.8;
+    ctx.lineCap = 'round';
     ctx.stroke();
-    ctx.fillStyle = '#fbbf24';
-    ctx.beginPath(); ctx.arc(m.x, m.y, 2.5, 0, Math.PI * 2); ctx.fill();
+    ctx.lineCap = 'butt';
+
+    // Bright missile head with halo
+    const headGrad = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, 5);
+    headGrad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    headGrad.addColorStop(0.45, 'rgba(255, 235, 80, 0.9)');
+    headGrad.addColorStop(1, 'rgba(251, 191, 36, 0)');
+    ctx.beginPath(); ctx.arc(m.x, m.y, 5, 0, Math.PI * 2);
+    ctx.fillStyle = headGrad; ctx.fill();
   }
 }
 
-// Mid-air interception puff - small and quick, yellow-white spark with thin
-// orange ring.  Distinct from the larger red ground-impact blast.
+// Mid-air interception puff — multi-ring spark burst, distinct from ground impact
 function drawExplosions() {
   for (const e of state.explosions) {
     const k = e.t / e.dur;
     const a = 1 - k;
-    // Thin orange ring expanding
+
+    // Outer shockwave ring
     ctx.beginPath();
-    ctx.arc(e.x, e.y, e.r * (0.5 + k * 1.4), 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(251, 191, 36, ${a * 0.7})`;
+    ctx.arc(e.x, e.y, e.r * (0.5 + k * 2.2), 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255, 180, 40, ${a * 0.45})`;
     ctx.lineWidth = 1.5;
     ctx.stroke();
-    // Bright yellow-white core
+
+    // Middle ring
     ctx.beginPath();
-    ctx.arc(e.x, e.y, e.r * 0.7 * a, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(255, 255, 200, ${a})`;
-    ctx.fill();
+    ctx.arc(e.x, e.y, e.r * (0.4 + k * 1.1), 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255, 230, 100, ${a * 0.6})`;
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    // Central fireball gradient
+    const fr = e.r * 0.9 * (1 - k * 0.75);
+    const fGrad = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, fr);
+    fGrad.addColorStop(0,   `rgba(255, 255, 255, ${a})`);
+    fGrad.addColorStop(0.3, `rgba(255, 250, 140, ${a * 0.9})`);
+    fGrad.addColorStop(0.7, `rgba(255, 180, 20,  ${a * 0.55})`);
+    fGrad.addColorStop(1,   'rgba(255, 80, 10, 0)');
+    ctx.beginPath(); ctx.arc(e.x, e.y, fr, 0, Math.PI * 2);
+    ctx.fillStyle = fGrad; ctx.fill();
   }
 }
 
@@ -2412,18 +2658,57 @@ function drawSoldier(x, y, alpha) {
 }
 
 function drawHUD() {
+  const lines = [];
+
   if (state.mode === 'sim') {
-    ctx.fillStyle = 'rgba(95, 168, 211, 0.9)';
-    ctx.font = 'bold 12px sans-serif';
-    ctx.textAlign = 'right';
-    ctx.fillText(`Simulation time: ${state.simElapsed.toFixed(1)} s`, W - 12, 24);
+    const active   = state.threats.filter(t => t.status === 'inflight').length;
+    const killed   = state.threats.filter(t => t.status === 'destroyed').length;
+    const breached = state.threats.filter(t => t.status === 'reached').length;
+    lines.push({ text: `▶ SIM  ${state.simElapsed.toFixed(1)} s`, color: 'rgba(95, 200, 232, 0.95)' });
+    if (active   > 0) lines.push({ text: `INFLIGHT  ${active}`, color: 'rgba(251, 191, 36, 0.85)' });
+    if (killed   > 0) lines.push({ text: `KILLED    ${killed}`, color: 'rgba(95, 168, 107, 0.9)' });
+    if (breached > 0) lines.push({ text: `BREACHED  ${breached}`, color: 'rgba(220, 60, 60, 0.9)' });
   }
   if (state.budget) {
-    ctx.fillStyle = 'rgba(251, 191, 36, 0.9)';
-    ctx.font = 'bold 12px sans-serif';
-    ctx.textAlign = 'right';
-    ctx.fillText('Defense Challenge Active', W - 12, 44);
+    lines.push({ text: '◈ DEF CHALLENGE', color: 'rgba(251, 191, 36, 0.8)' });
   }
+  if (state.attackChallenge) {
+    lines.push({ text: '◉ ATK CHALLENGE', color: 'rgba(220, 60, 60, 0.8)' });
+  }
+
+  if (lines.length === 0) return;
+
+  ctx.save();
+  ctx.font = '11px monospace';
+  const lineH = 17, padX = 10, padY = 7;
+  const maxW = lines.reduce((w, l) => Math.max(w, ctx.measureText(l.text).width), 0);
+  const bw = maxW + padX * 2;
+  const bh = lines.length * lineH + padY * 2;
+  const bx = W - bw - 10;
+  const by = 8;
+
+  // Background panel
+  ctx.fillStyle = 'rgba(5, 8, 16, 0.88)';
+  ctx.strokeStyle = 'rgba(42, 58, 85, 0.65)';
+  ctx.lineWidth = 1;
+  if (ctx.roundRect) {
+    ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 3); ctx.fill(); ctx.stroke();
+  } else {
+    ctx.fillRect(bx, by, bw, bh); ctx.strokeRect(bx, by, bw, bh);
+  }
+  // Top accent line
+  ctx.beginPath();
+  ctx.moveTo(bx + 3, by + 1); ctx.lineTo(bx + bw - 3, by + 1);
+  ctx.strokeStyle = 'rgba(95, 200, 232, 0.25)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.textAlign = 'right';
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillStyle = lines[i].color;
+    ctx.fillText(lines[i].text, bx + bw - padX, by + padY + i * lineH + 11);
+  }
+  ctx.restore();
 }
 
 // =============================================================
