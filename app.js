@@ -3115,9 +3115,9 @@ function canInterceptInsideRange(t, d, c, tc) {
     T = Math.hypot(ipx - d.x, ipy - d.y) / c.missileSpeed;
   }
   const interceptDist = Math.hypot(ipx - d.x, ipy - d.y);
-  // Predicted intercept point MUST be inside the RCS-adjusted envelope
-  const effMax = effectiveEngagementRange(c, tc);
-  if (interceptDist < c.minRange || interceptDist > effMax) return false;
+  // With external-radar cueing, RCS doesn't limit detection - only the
+  // physical missile envelope (c.maxRange) constrains the intercept point.
+  if (interceptDist < c.minRange || interceptDist > c.maxRange) return false;
   const remaining = Math.hypot(t.tx - t.x, t.ty - t.y) / tc.speed;
   if (c.reactionTime + T > remaining) return false;
   return true;
