@@ -3323,73 +3323,6 @@ function showResultsModal() {
     recsHtml += `<li>${rec}</li>`;
   }
 
-  // Theoretical best given the same deployment + threats (no random misses)
-  const best = computeBestPossible();
-  const yourScore = r.protectedValue;
-  const bestScore = best.bestProtectedValue;
-  const efficiency = bestScore > 0 ? Math.min(1, yourScore / bestScore) : 1;
-  const effPercent = (efficiency * 100).toFixed(0);
-  let effClass, effLabel;
-  if (efficiency >= 0.9) { effClass = 'success'; effLabel = 'ביצוע אופטימלי כמעט'; }
-  else if (efficiency >= 0.7) { effClass = 'partial'; effLabel = 'ביצוע סביר'; }
-  else { effClass = 'failure'; effLabel = 'יש מקום לשיפור משמעותי'; }
-
-  // Benchmark from attacker's perspective (damage % achieved vs maximum the
-  // defense allowed) when in attack mode; from defender's perspective otherwise
-  let benchmarkHtml;
-  if (isAttack) {
-    const yourDamage = r.totalValue - r.protectedValue;
-    const bestPossibleDamage = r.totalValue - best.bestProtectedValue;
-    // For the attacker the "best" = least the defense could intercept
-    // i.e. maximum damage given current attack threats vs deployed defense
-    // computeBestPossible models defender-optimal play. So attacker-best = how
-    // much damage even an optimal defense couldn't prevent.
-    const attackerEff = bestPossibleDamage > 0
-      ? Math.min(1, yourDamage / Math.max(1, r.totalValue - best.bestProtectedValue))
-      : (yourDamage > 0 ? 1 : 0);
-    const yourPct = (yourDamage / r.totalValue * 100).toFixed(0);
-    const bestPct = (bestPossibleDamage / r.totalValue * 100).toFixed(0);
-    benchmarkHtml = `
-      <div class="results-section-title" style="color:#a78bfa">📊 הביצוע ההתקפי שלך אל מול אופטימום</div>
-      <div class="benchmark-grid">
-        <div class="benchmark-row">
-          <div class="bench-label">נזק שגרמת</div>
-          <div class="bench-bar"><div class="bench-fill yours" style="width:${yourPct}%;background:linear-gradient(90deg,#7c2d12,#dc2626)"></div></div>
-          <div class="bench-num">${r.survived}/${r.total} פרצו | ${yourDamage}/${r.totalValue} נזק</div>
-        </div>
-        <div class="benchmark-row">
-          <div class="bench-label">נזק תיאורטי מקסימלי</div>
-          <div class="bench-bar"><div class="bench-fill best" style="width:${bestPct}%;background:linear-gradient(90deg,#92400e,#f59e0b)"></div></div>
-          <div class="bench-num">${r.total - best.bestKilled}/${r.total} פרצו | ${bestPossibleDamage}/${r.totalValue} נזק</div>
-        </div>
-      </div>
-      <div class="modal-verdict partial" style="margin-top:10px">
-        🎯 גרמת ל-<b>${(attackerEff*100).toFixed(0)}%</b> מהנזק האפשרי לפי תכנון התקפה אופטימלי<br>
-        <span style="font-size:11px;font-weight:400;color:#7e91a8">המקסימום מתאר את הנזק שאפילו הקצאה אופטימלית של ההגנה לא הייתה יכולה למנוע מול האיומים שבחרת ומיקומם.</span>
-      </div>
-    `;
-  } else {
-    benchmarkHtml = `
-      <div class="results-section-title" style="color:#a78bfa">📊 הביצוע ההגנתי שלך אל מול אופטימום</div>
-      <div class="benchmark-grid">
-        <div class="benchmark-row">
-          <div class="bench-label">הביצוע שלך</div>
-          <div class="bench-bar"><div class="bench-fill yours" style="width:${(r.protectedValue/r.totalValue*100).toFixed(0)}%"></div></div>
-          <div class="bench-num">${r.killed}/${r.total} | ${r.protectedValue}/${r.totalValue}</div>
-        </div>
-        <div class="benchmark-row">
-          <div class="bench-label">המקסימום האפשרי</div>
-          <div class="bench-bar"><div class="bench-fill best" style="width:${(best.bestProtectedValue/best.totalValue*100).toFixed(0)}%"></div></div>
-          <div class="bench-num">${best.bestKilled}/${r.total} | ${best.bestProtectedValue}/${best.totalValue}</div>
-        </div>
-      </div>
-      <div class="modal-verdict ${effClass}" style="margin-top:10px">
-        🎯 השגת <b>${effPercent}%</b> מהאופטימום - ${effLabel}<br>
-        <span style="font-size:11px;font-weight:400;color:#7e91a8">המקסימום מחושב לפי הפריסה הנוכחית, ללא החטאות סטטיסטיות, עם הקצאה אופטימלית של מיירטים.</span>
-      </div>
-    `;
-  }
-
   // Hit-targets summary line - which strategic targets actually got struck.
   // Visual semantics flip by role:
   //   Attacker: target HIT  = success (green💥),  target intact = failure (red ✗)
@@ -3457,8 +3390,6 @@ function showResultsModal() {
     <div class="targets-status">${hitTargetsHtml}</div>
 
     <div class="modal-summary">${summaryCardsHtml}</div>
-
-    ${benchmarkHtml}
 
     <div class="results-section-title" style="color:${isAttack ? '#5fa86b' : '#d35f5f'}">${breachLabel}</div>
     <table class="results-table">
@@ -3654,59 +3585,6 @@ function hideModal() {
 
 // Theoretical best result with the current placement: every viable engagement succeeds.
 // Greedy assignment of one available battery per threat (highest-value targets first).
-function computeBestPossible() {
-  const ammoLeft = new Map();
-  for (const d of state.defenses) {
-    if (CATALOG[d.key].kind === 'battery') {
-      ammoLeft.set(d.id, CATALOG[d.key].ammo);
-    }
-  }
-
-  // Sort threats by target value descending (defenders prioritize high-value targets)
-  const sorted = [...state.threats].sort((a, b) => {
-    const va = (TARGETS.find(x => x.name === a.target) || {}).value || 0;
-    const vb = (TARGETS.find(x => x.name === b.target) || {}).value || 0;
-    return vb - va;
-  });
-
-  let bestKilled = 0;
-  let damagedValue = 0;
-  const totalValue = TARGETS.reduce((s, t) => s + t.value, 0);
-
-  for (const t of sorted) {
-    const tc = CATALOG[t.key];
-    let assigned = null;
-    // Find any battery that has ammo and can geometrically engage (would hit at 100% PK)
-    for (const d of state.defenses) {
-      const c = CATALOG[d.key];
-      if (c.kind !== 'battery') continue;
-      if ((ammoLeft.get(d.id) || 0) <= 0) continue;
-      const outcome = simulateEngagementOutcome(t, d, c, tc);
-      if (outcome === 'statistical') {
-        assigned = d;
-        break;
-      }
-    }
-    if (assigned) {
-      ammoLeft.set(assigned.id, ammoLeft.get(assigned.id) - 1);
-      bestKilled++;
-    } else {
-      const tg = TARGETS.find(x => x.name === t.target);
-      if (tg) damagedValue += tg.value;
-    }
-  }
-
-  damagedValue = Math.min(damagedValue, totalValue);
-  const total = sorted.length;
-  return {
-    bestKilled,
-    bestSurvived: total - bestKilled,
-    bestProtectedValue: totalValue - damagedValue,
-    totalValue,
-    bestProtectedFraction: totalValue > 0 ? (totalValue - damagedValue) / totalValue : 1
-  };
-}
-
 function computeResults() {
   const total = state.threats.length;
   const killed = state.threats.filter(t => t.status === 'destroyed').length;
