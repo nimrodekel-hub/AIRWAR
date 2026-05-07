@@ -1458,6 +1458,9 @@ function onCanvasClick(ev) {
 }
 
 let _flashTimer = null;
+// Populated during draw() when scrubbing so drawDefenses can read snapshot
+// defense fields (ammo, prepareTarget, prepareUntil) without mutating live state.
+let _scrubDef = null;
 function flashStatus(msg, returnStep) {
   setStatus(msg);
   clearTimeout(_flashTimer);
@@ -1672,64 +1675,43 @@ function draw() {
   drawMountains();
   drawTargets();
 
-  // If scrubbing, apply snapshot to dynamic state BEFORE drawing anything
-  // dynamic (defenses ammo/RT ring depend on this too).
-  let saved = null;
+  // When scrubbing, swap dynamic arrays and expose snapshot defense fields via
+  // the module-level _scrubDef variable (read by drawDefenses/drawCoverage).
+  // We never mutate state.defenses in-place to avoid restore-order fragility.
+  let _scrubSaved = null;
+  const _scrubSavedElapsed = state.simElapsed;
+  _scrubDef = null;
   if (state.scrubTime != null) {
     const snap = findSnapshot(state.scrubTime);
     if (snap) {
-      saved = {
-        threats: state.threats,
-        missiles: state.missiles,
-        explosions: state.explosions,
-        targetHits: state.targetHits,
-        simElapsed: state.simElapsed,
-        defenseFields: state.defenses.map(d => ({
-          ammo: d.ammo,
-          prepareTarget: d.prepareTarget,
-          prepareUntil: d.prepareUntil,
-          cd: d.cd
-        }))
+      _scrubSaved = {
+        threats: state.threats, missiles: state.missiles,
+        explosions: state.explosions, targetHits: state.targetHits
       };
-      state.threats = snap.threats;
-      state.missiles = snap.missiles;
+      state.threats    = snap.threats;
+      state.missiles   = snap.missiles;
       state.explosions = snap.explosions;
       state.targetHits = snap.targetHits;
       state.simElapsed = state.scrubTime;
-      if (snap.defenses) {
-        for (let i = 0; i < state.defenses.length && i < snap.defenses.length; i++) {
-          const sd = snap.defenses[i];
-          state.defenses[i].ammo = sd.ammo;
-          state.defenses[i].prepareTarget = sd.prepareTarget;
-          state.defenses[i].prepareUntil = sd.prepareUntil;
-          state.defenses[i].cd = sd.cd;
-        }
-      }
+      _scrubDef        = snap.defenses || null;
     }
   }
 
   drawCoverage();
   drawDefenses();
-
   drawThreatPaths();
   drawThreats();
   drawMissiles();
   drawExplosions();
   drawTargetHits();
 
-  if (saved) {
-    state.threats = saved.threats;
-    state.missiles = saved.missiles;
-    state.explosions = saved.explosions;
-    state.targetHits = saved.targetHits;
-    state.simElapsed = saved.simElapsed;
-    for (let i = 0; i < state.defenses.length && i < saved.defenseFields.length; i++) {
-      const sd = saved.defenseFields[i];
-      state.defenses[i].ammo = sd.ammo;
-      state.defenses[i].prepareTarget = sd.prepareTarget;
-      state.defenses[i].prepareUntil = sd.prepareUntil;
-      state.defenses[i].cd = sd.cd;
-    }
+  state.simElapsed = _scrubSavedElapsed;
+  _scrubDef = null;
+  if (_scrubSaved) {
+    state.threats    = _scrubSaved.threats;
+    state.missiles   = _scrubSaved.missiles;
+    state.explosions = _scrubSaved.explosions;
+    state.targetHits = _scrubSaved.targetHits;
   }
 
   drawPlacementGuide();
@@ -2185,15 +2167,20 @@ function drawCoverage() {
 }
 
 function drawDefenses() {
-  for (const d of state.defenses) {
+  for (let i = 0; i < state.defenses.length; i++) {
+    const d = state.defenses[i];
+    // When scrubbing, read ammo/prepareTarget/prepareUntil from the snapshot
+    // snapshot entry (set via _scrubDef by draw()).  Fall back to live `d`
+    // when not scrubbing so normal render is unchanged.
+    const sd = (_scrubDef && i < _scrubDef.length) ? _scrubDef[i] : d;
     const c = CATALOG[d.key];
-    const depleted = c.kind === 'battery' && d.ammo <= 0;
+    const depleted = c.kind === 'battery' && sd.ammo <= 0;
 
     // Reaction-time preparation indicator: prominent filling ring around the battery
-    if (d.prepareTarget != null && state.simElapsed < d.prepareUntil) {
-      const progress = 1 - (d.prepareUntil - state.simElapsed) / c.reactionTime;
+    if (sd.prepareTarget != null && state.simElapsed < sd.prepareUntil) {
+      const progress = 1 - (sd.prepareUntil - state.simElapsed) / c.reactionTime;
       // Detect "extended" mode: target currently outside this battery's range
-      const tgt = state.threats.find(x => x.id === d.prepareTarget);
+      const tgt = state.threats.find(x => x.id === sd.prepareTarget);
       const extended = tgt && Math.hypot(tgt.x - d.x, tgt.y - d.y) > c.maxRange;
       const haloCol = extended ? '#06b6d4' : '#fbbf24';
 
@@ -2223,7 +2210,7 @@ function drawDefenses() {
       ctx.stroke();
 
       // Countdown label above the battery
-      const remaining = (d.prepareUntil - state.simElapsed).toFixed(1);
+      const remaining = (sd.prepareUntil - state.simElapsed).toFixed(1);
       ctx.font = 'bold 11px ui-monospace, monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -2312,12 +2299,13 @@ function drawDefenses() {
 
     // Ammo counter pill (only for batteries)
     if (c.kind === 'battery') {
-      const txt = depleted ? 'EMPTY' : `▮ ${d.ammo}/${c.ammo}`;
+      const maxAmmo = d.initialAmmo || c.ammo;
+      const txt = depleted ? 'EMPTY' : `▮ ${sd.ammo}/${maxAmmo}`;
       let bgColor, fgColor;
-      if (depleted)              { bgColor = '#6b1e2a'; fgColor = '#fca5a5'; }
-      else if (d.ammo / c.ammo > 0.5) { bgColor = '#1e6b3e'; fgColor = '#86efac'; }
-      else if (d.ammo / c.ammo > 0.25){ bgColor = '#8a5a1c'; fgColor = '#fcd34d'; }
-      else                            { bgColor = '#9c2d3e'; fgColor = '#fca5a5'; }
+      if (depleted)                        { bgColor = '#6b1e2a'; fgColor = '#fca5a5'; }
+      else if (sd.ammo / maxAmmo > 0.5)    { bgColor = '#1e6b3e'; fgColor = '#86efac'; }
+      else if (sd.ammo / maxAmmo > 0.25)   { bgColor = '#8a5a1c'; fgColor = '#fcd34d'; }
+      else                                 { bgColor = '#9c2d3e'; fgColor = '#fca5a5'; }
 
       ctx.font = 'bold 11px ui-monospace, monospace';
       const tw = ctx.measureText(txt).width;
@@ -3101,6 +3089,11 @@ function pickEngagementTarget(d) {
     // Otherwise the threat is inside the battery's effective engagement
     // envelope - approach direction (incoming or receding) does not matter.
 
+    // Skip threats whose intercept geometry is nearly perpendicular to the
+    // battery LoS — the missile cannot apply sufficient lead angle and the
+    // shot would waste a round (same check that causes a 'tangent' miss).
+    if (isTangentShot(t, d, c, tc)) continue;
+
     // Prefer threats closer to important targets
     const target = TARGETS.find(x => x.x === t.tx && x.y === t.ty);
     const value = target ? target.value : 1;
@@ -3135,12 +3128,10 @@ function getDetectionInfo(t, d, c, tc) {
   return { organic, externalRadar };
 }
 
-// Strict early-engagement gate.  The battery commits ONLY if the
-// predicted lead-pursuit intercept point lands inside its engagement
-// envelope (the "missile envelope" - מחוץ לעטפת הטיל המיירט).  This
-// prevents wasting missiles on threats that the radar can see but
-// the missile cannot physically catch in range.
-function canInterceptInsideRange(t, d, c, tc) {
+// Lead-pursuit intercept solver shared by engagement logic and tangent check.
+// Returns the predicted intercept point, missile flight time, and threat
+// velocity unit vector.  The missile is assumed to launch after c.reactionTime.
+function computeIntercept(t, d, c, tc) {
   const fdx = t.tx - t.sx, fdy = t.ty - t.sy;
   const flen = Math.hypot(fdx, fdy) || 1;
   const tvx = fdx / flen, tvy = fdy / flen;
@@ -3153,10 +3144,34 @@ function canInterceptInsideRange(t, d, c, tc) {
     ipy = launchY + tvy * tc.speed * T;
     T = Math.hypot(ipx - d.x, ipy - d.y) / c.missileSpeed;
   }
+  return { ipx, ipy, T, tvx, tvy };
+}
+
+// Returns true when the predicted intercept angle is nearly perpendicular
+// to the battery LoS (≤15° from tangent).  The missile cannot apply
+// sufficient lead in that geometry, so firing would be wasteful.
+function isTangentShot(t, d, c, tc) {
+  const { ipx, ipy, tvx, tvy } = computeIntercept(t, d, c, tc);
+  const btx = ipx - d.x, bty = ipy - d.y;
+  const blen = Math.hypot(btx, bty) || 1;
+  const cosAng = (btx / blen) * tvx + (bty / blen) * tvy;
+  return Math.abs(cosAng) < 0.15;
+}
+
+// Strict early-engagement gate for the external-radar path.  The battery
+// commits ONLY if the predicted intercept lands inside the physical missile
+// envelope (c.maxRange) and the approach is not tangential.
+function canInterceptInsideRange(t, d, c, tc) {
+  const { ipx, ipy, T, tvx, tvy } = computeIntercept(t, d, c, tc);
   const interceptDist = Math.hypot(ipx - d.x, ipy - d.y);
   // With external-radar cueing, RCS doesn't limit detection - only the
   // physical missile envelope (c.maxRange) constrains the intercept point.
   if (interceptDist < c.minRange || interceptDist > c.maxRange) return false;
+  // Tangential geometry — missile can't reach the required lead angle
+  const btx = ipx - d.x, bty = ipy - d.y;
+  const blen = Math.hypot(btx, bty) || 1;
+  const cosAng = (btx / blen) * tvx + (bty / blen) * tvy;
+  if (Math.abs(cosAng) < 0.15) return false;
   const remaining = Math.hypot(t.tx - t.x, t.ty - t.y) / tc.speed;
   if (c.reactionTime + T > remaining) return false;
   return true;
