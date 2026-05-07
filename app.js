@@ -191,10 +191,16 @@ function regenerateMountains() {
   const count = 2;
   let placed = 0;
   for (let attempt = 0; attempt < 120 && placed < count; attempt++) {
-    const cx = 480 + Math.random() * 460;
-    const cy = 160 + Math.random() * 400;
+    // Mountains must sit between the red zone (enemy, x≤380) and the
+    // strategic targets (west-most ~560).  Placing them in this western
+    // strip is the only way they'll actually block LOS for incoming
+    // threats — east of the targets they're irrelevant.
+    const cx = 410 + Math.random() * 180;
+    const cy = 140 + Math.random() * 460;
     if (!isInsideCountry(cx, cy)) continue;
-    const angle = Math.random() * Math.PI;
+    // Bias the ridge toward a roughly north-south orientation so it
+    // presents a wider face to the W→E threat axis.
+    const angle = (Math.PI / 2) + (Math.random() - 0.5) * (Math.PI / 2);
     const len = 90 + Math.random() * 110;
     const x1 = cx - Math.cos(angle) * len / 2;
     const y1 = cy - Math.sin(angle) * len / 2;
