@@ -3147,11 +3147,18 @@ function computeIntercept(t, d, c, tc) {
   return { ipx, ipy, T, tvx, tvy };
 }
 
-// Returns true when the predicted intercept angle is nearly perpendicular
-// to the battery LoS (≤15° from tangent).  The missile cannot apply
-// sufficient lead in that geometry, so firing would be wasteful.
+// Returns true if the threat is predicted to be moving nearly perpendicular
+// to the battery LoS AT THE INTERCEPT POINT (i.e., at the moment of impact,
+// not at the current moment).  computeIntercept projects the threat forward
+// by RT + missile flight time, so a threat that's currently tangent but will
+// have moved out of the perpendicular zone by impact returns false (engageable),
+// while a threat that's currently safe but will be tangent at impact returns
+// true (skip — the missile would certainly miss).
 function isTangentShot(t, d, c, tc) {
   const { ipx, ipy, tvx, tvy } = computeIntercept(t, d, c, tc);
+  // Vector from battery to the predicted intercept point.  cosAng is the
+  // angle between this vector and the threat's velocity at intercept.
+  // |cosAng| < 0.15 ≈ within ±8.6° of perpendicular crossing.
   const btx = ipx - d.x, bty = ipy - d.y;
   const blen = Math.hypot(btx, bty) || 1;
   const cosAng = (btx / blen) * tvx + (bty / blen) * tvy;
@@ -3198,8 +3205,6 @@ function isDetected(t) {
 function fireMissile(d, t) {
   const c = CATALOG[d.key];
   const tc = CATALOG[t.key];
-  d.cd = c.reload; d.ammo--;
-  t.firedAt++;
 
   // Threat velocity unit vector (along its straight path to target)
   const fdx = t.tx - t.sx, fdy = t.ty - t.sy;
@@ -3208,7 +3213,8 @@ function fireMissile(d, t) {
   const threatSpeed = tc.speed;
   const missileSpeed = c.missileSpeed;
 
-  // Iterative lead-pursuit intercept solution
+  // Iterative lead-pursuit intercept solution — converges on the future
+  // point where missile and threat will collide.
   let T = Math.hypot(t.x - d.x, t.y - d.y) / missileSpeed;
   let ipx = t.x, ipy = t.y;
   for (let i = 0; i < 6; i++) {
@@ -3217,10 +3223,28 @@ function fireMissile(d, t) {
     T = Math.hypot(ipx - d.x, ipy - d.y) / missileSpeed;
   }
 
+  // Final tangent guard at fire time.  pickEngagementTarget already filters
+  // tangential shots based on the predicted intercept geometry, but RT-period
+  // floating-point drift can occasionally shift cosAng across the 0.15
+  // threshold.  If the actual intercept point would land within ±15° of
+  // perpendicular, abort the launch entirely — the missile would
+  // certainly miss, so don't waste the round.  Ammo is preserved; the
+  // battery becomes idle and re-evaluates the threat next tick.
+  {
+    const btx = ipx - d.x, bty = ipy - d.y;
+    const blen = Math.hypot(btx, bty) || 1;
+    const cosAng = (btx / blen) * tvx + (bty / blen) * tvy;
+    if (Math.abs(cosAng) < 0.15) return;
+  }
+
+  // Commit the shot: decrement ammo, set cooldown.
+  d.cd = c.reload; d.ammo--;
+  t.firedAt++;
+
   // Time threat will reach its target
   const threatTimeToTarget = Math.hypot(t.tx - t.x, t.ty - t.y) / threatSpeed;
 
-  let outcome;  // 'hit' | 'flight-time' | 'out-of-range' | 'tangent' | 'statistical'
+  let outcome;  // 'hit' | 'flight-time' | 'out-of-range' | 'statistical'
 
   // Rule 1: missile flight time exceeds threat's remaining time → too late
   if (T > threatTimeToTarget) {
@@ -3233,20 +3257,11 @@ function fireMissile(d, t) {
   else if (Math.hypot(ipx - d.x, ipy - d.y) > effectiveEngagementRange(c, tc)) {
     outcome = 'out-of-range';
   }
-  // Rule 3: tangent crossing - threat moving (near-)perpendicular to battery LOS at intercept
-  else {
-    const btx = ipx - d.x, bty = ipy - d.y;
-    const blen = Math.hypot(btx, bty) || 1;
-    const cosAng = (btx / blen) * tvx + (bty / blen) * tvy;
-    if (Math.abs(cosAng) < 0.15) {
-      outcome = 'tangent';
-    }
-    // Rule 4: statistical hit-rate roll
-    else if (Math.random() < c.hitRate) {
-      outcome = 'hit';
-    } else {
-      outcome = 'statistical';
-    }
+  // Rule 3: statistical hit-rate roll (tangent geometry already excluded above)
+  else if (Math.random() < c.hitRate) {
+    outcome = 'hit';
+  } else {
+    outcome = 'statistical';
   }
 
   state.missiles.push({
