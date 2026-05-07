@@ -1228,6 +1228,12 @@ function captureSnapshot() {
     targetHits: state.targetHits.map(e => ({
       ...e,
       people: e.people ? e.people.map(p => ({...p})) : undefined
+    })),
+    defenses: state.defenses.map(d => ({
+      ammo: d.ammo,
+      prepareTarget: d.prepareTarget,
+      prepareUntil: d.prepareUntil,
+      cd: d.cd
     }))
   };
 }
@@ -1659,10 +1665,9 @@ function draw() {
   drawCountry();
   drawMountains();
   drawTargets();
-  drawCoverage();
-  drawDefenses();
 
-  // If scrubbing, swap state arrays for the dynamic objects with the snapshot
+  // If scrubbing, apply snapshot to dynamic state BEFORE drawing anything
+  // dynamic (defenses ammo/RT ring depend on this too).
   let saved = null;
   if (state.scrubTime != null) {
     const snap = findSnapshot(state.scrubTime);
@@ -1671,14 +1676,34 @@ function draw() {
         threats: state.threats,
         missiles: state.missiles,
         explosions: state.explosions,
-        targetHits: state.targetHits
+        targetHits: state.targetHits,
+        simElapsed: state.simElapsed,
+        defenseFields: state.defenses.map(d => ({
+          ammo: d.ammo,
+          prepareTarget: d.prepareTarget,
+          prepareUntil: d.prepareUntil,
+          cd: d.cd
+        }))
       };
       state.threats = snap.threats;
       state.missiles = snap.missiles;
       state.explosions = snap.explosions;
       state.targetHits = snap.targetHits;
+      state.simElapsed = state.scrubTime;
+      if (snap.defenses) {
+        for (let i = 0; i < state.defenses.length && i < snap.defenses.length; i++) {
+          const sd = snap.defenses[i];
+          state.defenses[i].ammo = sd.ammo;
+          state.defenses[i].prepareTarget = sd.prepareTarget;
+          state.defenses[i].prepareUntil = sd.prepareUntil;
+          state.defenses[i].cd = sd.cd;
+        }
+      }
     }
   }
+
+  drawCoverage();
+  drawDefenses();
 
   drawThreatPaths();
   drawThreats();
@@ -1691,6 +1716,14 @@ function draw() {
     state.missiles = saved.missiles;
     state.explosions = saved.explosions;
     state.targetHits = saved.targetHits;
+    state.simElapsed = saved.simElapsed;
+    for (let i = 0; i < state.defenses.length && i < saved.defenseFields.length; i++) {
+      const sd = saved.defenseFields[i];
+      state.defenses[i].ammo = sd.ammo;
+      state.defenses[i].prepareTarget = sd.prepareTarget;
+      state.defenses[i].prepareUntil = sd.prepareUntil;
+      state.defenses[i].cd = sd.cd;
+    }
   }
 
   drawPlacementGuide();
