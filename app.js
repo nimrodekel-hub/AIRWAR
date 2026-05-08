@@ -1597,6 +1597,10 @@ function placeAt(key, x, y) {
     const target = pickTarget();
     state.threats.push(makeThreat(key, x, y, target.x, target.y, target.name));
   } else {
+    if (!isInsideCountry(x, y)) {
+      flashStatus('⚠ לא ניתן להציב מחוץ לגבולות טליאריה');
+      return;
+    }
     const initialAmmo = (state.autoAmmo && state.autoAmmo[key] !== undefined) ? state.autoAmmo[key] : c.ammo;
     state.defenses.push({
       id: nextId++, key, x, y,
@@ -1776,9 +1780,31 @@ function draw() {
 
 // Visual aid during the 3-click attack-challenge flow
 function drawPlacementGuide() {
-  if (state.mode !== 'placing' || !state.placeStep) return;
+  if (state.mode !== 'placing') return;
   const c = CATALOG[state.placeKey];
-  if (!c || c.kind !== 'threat') return;
+  if (!c) return;
+
+  // Battery / radar: show validity ring
+  if (c.kind === 'battery' || c.kind === 'radar') {
+    const valid = isInsideCountry(state.mouseX, state.mouseY);
+    ctx.beginPath();
+    ctx.arc(state.mouseX, state.mouseY, 12, 0, Math.PI * 2);
+    ctx.strokeStyle = valid ? '#5fa86b' : '#dc2626';
+    ctx.lineWidth = 2;
+    ctx.setLineDash(valid ? [] : [3, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'center';
+    if (!valid) {
+      ctx.fillStyle = '#dc2626';
+      ctx.fillText('✗ מחוץ לגבולות טליאריה', state.mouseX, state.mouseY - 18);
+    }
+    return;
+  }
+
+  if (c.kind !== 'threat') return;
+  if (!state.placeStep) return;
 
   if (state.placeStep === 'origin') {
     // Origin must be inside the red zone (not just outside country)
