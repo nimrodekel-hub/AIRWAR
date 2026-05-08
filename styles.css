@@ -527,19 +527,18 @@ html, body {
   box-shadow: 0 4px 20px rgba(0,0,0,0.6);
 }
 
-/* ─── Banner group (banner + step guide stacked on map) ─────── */
+/* ─── Banner group (banner + step guide side-by-side on map) ─── */
 #banner-group {
   position: absolute;
   top: 14px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 5px;
+  flex-direction: row;
+  align-items: flex-start;
+  direction: ltr;
+  gap: 8px;
   z-index: 10;
-  max-width: 520px;
-  min-width: 260px;
 }
 
 #banner {
@@ -569,16 +568,17 @@ html, body {
   box-shadow: 0 0 24px rgba(220,38,38,0.18);
 }
 
-/* ─── Step guide overlay (inside banner-group, stacks below banner) */
+/* ─── Step guide overlay (inside banner-group, to the right of banner) */
 #step-guide-overlay {
   background: rgba(6,10,18,0.94);
   border: 1px solid rgba(95,168,211,0.3);
   border-radius: 6px;
-  padding: 8px 16px 10px;
+  padding: 8px 14px 10px;
   box-shadow: 0 4px 20px rgba(0,0,0,0.65);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   pointer-events: none;
+  white-space: nowrap;
 }
 
 .step-guide-title {
