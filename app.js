@@ -1692,9 +1692,35 @@ function resetAll() {
   refreshButtonStates();
   renderBudget();
   renderResults();
+  renderBatteryLegend();
   showSideToggle();
   updateStepGuide();
   setStatus('המפה אופסה - מפה ויעדים חדשים');
+}
+
+// Display-only legend shown on the map during attack-challenge mode.
+// Lists each battery type with max range and engagement altitude only.
+function renderBatteryLegend() {
+  const wrap = document.getElementById('battery-legend');
+  if (!wrap) return;
+  if (state.challengeMode !== 'attack-challenge') {
+    wrap.style.display = 'none';
+    return;
+  }
+  const list = document.getElementById('battery-legend-list');
+  list.innerHTML = '';
+  for (const key of BATTERY_KEYS) {
+    const c = CATALOG[key];
+    const row = document.createElement('div');
+    row.className = 'battery-legend-row';
+    row.innerHTML = `
+      <span class="battery-legend-swatch" style="background:${c.color};color:${c.color}"></span>
+      <span class="battery-legend-name">${c.name}</span>
+      <span class="battery-legend-stats">טווח ${c.maxRange} ק"מ • גובה ${c.minAlt}-${c.maxAlt} ק"מ</span>
+    `;
+    list.appendChild(row);
+  }
+  wrap.style.display = '';
 }
 
 // =============================================================
@@ -4033,6 +4059,7 @@ function startAttackChallenge(difficulty) {
   state.placeOrigin = null;
   refreshButtonStates();
   renderBudget();
+  renderBatteryLegend();
 
   const total = profile.threatBudget.uav + profile.threatBudget.fighter + profile.threatBudget.helicopter;
   showBanner(
