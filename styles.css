@@ -553,7 +553,8 @@ html, body {
   color: rgba(198,214,230,0.9);
   box-shadow: 0 4px 24px rgba(0,0,0,0.7);
   display: none;
-  text-align: center;
+  direction: rtl;
+  text-align: right;
 }
 
 #banner.success {
@@ -579,6 +580,8 @@ html, body {
   -webkit-backdrop-filter: blur(6px);
   pointer-events: none;
   white-space: nowrap;
+  direction: rtl;
+  text-align: right;
 }
 
 .step-guide-title {
@@ -589,7 +592,7 @@ html, body {
   letter-spacing: 1px;
   text-transform: uppercase;
   margin-bottom: 6px;
-  text-align: center;
+  text-align: right;
 }
 
 /* ─── Map controls ────────────────────────────────────────── */
@@ -1060,6 +1063,8 @@ html, body {
   line-height: 1.5;
   transition: all 0.2s;
   white-space: nowrap;
+  direction: rtl;
+  text-align: right;
 }
 
 #step-guide .step.current {
