@@ -557,6 +557,7 @@ html, body {
   box-shadow: 0 6px 22px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.4);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
+  direction: ltr;
 }
 
 #map-controls button {
