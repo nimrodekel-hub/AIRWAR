@@ -20,7 +20,7 @@ const CATALOG = {
     minRange: 1.5, maxRange: 30, minAlt: 0, maxAlt: 5,
     color: '#10b981', ammo: 3, reload: 0.6,
     hitRate: 0.65,
-    reactionTime: 1.5,
+    reactionTime: 0.5,
     missileSpeed: 380, realSpeed: 'Mach 4 (medium)',
     desc: 'Mobile short-range SAM, low-altitude'
   },
@@ -792,7 +792,7 @@ const TUTORIAL_STEPS = [
       <table>
         <tr><th>סוללה</th><th>טווח</th><th>גובה</th><th>PK</th><th>RT</th><th>תחמושת</th></tr>
         <tr><td><span class="swatch" style="background:#3b82f6"></span> Iron shield</td><td>4-70</td><td>0-9</td><td class="key">90%</td><td>1s</td><td>8</td></tr>
-        <tr><td><span class="swatch" style="background:#10b981"></span> SA-8 Gecko</td><td>1.5-30</td><td>0-5</td><td class="key">65%</td><td>1.5s</td><td>3</td></tr>
+        <tr><td><span class="swatch" style="background:#10b981"></span> SA-8 Gecko</td><td>1.5-30</td><td>0-5</td><td class="key">65%</td><td>0.5s</td><td>3</td></tr>
         <tr><td><span class="swatch" style="background:#8b5cf6"></span> Barak</td><td>0.5-100</td><td>0-16</td><td class="key">85%</td><td>0.5s</td><td>6</td></tr>
         <tr><td><span class="swatch" style="background:#f59e0b"></span> Patriot PAC-3</td><td>3-160</td><td>0-24</td><td class="key">65%</td><td>1.5s</td><td>4</td></tr>
         <tr><td><span class="swatch" style="background:#d946ef"></span> David's Sling</td><td>40-300</td><td>5-30</td><td class="key">70%</td><td>1s</td><td>5</td></tr>
@@ -807,8 +807,8 @@ const TUTORIAL_STEPS = [
       </ul>
       <h4>📦 מצבור תחמושת אוטומטי (Auto-Stockpile)</h4>
       <p>בפתיחת אתגר, התחמושת של כל סוללה מחושבת אוטומטית כך שהתרחיש <b>תמיד פתיר בפריסה אופטימלית</b>. הנוסחה:</p>
-      <pre style="background:#0f1420;padding:6px 10px;border-radius:4px;color:#5fa86b;font-size:12px;text-align:center">תחמושת = ⌈ (איומים ÷ סוללות-בתקציב) ÷ PK × 1.2 ⌉</pre>
-      <p>למשל: 16 איומים, 5 סוללות, PK=85% → 16/5/0.85×1.2 ≈ <b>5 מיירטים</b> לכל סוללה (או הערך הקטלוגי, הגבוה מביניהם).</p>
+      <pre style="background:#0f1420;padding:6px 10px;border-radius:4px;color:#5fa86b;font-size:12px;text-align:center">תחמושת = ⌈ (איומים ÷ סוללות-בתקציב) ÷ PK × 1.3 ⌉</pre>
+      <p>למשל: 16 איומים, 5 סוללות, PK=85% → 16/5/0.85×1.3 ≈ <b>5 מיירטים</b> לכל סוללה (או הערך הקטלוגי, הגבוה מביניהם).</p>
       <div class="tutorial-figure">
         <svg viewBox="0 0 460 220" xmlns="http://www.w3.org/2000/svg">
           <rect width="460" height="220" fill="#0a1628"/>
@@ -4002,7 +4002,7 @@ function generateAutoAttack() {
 function calcAutoAmmo(key, totalThreats, numBatteries) {
   const c = CATALOG[key];
   if (c.kind !== 'battery') return c.ammo;
-  return Math.max(c.ammo, Math.ceil(totalThreats / Math.max(numBatteries, 1) / c.hitRate * 1.2));
+  return Math.max(c.ammo, Math.ceil(totalThreats / Math.max(numBatteries, 1) / c.hitRate * 1.3));
 }
 
 function startDefenseChallenge(difficulty = 'medium') {
