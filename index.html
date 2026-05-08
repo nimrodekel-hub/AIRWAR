@@ -7,14 +7,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20260508b">
+  <link rel="stylesheet" href="styles.css?v=20260508c">
 </head>
 <body>
   <div id="app">
     <aside id="sidebar">
       <header>
         <h1>פיקוד הגנה אווירית</h1>
-        <div class="subtitle">משחק מלחמה: כחול נגד אדום <span class="version-tag">v20260508b</span></div>
+        <div class="subtitle">משחק מלחמה: כחול נגד אדום <span class="version-tag">v20260508c</span></div>
         <button id="open-tutorial" class="instructions-btn">📘 הוראות המשחק</button>
         <button id="open-start" class="newgame-btn">🆕 משחק חדש</button>
         <div class="side-toggle" id="side-toggle">
@@ -40,6 +40,28 @@
         <h2>🔴 איומים אוויריים (אדום)</h2>
         <div class="btn-grid" id="threat-btns"></div>
         <div class="hint">לחץ על איום ואז על המפה כדי להציב נקודת מוצא. האיום יטוס לעבר יעד אסטרטגי.</div>
+      </section>
+
+      <section class="panel">
+        <h2>בקרה</h2>
+        <div class="control-buttons">
+          <button id="simulate" class="primary">▶ הפעל סימולציה</button>
+          <button id="pause" class="warn" style="display:none">⏸ השהה</button>
+          <button id="resume" class="primary" style="display:none">▶ המשך</button>
+          <button id="stop" class="warn" style="display:none">■ עצור</button>
+          <button id="delete-mode">🗑 מצב מחיקה</button>
+          <button id="clear-threats">⨯ נקה איומים</button>
+          <button id="reset" class="danger">↺ אפס הכל</button>
+        </div>
+        <div id="mode-status" class="status-line">בחר רכיב להוספה</div>
+
+        <div id="scrubber-row" style="display:none">
+          <div class="scrubber-label">📺 ציר זמן סימולציה - גרור כדי לחזור ולהריץ קדימה</div>
+          <input type="range" id="scrubber" min="0" max="100" value="100" step="0.05">
+          <div class="scrubber-info">
+            <span id="scrubber-time">0.0</span> / <span id="scrubber-total">0.0</span> שנ׳
+          </div>
+        </div>
       </section>
 
       <section class="panel">
@@ -82,26 +104,6 @@
         </div>
       </section>
 
-      <section class="panel">
-        <h2>בקרה</h2>
-        <div class="control-buttons">
-          <button id="simulate" class="primary">▶ הפעל סימולציה</button>
-          <button id="stop" class="warn" style="display:none">■ עצור</button>
-          <button id="delete-mode">🗑 מצב מחיקה</button>
-          <button id="clear-threats">⨯ נקה איומים</button>
-          <button id="reset" class="danger">↺ אפס הכל</button>
-        </div>
-        <div id="mode-status" class="status-line">בחר רכיב להוספה</div>
-
-        <div id="scrubber-row" style="display:none">
-          <div class="scrubber-label">📺 ציר זמן סימולציה - גרור כדי לחזור ולהריץ קדימה</div>
-          <input type="range" id="scrubber" min="0" max="100" value="100" step="0.05">
-          <div class="scrubber-info">
-            <span id="scrubber-time">0.0</span> / <span id="scrubber-total">0.0</span> שנ׳
-          </div>
-        </div>
-      </section>
-
       <section class="panel" id="results-panel">
         <h2>תוצאות</h2>
         <div id="results">
@@ -123,13 +125,19 @@
       <div id="tooltip"></div>
       <div id="banner"></div>
       <div id="map-controls">
-        <button id="zoom-in" title="הגדל">+</button>
-        <button id="zoom-out" title="הקטן">−</button>
-        <button id="pan-up" title="הזז למעלה">↑</button>
-        <button id="pan-down" title="הזז למטה">↓</button>
-        <button id="pan-left" title="הזז שמאלה">←</button>
-        <button id="pan-right" title="הזז ימינה">→</button>
-        <button id="zoom-reset" title="איפוס תצוגה">⌂</button>
+        <div class="map-controls-pan" title="גרור את המפה כדי להזיז">
+          <button id="pan-up" title="הזז למעלה">▲</button>
+          <button id="pan-left" title="הזז שמאלה">◀</button>
+          <button id="zoom-reset" title="איפוס תצוגה">⌂</button>
+          <button id="pan-right" title="הזז ימינה">▶</button>
+          <button id="pan-down" title="הזז למטה">▼</button>
+        </div>
+        <div class="map-controls-zoom">
+          <button id="zoom-out" title="הקטן (גלגלת עכבר)">−</button>
+          <span id="zoom-level" title="רמת זום נוכחית">100%</span>
+          <button id="zoom-in" title="הגדל (גלגלת עכבר)">+</button>
+        </div>
+        <div class="map-controls-hint">🖱 גלגלת = זום • גרור מפה = הזזה</div>
       </div>
       <div id="legend-overlay">
         <div><span class="dot detection"></span>טווח גילוי מכ"ם</div>
@@ -211,6 +219,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260508b"></script>
+  <script src="app.js?v=20260508c"></script>
 </body>
 </html>

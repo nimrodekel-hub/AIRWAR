@@ -654,6 +654,8 @@ function bindControls() {
     btn.addEventListener('click', () => switchSide(btn.dataset.side));
   });
   document.getElementById('simulate').addEventListener('click', startSim);
+  document.getElementById('pause').addEventListener('click', pauseSim);
+  document.getElementById('resume').addEventListener('click', resumeSim);
   document.getElementById('stop').addEventListener('click', stopSim);
   document.getElementById('delete-mode').addEventListener('click', toggleDelete);
   document.getElementById('clear-threats').addEventListener('click', clearThreats);
@@ -1194,14 +1196,17 @@ function hideTutorial() {
 }
 
 function zoomBy(factor) {
-  const cx = W / 2, cy = H / 2;
-  // World point under the screen center stays under it after the zoom
-  const wx = (cx - state.viewport.offsetX) / state.viewport.scale;
-  const wy = (cy - state.viewport.offsetY) / state.viewport.scale;
+  zoomAt(W / 2, H / 2, factor);
+}
+
+function zoomAt(sx, sy, factor) {
+  const wx = (sx - state.viewport.offsetX) / state.viewport.scale;
+  const wy = (sy - state.viewport.offsetY) / state.viewport.scale;
   const newScale = Math.max(0.5, Math.min(3, state.viewport.scale * factor));
   state.viewport.scale = newScale;
-  state.viewport.offsetX = cx - wx * newScale;
-  state.viewport.offsetY = cy - wy * newScale;
+  state.viewport.offsetX = sx - wx * newScale;
+  state.viewport.offsetY = sy - wy * newScale;
+  updateZoomLevel();
 }
 
 function panBy(dx, dy) {
@@ -1217,6 +1222,12 @@ function resetView() {
     offsetY: H / 2 - cy * s,
     scale: s
   };
+  updateZoomLevel();
+}
+
+function updateZoomLevel() {
+  const el = document.getElementById('zoom-level');
+  if (el) el.textContent = `${Math.round(state.viewport.scale * 100)}%`;
 }
 
 function onScrubberChange(ev) {
@@ -1378,6 +1389,17 @@ function bindCanvas() {
   canvas.addEventListener('mousemove', onMouseMove);
   canvas.addEventListener('mouseup', onMouseUp);
   canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+  canvas.addEventListener('wheel', onWheel, { passive: false });
+  canvas.addEventListener('contextmenu', (ev) => { ev.preventDefault(); });
+}
+
+function onWheel(ev) {
+  ev.preventDefault();
+  const r = canvas.getBoundingClientRect();
+  const sx = ev.clientX - r.left;
+  const sy = ev.clientY - r.top;
+  const factor = ev.deltaY < 0 ? 1.12 : 0.89;
+  zoomAt(sx, sy, factor);
 }
 
 function getPos(ev) {
@@ -1392,6 +1414,7 @@ function getPos(ev) {
 }
 
 function onCanvasClick(ev) {
+  if (state._suppressNextClick) { state._suppressNextClick = false; return; }
   if (state.drag && state.drag.moved) { state.drag = null; return; }
   state.drag = null;
   const p = getPos(ev);
@@ -1476,16 +1499,43 @@ function flashStatus(msg, returnStep) {
 }
 
 function onMouseDown(ev) {
-  if (state.mode === 'sim' || state.mode === 'placing' || state.mode === 'deleting') return;
+  // Placing mode handles clicks for itself
+  if (state.mode === 'placing') return;
+
   const p = getPos(ev);
-  const ent = findEntityAt(p.x, p.y);
+  let ent = null;
+  if (state.mode !== 'sim' && state.mode !== 'deleting') {
+    ent = findEntityAt(p.x, p.y);
+    if (ent && state.challengeMode === 'defense-challenge' && state.threats.includes(ent)) {
+      ent = null;
+    }
+  }
+
   if (ent) {
-    if (state.challengeMode === 'defense-challenge' && state.threats.includes(ent)) return;
     state.drag = { ent, ox: p.x - ent.x, oy: p.y - ent.y, moved: false };
+  } else if (ev.button === 0 || ev.button === 1 || ev.button === 2) {
+    // Drag-to-pan on empty canvas (any mouse button)
+    state.pan = {
+      sx: ev.clientX, sy: ev.clientY,
+      ox: state.viewport.offsetX, oy: state.viewport.offsetY,
+      moved: false
+    };
+    canvas.classList.add('panning');
   }
 }
 
 function onMouseMove(ev) {
+  // Pan-drag takes priority - convert screen delta to viewport offset shift
+  if (state.pan) {
+    const dx = ev.clientX - state.pan.sx;
+    const dy = ev.clientY - state.pan.sy;
+    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) state.pan.moved = true;
+    state.viewport.offsetX = state.pan.ox + dx;
+    state.viewport.offsetY = state.pan.oy + dy;
+    tooltip.style.display = 'none';
+    return;
+  }
+
   const p = getPos(ev);
   state.mouseX = p.x; state.mouseY = p.y;
   if (state.drag) {
@@ -1523,6 +1573,11 @@ function onMouseMove(ev) {
 
 function onMouseUp() {
   if (state.drag) state.drag = null;
+  if (state.pan) {
+    if (state.pan.moved) state._suppressNextClick = true;
+    state.pan = null;
+    canvas.classList.remove('panning');
+  }
   canvas.classList.remove('dragging');
 }
 
@@ -1644,7 +1699,7 @@ function resetAll() {
 function loop(ts) {
   const dt = state.lastTs ? Math.min(0.05, (ts - state.lastTs) / 1000) : 0;
   state.lastTs = ts;
-  if (state.mode === 'sim') tick(dt);
+  if (state.mode === 'sim' && !state.paused) tick(dt);
   draw();
   requestAnimationFrame(loop);
 }
@@ -2940,15 +2995,38 @@ function startSim() {
     d.prepareTarget = null;
     d.prepareUntil = 0;
   }
+  state.paused = false;
   document.getElementById('simulate').style.display = 'none';
+  document.getElementById('pause').style.display = '';
+  document.getElementById('resume').style.display = 'none';
   document.getElementById('stop').style.display = '';
   hideBanner();
   setStatus('סימולציה פעילה...');
 }
 
+function pauseSim() {
+  if (state.mode !== 'sim') return;
+  state.paused = true;
+  document.getElementById('pause').style.display = 'none';
+  document.getElementById('resume').style.display = '';
+  setStatus('סימולציה מושהית - לחץ "המשך" לחידוש');
+}
+
+function resumeSim() {
+  if (state.mode !== 'sim') return;
+  state.paused = false;
+  state.lastTs = 0;
+  document.getElementById('pause').style.display = '';
+  document.getElementById('resume').style.display = 'none';
+  setStatus('סימולציה פעילה...');
+}
+
 function stopSim() {
   state.mode = 'idle';
+  state.paused = false;
   document.getElementById('simulate').style.display = '';
+  document.getElementById('pause').style.display = 'none';
+  document.getElementById('resume').style.display = 'none';
   document.getElementById('stop').style.display = 'none';
   setStatus('סימולציה נעצרה');
 }
@@ -3298,7 +3376,10 @@ function fireMissile(d, t) {
 
 function finishSim() {
   state.mode = 'idle';
+  state.paused = false;
   document.getElementById('simulate').style.display = '';
+  document.getElementById('pause').style.display = 'none';
+  document.getElementById('resume').style.display = 'none';
   document.getElementById('stop').style.display = 'none';
   // Capture a final snapshot so the scrubber can land exactly at the end
   state.history.push(captureSnapshot());
