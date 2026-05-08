@@ -467,13 +467,15 @@ const state = {
   lastTs: 0,
   simElapsed: 0,
   drag: null,
+  pan: null,
+  _suppressNextClick: false,
   mouseX: 0, mouseY: 0,
   serialCounters: {},
   viewport: { offsetX: 0, offsetY: 0, scale: 1 },
   tutorialStep: 0
 };
 
-let canvas, ctx, W, H, tooltip, banner;
+let canvas, ctx, W, H, tooltip, banner, zoomLevelEl;
 let nextId = 1;
 
 // =============================================================
@@ -484,6 +486,7 @@ window.addEventListener('DOMContentLoaded', () => {
   ctx = canvas.getContext('2d');
   tooltip = document.getElementById('tooltip');
   banner = document.getElementById('banner');
+  zoomLevelEl = document.getElementById('zoom-level');
   resize();
   window.addEventListener('resize', resize);
   regenerateLand();
@@ -491,6 +494,7 @@ window.addEventListener('DOMContentLoaded', () => {
   regenerateMountains();
   buildButtons();
   bindControls();
+  initSimButtons();
   bindCanvas();
   requestAnimationFrame(loop);
 });
@@ -1226,8 +1230,7 @@ function resetView() {
 }
 
 function updateZoomLevel() {
-  const el = document.getElementById('zoom-level');
-  if (el) el.textContent = `${Math.round(state.viewport.scale * 100)}%`;
+  if (zoomLevelEl) zoomLevelEl.textContent = `${Math.round(state.viewport.scale * 100)}%`;
 }
 
 function onScrubberChange(ev) {
@@ -1328,7 +1331,7 @@ function updateStepGuide() {
 
 function selectPlace(key) {
   const c = CATALOG[key];
-  if (state.mode === 'sim') return;
+  if (isSimActive()) return;
 
   // Defense budget enforcement
   if (state.budget && c.kind !== 'threat') {
@@ -1388,7 +1391,10 @@ function bindCanvas() {
   canvas.addEventListener('mousedown', onMouseDown);
   canvas.addEventListener('mousemove', onMouseMove);
   canvas.addEventListener('mouseup', onMouseUp);
-  canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+  canvas.addEventListener('mouseleave', () => {
+    tooltip.style.display = 'none';
+    if (state.pan) { state.pan = null; canvas.classList.remove('panning'); }
+  });
   canvas.addEventListener('wheel', onWheel, { passive: false });
   canvas.addEventListener('contextmenu', (ev) => { ev.preventDefault(); });
 }
@@ -1504,7 +1510,7 @@ function onMouseDown(ev) {
 
   const p = getPos(ev);
   let ent = null;
-  if (state.mode !== 'sim' && state.mode !== 'deleting') {
+  if (!isSimActive() && state.mode !== 'deleting') {
     ent = findEntityAt(p.x, p.y);
     if (ent && state.challengeMode === 'defense-challenge' && state.threats.includes(ent)) {
       ent = null;
@@ -1564,8 +1570,9 @@ function onMouseMove(ev) {
     }
     tooltip.innerHTML = lines.join('<br>');
     tooltip.style.display = 'block';
-    tooltip.style.left = (ev.clientX - canvas.parentElement.getBoundingClientRect().left + 14) + 'px';
-    tooltip.style.top = (ev.clientY - canvas.parentElement.getBoundingClientRect().top + 14) + 'px';
+    const pr = canvas.parentElement.getBoundingClientRect();
+    tooltip.style.left = (ev.clientX - pr.left + 14) + 'px';
+    tooltip.style.top  = (ev.clientY - pr.top  + 14) + 'px';
   } else {
     tooltip.style.display = 'none';
   }
@@ -1692,7 +1699,7 @@ function resetAll() {
   refreshButtonStates();
   renderBudget();
   renderResults();
-  renderBatteryLegend();
+  document.getElementById('battery-legend').style.display = 'none';
   showSideToggle();
   updateStepGuide();
   setStatus('המפה אופסה - מפה ויעדים חדשים');
@@ -1729,7 +1736,7 @@ function renderBatteryLegend() {
 function loop(ts) {
   const dt = state.lastTs ? Math.min(0.05, (ts - state.lastTs) / 1000) : 0;
   state.lastTs = ts;
-  if (state.mode === 'sim' && !state.paused) tick(dt);
+  if (state.mode === 'sim') tick(dt);
   draw();
   requestAnimationFrame(loop);
 }
@@ -1804,28 +1811,32 @@ function draw() {
   drawHUD();
 }
 
-// Visual aid during the 3-click attack-challenge flow
+function drawValidityRing(x, y, valid, validLabel, invalidLabel) {
+  ctx.beginPath();
+  ctx.arc(x, y, 12, 0, Math.PI * 2);
+  ctx.strokeStyle = valid ? '#5fa86b' : '#dc2626';
+  ctx.lineWidth = 2;
+  ctx.setLineDash(valid ? [] : [3, 3]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.font = 'bold 11px sans-serif';
+  ctx.textAlign = 'center';
+  const label = valid ? validLabel : invalidLabel;
+  if (label) {
+    ctx.fillStyle = valid ? '#5fa86b' : '#dc2626';
+    ctx.fillText(label, x, y - 18);
+  }
+}
+
 function drawPlacementGuide() {
   if (state.mode !== 'placing') return;
   const c = CATALOG[state.placeKey];
   if (!c) return;
 
-  // Battery / radar: show validity ring
   if (c.kind === 'battery' || c.kind === 'radar') {
-    const valid = isInsideCountry(state.mouseX, state.mouseY);
-    ctx.beginPath();
-    ctx.arc(state.mouseX, state.mouseY, 12, 0, Math.PI * 2);
-    ctx.strokeStyle = valid ? '#5fa86b' : '#dc2626';
-    ctx.lineWidth = 2;
-    ctx.setLineDash(valid ? [] : [3, 3]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.font = 'bold 11px sans-serif';
-    ctx.textAlign = 'center';
-    if (!valid) {
-      ctx.fillStyle = '#dc2626';
-      ctx.fillText('✗ מחוץ לגבולות טליאריה', state.mouseX, state.mouseY - 18);
-    }
+    drawValidityRing(state.mouseX, state.mouseY,
+      isInsideCountry(state.mouseX, state.mouseY),
+      null, '✗ מחוץ לגבולות טליאריה');
     return;
   }
 
@@ -1833,24 +1844,9 @@ function drawPlacementGuide() {
   if (!state.placeStep) return;
 
   if (state.placeStep === 'origin') {
-    // Origin must be inside the red zone (not just outside country)
-    const valid = isInsideRedZone(state.mouseX, state.mouseY);
-    ctx.beginPath();
-    ctx.arc(state.mouseX, state.mouseY, 12, 0, Math.PI * 2);
-    ctx.strokeStyle = valid ? '#5fa86b' : '#dc2626';
-    ctx.lineWidth = 2;
-    ctx.setLineDash(valid ? [] : [3, 3]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.font = 'bold 11px sans-serif';
-    ctx.textAlign = 'center';
-    if (valid) {
-      ctx.fillStyle = '#5fa86b';
-      ctx.fillText('✓ נקודת מוצא תקינה', state.mouseX, state.mouseY - 18);
-    } else {
-      ctx.fillStyle = '#dc2626';
-      ctx.fillText('✗ מחוץ לאזור האדום', state.mouseX, state.mouseY - 18);
-    }
+    drawValidityRing(state.mouseX, state.mouseY,
+      isInsideRedZone(state.mouseX, state.mouseY),
+      '✓ נקודת מוצא תקינה', '✗ מחוץ לאזור האדום');
   } else if (state.placeStep === 'target' && state.placeOrigin) {
     const o = state.placeOrigin;
     // Origin marker
@@ -2971,7 +2967,7 @@ function drawSoldier(x, y, alpha) {
 function drawHUD() {
   const lines = [];
 
-  if (state.mode === 'sim') {
+  if (isSimActive()) {
     const active   = state.threats.filter(t => t.status === 'inflight').length;
     const killed   = state.threats.filter(t => t.status === 'destroyed').length;
     const breached = state.threats.filter(t => t.status === 'reached').length;
@@ -3025,6 +3021,19 @@ function drawHUD() {
 // =============================================================
 // סימולציה
 // =============================================================
+const SIM_BTN = { simulate: null, pause: null, resume: null, stop: null };
+const isSimActive = () => state.mode === 'sim' || state.mode === 'paused';
+function initSimButtons() {
+  for (const id of Object.keys(SIM_BTN)) SIM_BTN[id] = document.getElementById(id);
+}
+function setSimButtons(mode) {
+  // mode: 'idle' | 'running' | 'paused'
+  SIM_BTN.simulate.style.display = mode === 'idle'    ? '' : 'none';
+  SIM_BTN.pause.style.display    = mode === 'running' ? '' : 'none';
+  SIM_BTN.resume.style.display   = mode === 'paused'  ? '' : 'none';
+  SIM_BTN.stop.style.display     = mode !== 'idle'    ? '' : 'none';
+}
+
 function startSim() {
   if (state.threats.length === 0) {
     setStatus('אין איומים להפעיל - הוסף איומים בצד אדום');
@@ -3047,39 +3056,29 @@ function startSim() {
     d.prepareTarget = null;
     d.prepareUntil = 0;
   }
-  state.paused = false;
-  document.getElementById('simulate').style.display = 'none';
-  document.getElementById('pause').style.display = '';
-  document.getElementById('resume').style.display = 'none';
-  document.getElementById('stop').style.display = '';
+  setSimButtons('running');
   hideBanner();
   setStatus('סימולציה פעילה...');
 }
 
 function pauseSim() {
   if (state.mode !== 'sim') return;
-  state.paused = true;
-  document.getElementById('pause').style.display = 'none';
-  document.getElementById('resume').style.display = '';
+  state.mode = 'paused';
+  setSimButtons('paused');
   setStatus('סימולציה מושהית - לחץ "המשך" לחידוש');
 }
 
 function resumeSim() {
-  if (state.mode !== 'sim') return;
-  state.paused = false;
+  if (state.mode !== 'paused') return;
+  state.mode = 'sim';
   state.lastTs = 0;
-  document.getElementById('pause').style.display = '';
-  document.getElementById('resume').style.display = 'none';
+  setSimButtons('running');
   setStatus('סימולציה פעילה...');
 }
 
 function stopSim() {
   state.mode = 'idle';
-  state.paused = false;
-  document.getElementById('simulate').style.display = '';
-  document.getElementById('pause').style.display = 'none';
-  document.getElementById('resume').style.display = 'none';
-  document.getElementById('stop').style.display = 'none';
+  setSimButtons('idle');
   setStatus('סימולציה נעצרה');
 }
 
@@ -3428,14 +3427,8 @@ function fireMissile(d, t) {
 
 function finishSim() {
   state.mode = 'idle';
-  state.paused = false;
-  document.getElementById('simulate').style.display = '';
-  document.getElementById('pause').style.display = 'none';
-  document.getElementById('resume').style.display = 'none';
-  document.getElementById('stop').style.display = 'none';
-  // Capture a final snapshot so the scrubber can land exactly at the end
+  setSimButtons('idle');
   state.history.push(captureSnapshot());
-  // Show scrubber set to the end of the timeline
   const total = state.simElapsed;
   const slider = document.getElementById('scrubber');
   slider.min = 0;
@@ -4036,22 +4029,19 @@ function startAttackChallenge(difficulty) {
   state.threatBudget = { ...profile.threatBudget };
   state.objective = profile.objective;
 
-  const _atkTotal = profile.threatBudget.uav + profile.threatBudget.fighter + profile.threatBudget.helicopter;
-  const _atkBatteries = profile.defenses.filter(d => CATALOG[d.key].kind === 'battery').length;
+  const total = profile.threatBudget.uav + profile.threatBudget.fighter + profile.threatBudget.helicopter;
+  const numBatteries = profile.defenses.filter(d => CATALOG[d.key].kind === 'battery').length;
 
-  // System auto-deploys defenses according to the difficulty profile.
-  // Anchors are resolved against the *current* (randomized) target layout.
   for (const item of profile.defenses) {
     const pos = resolveAnchor(item);
-    const _a = calcAutoAmmo(item.key, _atkTotal, _atkBatteries);
+    const ammo = calcAutoAmmo(item.key, total, numBatteries);
     state.defenses.push({
       id: nextId++, key: item.key, x: pos.x, y: pos.y,
-      ammo: _a, initialAmmo: _a, cd: 0,
+      ammo, initialAmmo: ammo, cd: 0,
       prepareTarget: null, prepareUntil: 0
     });
   }
 
-  // Switch to red side and prompt for first placement
   switchSide('red');
   state.mode = 'idle';
   state.placeKey = null;
@@ -4061,7 +4051,6 @@ function startAttackChallenge(difficulty) {
   renderBudget();
   renderBatteryLegend();
 
-  const total = profile.threatBudget.uav + profile.threatBudget.fighter + profile.threatBudget.helicopter;
   showBanner(
     `🎯 <u>משימת התקפה - ${profile.label}</u><br>` +
     `<span style="color:#fbbf24">תנאי ניצחון:</span> ${profile.objective.text}<br>` +
