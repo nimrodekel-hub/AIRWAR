@@ -592,18 +592,21 @@ html, body {
 }
 
 .map-controls-pan {
-  display: grid;
-  grid-template-columns: 32px 32px 32px;
-  grid-template-rows: 32px 32px 32px;
-  gap: 3px;
+  position: relative;
+  width: 102px;
+  height: 102px;
 }
 
-.map-controls-pan #pan-up { grid-column: 2; grid-row: 1; }
-.map-controls-pan #pan-left { grid-column: 1; grid-row: 2; }
-.map-controls-pan #zoom-reset { grid-column: 2; grid-row: 2; color: #5fa86b; }
+.map-controls-pan button {
+  position: absolute;
+}
+
+.map-controls-pan #pan-up    { top: 0;    left: 35px; }
+.map-controls-pan #pan-left  { top: 35px; left: 0; }
+.map-controls-pan #zoom-reset{ top: 35px; left: 35px; color: #5fa86b; }
 .map-controls-pan #zoom-reset:hover { color: #86efac; }
-.map-controls-pan #pan-right { grid-column: 3; grid-row: 2; }
-.map-controls-pan #pan-down { grid-column: 2; grid-row: 3; }
+.map-controls-pan #pan-right { top: 35px; left: 70px; }
+.map-controls-pan #pan-down  { top: 70px; left: 35px; }
 
 .map-controls-zoom {
   display: flex;
