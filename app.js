@@ -3070,29 +3070,14 @@ function pickEngagementTarget(d) {
     if (!hasLOS(d.x, d.y, t.x, t.y, altMSL)) continue;
 
     const dist = Math.hypot(t.x - d.x, t.y - d.y);
-    if (dist < c.minRange) continue;
+    if (dist < c.minRange) continue;  // currently in dead zone
 
-    // RCS-adjusted effective engagement envelope - low-RCS targets shrink
-    // the battery's effective tracking range (radar equation).  The missile
-    // envelope is physically the same in both directions (incoming OR
-    // receding) but it's tighter for stealthier threats.
-    const effMax = effectiveEngagementRange(c, tc);
-
-    if (dist > effMax) {
-      // Threat beyond effective engagement range - need cueing from a
-      // dedicated standalone radar AND the predicted intercept must
-      // still land inside the effective engagement envelope.
-      const det = getDetectionInfo(t, d, c, tc);
-      if (!det.externalRadar) continue;
-      if (!canInterceptInsideRange(t, d, c, tc)) continue;
-    }
-    // Otherwise the threat is inside the battery's effective engagement
-    // envelope - approach direction (incoming or receding) does not matter.
-
-    // Skip threats whose intercept geometry is nearly perpendicular to the
-    // battery LoS — the missile cannot apply sufficient lead angle and the
-    // shot would waste a round (same check that causes a 'tangent' miss).
-    if (isTangentShot(t, d, c, tc)) continue;
+    // Comprehensive viability evaluated at the predicted intercept point:
+    // detection (organic or external radar), intercept inside the reachable
+    // envelope, non-tangential geometry, and enough flight time to catch
+    // the threat before it reaches its target.  Skip the shot entirely if
+    // any of these would cause a certain miss — don't waste a missile.
+    if (!isViableShot(t, d, c, tc)) continue;
 
     // Prefer threats closer to important targets
     const target = TARGETS.find(x => x.x === t.tx && x.y === t.ty);
@@ -3128,15 +3113,18 @@ function getDetectionInfo(t, d, c, tc) {
   return { organic, externalRadar };
 }
 
-// Lead-pursuit intercept solver shared by engagement logic and tangent check.
-// Returns the predicted intercept point, missile flight time, and threat
-// velocity unit vector.  The missile is assumed to launch after c.reactionTime.
-function computeIntercept(t, d, c, tc) {
+// Lead-pursuit intercept solver shared by engagement logic and fire-time
+// checks.  launchDelay is the time (seconds) until the missile actually
+// launches: c.reactionTime when called from pickEngagementTarget (battery
+// hasn't started RT yet) and 0 when called from fireMissile (RT already
+// elapsed and the threat is at the launch position now).
+function computeIntercept(t, d, c, tc, launchDelay) {
+  const delay = (launchDelay !== undefined) ? launchDelay : c.reactionTime;
   const fdx = t.tx - t.sx, fdy = t.ty - t.sy;
   const flen = Math.hypot(fdx, fdy) || 1;
   const tvx = fdx / flen, tvy = fdy / flen;
-  const launchX = t.x + tvx * tc.speed * c.reactionTime;
-  const launchY = t.y + tvy * tc.speed * c.reactionTime;
+  const launchX = t.x + tvx * tc.speed * delay;
+  const launchY = t.y + tvy * tc.speed * delay;
   let T = Math.hypot(launchX - d.x, launchY - d.y) / c.missileSpeed;
   let ipx = launchX, ipy = launchY;
   for (let i = 0; i < 6; i++) {
@@ -3147,41 +3135,57 @@ function computeIntercept(t, d, c, tc) {
   return { ipx, ipy, T, tvx, tvy };
 }
 
-// Returns true if the threat is predicted to be moving nearly perpendicular
-// to the battery LoS AT THE INTERCEPT POINT (i.e., at the moment of impact,
-// not at the current moment).  computeIntercept projects the threat forward
-// by RT + missile flight time, so a threat that's currently tangent but will
-// have moved out of the perpendicular zone by impact returns false (engageable),
-// while a threat that's currently safe but will be tangent at impact returns
-// true (skip — the missile would certainly miss).
-function isTangentShot(t, d, c, tc) {
-  const { ipx, ipy, tvx, tvy } = computeIntercept(t, d, c, tc);
-  // Vector from battery to the predicted intercept point.  cosAng is the
-  // angle between this vector and the threat's velocity at intercept.
-  // |cosAng| < 0.15 ≈ within ±8.6° of perpendicular crossing.
-  const btx = ipx - d.x, bty = ipy - d.y;
-  const blen = Math.hypot(btx, bty) || 1;
-  const cosAng = (btx / blen) * tvx + (bty / blen) * tvy;
-  return Math.abs(cosAng) < 0.15;
+// Maximum engagement range for this battery vs this specific threat.
+// External radar cueing bypasses the battery's RCS-limited tracking
+// envelope so the only constraint becomes physical missile range.
+function getEngagementLimit(t, d, c, tc) {
+  const det = getDetectionInfo(t, d, c, tc);
+  if (det.externalRadar) return c.maxRange;
+  if (det.organic) return effectiveEngagementRange(c, tc);
+  return null;  // no detection — battery cannot engage
 }
 
-// Strict early-engagement gate for the external-radar path.  The battery
-// commits ONLY if the predicted intercept lands inside the physical missile
-// envelope (c.maxRange) and the approach is not tangential.
-function canInterceptInsideRange(t, d, c, tc) {
-  const { ipx, ipy, T, tvx, tvy } = computeIntercept(t, d, c, tc);
+// Comprehensive pre-fire viability check evaluated AT THE PREDICTED INTERCEPT
+// POINT (not at the threat's current position).  Refuses shots that would
+// certainly miss for known reasons:
+//   - no detection (organic or external radar)
+//   - intercept point outside the reachable envelope
+//   - tangential geometry at impact (≤±8.6° of perpendicular crossing)
+//   - missile flight time exceeds the threat's remaining time to its target
+// launchDelay defaults to c.reactionTime (pick-time use); pass 0 at fire time.
+function isViableShot(t, d, c, tc, launchDelay) {
+  const limit = getEngagementLimit(t, d, c, tc);
+  if (limit == null) return false;
+  const { ipx, ipy, T, tvx, tvy } = computeIntercept(t, d, c, tc, launchDelay);
   const interceptDist = Math.hypot(ipx - d.x, ipy - d.y);
-  // With external-radar cueing, RCS doesn't limit detection - only the
-  // physical missile envelope (c.maxRange) constrains the intercept point.
-  if (interceptDist < c.minRange || interceptDist > c.maxRange) return false;
-  // Tangential geometry — missile can't reach the required lead angle
+  if (interceptDist < c.minRange || interceptDist > limit) return false;
   const btx = ipx - d.x, bty = ipy - d.y;
   const blen = Math.hypot(btx, bty) || 1;
   const cosAng = (btx / blen) * tvx + (bty / blen) * tvy;
   if (Math.abs(cosAng) < 0.15) return false;
+  const delay = (launchDelay !== undefined) ? launchDelay : c.reactionTime;
   const remaining = Math.hypot(t.tx - t.x, t.ty - t.y) / tc.speed;
-  if (c.reactionTime + T > remaining) return false;
+  if (delay + T > remaining) return false;
   return true;
+}
+
+// Backwards-compatibility wrapper — kept for the canInterceptInsideRange
+// call site below; behaviour is now equivalent to isViableShot with the
+// default RT launchDelay.
+function canInterceptInsideRange(t, d, c, tc) {
+  return isViableShot(t, d, c, tc);
+}
+
+// Returns true if the threat is predicted to be moving nearly perpendicular
+// to the battery LoS AT THE INTERCEPT POINT (i.e., at the moment of impact,
+// not at the current moment).  Kept as a focused predicate for fireMissile's
+// fast-path guard — full viability is handled by isViableShot at pick time.
+function isTangentShot(t, d, c, tc) {
+  const { ipx, ipy, tvx, tvy } = computeIntercept(t, d, c, tc);
+  const btx = ipx - d.x, bty = ipy - d.y;
+  const blen = Math.hypot(btx, bty) || 1;
+  const cosAng = (btx / blen) * tvx + (bty / blen) * tvy;
+  return Math.abs(cosAng) < 0.15;
 }
 
 function alreadyEngaged(t) {
@@ -3223,18 +3227,26 @@ function fireMissile(d, t) {
     T = Math.hypot(ipx - d.x, ipy - d.y) / missileSpeed;
   }
 
-  // Final tangent guard at fire time.  pickEngagementTarget already filters
-  // tangential shots based on the predicted intercept geometry, but RT-period
-  // floating-point drift can occasionally shift cosAng across the 0.15
-  // threshold.  If the actual intercept point would land within ±15° of
-  // perpendicular, abort the launch entirely — the missile would
-  // certainly miss, so don't waste the round.  Ammo is preserved; the
-  // battery becomes idle and re-evaluates the threat next tick.
+  // Pre-commit guards at fire time.  pickEngagementTarget already filters
+  // tangential and out-of-envelope shots based on the predicted intercept
+  // geometry, but RT-period floating-point drift or shifting detection
+  // (e.g., a supporting radar dropping LoS during RT) can occasionally
+  // change the geometry across the threshold.  If the actual intercept
+  // point would land within ±15° of perpendicular OR outside the reachable
+  // envelope, abort the launch entirely — the missile would certainly miss,
+  // so don't waste the round.  Ammo is preserved; the battery becomes idle
+  // and re-evaluates the threat next tick.
   {
     const btx = ipx - d.x, bty = ipy - d.y;
     const blen = Math.hypot(btx, bty) || 1;
     const cosAng = (btx / blen) * tvx + (bty / blen) * tvy;
     if (Math.abs(cosAng) < 0.15) return;
+    const det = getDetectionInfo(t, d, c, tc);
+    const limit = det.externalRadar ? c.maxRange
+                : det.organic       ? effectiveEngagementRange(c, tc)
+                : null;
+    if (limit == null) return;  // lost detection during RT
+    if (blen < c.minRange || blen > limit) return;  // intercept outside envelope
   }
 
   // Commit the shot: decrement ammo, set cooldown.
@@ -3244,7 +3256,7 @@ function fireMissile(d, t) {
   // Time threat will reach its target
   const threatTimeToTarget = Math.hypot(t.tx - t.x, t.ty - t.y) / threatSpeed;
 
-  let outcome;  // 'hit' | 'flight-time' | 'out-of-range' | 'statistical'
+  let outcome;  // 'hit' | 'flight-time' | 'statistical'
 
   // Rule 1: missile flight time exceeds threat's remaining time → too late
   if (T > threatTimeToTarget) {
@@ -3253,11 +3265,7 @@ function fireMissile(d, t) {
     ipx = t.x + tvx * threatSpeed * threatTimeToTarget;
     ipy = t.y + tvy * threatSpeed * threatTimeToTarget;
   }
-  // Rule 2: predicted intercept point exits the RCS-adjusted envelope
-  else if (Math.hypot(ipx - d.x, ipy - d.y) > effectiveEngagementRange(c, tc)) {
-    outcome = 'out-of-range';
-  }
-  // Rule 3: statistical hit-rate roll (tangent geometry already excluded above)
+  // Rule 2: statistical hit-rate roll (tangent + out-of-range already excluded above)
   else if (Math.random() < c.hitRate) {
     outcome = 'hit';
   } else {
