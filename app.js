@@ -2932,7 +2932,7 @@ function startSim() {
   // reset threats and defenses
   for (const t of state.threats) {
     t.x = t.sx; t.y = t.sy; t.status = 'inflight'; t.hitBy = null;
-    t.firedAt = 0; t.missedBy = [];
+    t.firedAt = 0; t.missedBy = []; t.depletedEnvelope = [];
   }
   for (const d of state.defenses) {
     const c = CATALOG[d.key];
@@ -3000,6 +3000,21 @@ function tick(dt) {
     if (target) {
       d.prepareTarget = target.id;
       d.prepareUntil = state.simElapsed + c.reactionTime;
+    }
+  }
+
+  // 3c. Track threats passing through depleted-battery envelopes (for post-sim annotation)
+  for (const d of state.defenses) {
+    const c = CATALOG[d.key];
+    if (c.kind !== 'battery' || d.ammo > 0) continue;
+    for (const t of state.threats) {
+      if (t.status !== 'inflight') continue;
+      const tc = CATALOG[t.key];
+      const effMax = effectiveEngagementRange(c, tc);
+      const dist = Math.hypot(t.x - d.x, t.y - d.y);
+      if (dist <= effMax && dist >= c.minRange && !t.depletedEnvelope.includes(c.short)) {
+        t.depletedEnvelope.push(c.short);
+      }
     }
   }
 
@@ -3700,6 +3715,19 @@ function computeResults() {
   };
 }
 
+// Returns true if the threat's straight-line path comes within the battery's effective engagement range.
+function threatPathEntersEnvelope(t, d, c, tc) {
+  const altMSL = getThreatAltMSL(t);
+  if (altMSL < c.minAlt || altMSL > c.maxAlt) return false;
+  const effMax = effectiveEngagementRange(c, tc);
+  const dx = t.tx - t.sx, dy = t.ty - t.sy;
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len, uy = dy / len;
+  const proj = (d.x - t.sx) * ux + (d.y - t.sy) * uy;
+  const cpx = t.sx + proj * ux, cpy = t.sy + proj * uy;
+  return Math.hypot(cpx - d.x, cpy - d.y) <= effMax;
+}
+
 // Classify EVERY surviving threat into exactly one of the 4 user-defined miss categories:
 //   statistical | flight-time | out-of-range | tangent
 function diagnoseFailure(t) {
@@ -3719,17 +3747,31 @@ function diagnoseFailure(t) {
     return `נורו ${t.firedAt} טילי יירוט וכולם פספסו: ${parts.join(' • ')}`;
   }
 
-  // Case B: threat was never engaged - simulate engagement physics for each battery
+  // Case B: threat was never engaged
   const tc = CATALOG[t.key];
-  const candidates = [];
 
-  for (const d of state.defenses) {
+  // B1: threat passed through a depleted battery's envelope (tracked in real-time)
+  if (t.depletedEnvelope && t.depletedEnvelope.length > 0) {
+    const batts = [...new Set(t.depletedEnvelope)].join(', ');
+    return `<b>בתוך מעטפת סוללה, גמר מיירטים</b> [${batts}]`;
+  }
+
+  // B2: threat path never entered any battery's engagement envelope
+  const batteries = state.defenses.filter(d => CATALOG[d.key].kind === 'battery');
+  if (batteries.length > 0) {
+    const anyInRange = batteries.some(d => threatPathEntersEnvelope(t, d, CATALOG[d.key], tc));
+    if (!anyInRange) {
+      return `<b>מטרה מחוץ למעטפות היירוט של הסוללות</b>`;
+    }
+  }
+
+  // B3: path entered an envelope but engagement physics prevented a shot
+  const candidates = [];
+  for (const d of batteries) {
     const c = CATALOG[d.key];
-    if (c.kind !== 'battery') continue;
     candidates.push({ battery: c.short, reason: simulateEngagementOutcome(t, d, c, tc) });
   }
 
-  // Pick the best (most specific) reason: prefer statistical > tangent > flight-time > out-of-range
   if (!candidates.length) {
     return `<b>${REASON_LABEL['out-of-range']}</b> - אין סוללה כלשהי במפה`;
   }
@@ -3737,8 +3779,8 @@ function diagnoseFailure(t) {
   for (const p of priority) {
     const list = candidates.filter(x => x.reason === p);
     if (list.length) {
-      const batteries = [...new Set(list.map(x => x.battery))].join(', ');
-      return `<b>${REASON_LABEL[p]}</b> [${batteries}]`;
+      const batNames = [...new Set(list.map(x => x.battery))].join(', ');
+      return `<b>${REASON_LABEL[p]}</b> [${batNames}]`;
     }
   }
   return `<b>${REASON_LABEL['out-of-range']}</b>`;
