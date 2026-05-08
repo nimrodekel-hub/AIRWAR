@@ -44,7 +44,7 @@ const CATALOG = {
   },
   davidsSling: {
     kind: 'battery', name: "David's Sling", short: 'DSL',
-    minRange: 40, maxRange: 300, minAlt: 5, maxAlt: 30,
+    minRange: 40, maxRange: 200, minAlt: 5, maxAlt: 30,
     color: '#d946ef', ammo: 5, reload: 0.8,
     hitRate: 0.70,
     reactionTime: 1,
@@ -797,7 +797,7 @@ const TUTORIAL_STEPS = [
         <tr><td><span class="swatch" style="background:#10b981"></span> SA-8 Gecko</td><td>1.5-30</td><td>0-5</td><td class="key">65%</td><td>0.5s</td><td>3</td></tr>
         <tr><td><span class="swatch" style="background:#8b5cf6"></span> Barak</td><td>0.5-100</td><td>0-16</td><td class="key">85%</td><td>0.5s</td><td>6</td></tr>
         <tr><td><span class="swatch" style="background:#f59e0b"></span> Patriot PAC-3</td><td>3-160</td><td>0-24</td><td class="key">65%</td><td>1.5s</td><td>4</td></tr>
-        <tr><td><span class="swatch" style="background:#d946ef"></span> David's Sling</td><td>40-300</td><td>5-30</td><td class="key">70%</td><td>1s</td><td>5</td></tr>
+        <tr><td><span class="swatch" style="background:#d946ef"></span> David's Sling</td><td>40-200</td><td>5-30</td><td class="key">70%</td><td>1s</td><td>5</td></tr>
       </table>
       <h4>מה כל מספר אומר:</h4>
       <ul>
@@ -3684,7 +3684,7 @@ function generateDefenseRecommendations(r) {
 
   if (counts['out-of-range'] > 0) {
     const tgts = [...new Set(targetsPerReason['out-of-range'])].join(', ');
-    recs.push(`📍 <b>${counts['out-of-range']} איומים סווגו "יציאה מטווח"</b> (יעדים: ${tgts}). הסיבה: לא היה כיסוי גאומטרי, גובה הטיסה מחוץ לתקרת הסוללה, או שהאיום עזב את הטווח לפני שהמיירט הגיע. <b>פתרון:</b> פרוס סוללה ארוכת טווח (Patriot 160km / David's Sling 300km / Barak 100km) קרוב יותר לציר התקיפה.`);
+    recs.push(`📍 <b>${counts['out-of-range']} איומים סווגו "יציאה מטווח"</b> (יעדים: ${tgts}). הסיבה: לא היה כיסוי גאומטרי, גובה הטיסה מחוץ לתקרת הסוללה, או שהאיום עזב את הטווח לפני שהמיירט הגיע. <b>פתרון:</b> פרוס סוללה ארוכת טווח (Patriot 160km / David's Sling 200km / Barak 100km) קרוב יותר לציר התקיפה.`);
   }
 
   if (counts['flight-time'] > 0) {
