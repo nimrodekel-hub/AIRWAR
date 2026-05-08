@@ -1288,19 +1288,19 @@ function showBackButton() {
 function showSideToggle() {
   document.getElementById('side-toggle').style.display = '';
   document.getElementById('back-to-selection').style.display = 'none';
-  document.getElementById('step-guide-panel').style.display = 'none';
+  document.getElementById('step-guide-overlay').style.display = 'none';
 }
 
 function updateStepGuide() {
-  const panel = document.getElementById('step-guide-panel');
+  const overlay = document.getElementById('step-guide-overlay');
   const guide = document.getElementById('step-guide');
 
   if (state.challengeMode !== 'defense-challenge' && state.challengeMode !== 'attack-challenge') {
-    panel.style.display = 'none';
+    overlay.style.display = 'none';
     return;
   }
 
-  panel.style.display = '';
+  overlay.style.display = '';
   let steps;
 
   if (state.challengeMode === 'defense-challenge') {
