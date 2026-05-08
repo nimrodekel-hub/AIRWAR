@@ -685,8 +685,8 @@ function bindControls() {
   // Viewport controls
   document.getElementById('zoom-in').addEventListener('click', () => zoomBy(1.25));
   document.getElementById('zoom-out').addEventListener('click', () => zoomBy(0.8));
-  document.getElementById('pan-left').addEventListener('click', () => panBy(80, 0));
-  document.getElementById('pan-right').addEventListener('click', () => panBy(-80, 0));
+  document.getElementById('pan-left').addEventListener('click', () => panBy(-80, 0));
+  document.getElementById('pan-right').addEventListener('click', () => panBy(80, 0));
   document.getElementById('pan-up').addEventListener('click', () => panBy(0, 80));
   document.getElementById('pan-down').addEventListener('click', () => panBy(0, -80));
   document.getElementById('zoom-reset').addEventListener('click', resetView);
