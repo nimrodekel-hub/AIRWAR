@@ -488,7 +488,8 @@ window.addEventListener('DOMContentLoaded', () => {
   banner = document.getElementById('banner');
   zoomLevelEl = document.getElementById('zoom-level');
   resize();
-  window.addEventListener('resize', resize);
+  window.addEventListener('resize', () => { resize(); placeScrubberForViewport(); });
+  placeScrubberForViewport();
   regenerateLand();
   regenerateTargets();
   regenerateMountains();
@@ -503,6 +504,17 @@ function resize() {
   const r = canvas.parentElement.getBoundingClientRect();
   canvas.width = W = r.width;
   canvas.height = H = r.height;
+}
+
+// On mobile, the sidebar is hidden behind the hamburger — relocate the
+// scrubber to the map container so the player can scrub the replay
+// without opening the drawer.
+function placeScrubberForViewport() {
+  const sr = document.getElementById('scrubber-row');
+  if (!sr) return;
+  const isMobile = window.matchMedia('(max-width: 768px)').matches;
+  const target = document.getElementById(isMobile ? 'map-container' : 'control-panel');
+  if (sr.parentElement !== target) target.appendChild(sr);
 }
 
 function buildButtons() {
@@ -3558,6 +3570,7 @@ function finishSim() {
   document.getElementById('scrubber-total').textContent = total.toFixed(1);
   document.getElementById('scrubber-time').textContent = total.toFixed(1);
   document.getElementById('scrubber-row').style.display = '';
+  placeScrubberForViewport();
   state.scrubTime = null;  // live until user drags
   computeResults();
   renderResults();

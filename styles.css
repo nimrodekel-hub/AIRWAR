@@ -1732,4 +1732,21 @@ html, body {
     border-radius: 4px;
     border-top: none;
   }
+
+  /* Scrubber relocated to the map: floating overlay so the player can
+     replay forward/backward without opening the sidebar drawer. */
+  #map-container > #scrubber-row {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    right: 12px;
+    z-index: 50;
+    margin-top: 0;
+    background: rgba(8,12,22,0.94);
+    border: 1px solid rgba(95,168,211,0.35);
+    border-radius: 8px;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.55);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
 }
