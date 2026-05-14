@@ -1581,6 +1581,10 @@ html, body {
 ::-webkit-scrollbar-thumb { background: rgba(42,58,85,0.8); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(74,107,156,0.8); }
 
+/* ─── Mobile menu toggle & backdrop (hidden on desktop) ───── */
+#mobile-menu-toggle { display: none; }
+#mobile-backdrop    { display: none; }
+
 /* ─── Responsive ──────────────────────────────────────────── */
 @media (max-width: 600px) {
   .start-grid        { grid-template-columns: 1fr; }
@@ -1588,4 +1592,122 @@ html, body {
   .modal-summary     { grid-template-columns: 1fr 1fr; }
   .results-table     { font-size: 11px; }
   .results-table th, .results-table td { padding: 5px 4px; }
+}
+
+/* ─── Mobile layout (sidebar → slide-in drawer) ───────────── */
+@media (max-width: 768px) {
+  #sidebar {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 88%;
+    max-width: 380px;
+    height: 100vh;
+    min-width: 0;
+    z-index: 100;
+    transform: translateX(100%);
+    transition: transform 0.28s ease;
+    box-shadow: -8px 0 32px rgba(0,0,0,0.7);
+  }
+
+  #sidebar.open {
+    transform: translateX(0);
+  }
+
+  #mobile-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 90;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.28s ease;
+  }
+
+  #mobile-backdrop.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  #mobile-menu-toggle {
+    display: flex;
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 46px;
+    height: 46px;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    background: rgba(8,12,22,0.92);
+    border: 1px solid rgba(95,168,211,0.4);
+    border-radius: 8px;
+    color: #5fc8e8;
+    z-index: 95;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.6);
+    padding: 0;
+    line-height: 1;
+  }
+
+  #mobile-menu-toggle:active {
+    background: rgba(20,40,60,0.95);
+  }
+
+  /* Touch-target sizing for buttons inside the drawer */
+  #sidebar .btn-grid button,
+  #sidebar .control-buttons > button,
+  #sidebar .diff-btn,
+  #sidebar .side-btn,
+  .instructions-btn,
+  .newgame-btn,
+  .back-btn {
+    min-height: 44px;
+    font-size: 13px;
+  }
+
+  /* Banner-group: shrink so it doesn't dominate small screens */
+  #banner-group {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    max-width: calc(100vw - 80px);
+  }
+
+  #banner {
+    font-size: 12px;
+    padding: 8px 14px;
+    letter-spacing: 0.5px;
+  }
+
+  #step-guide-overlay {
+    padding: 6px 10px 8px;
+  }
+
+  #step-guide .step {
+    font-size: 11px;
+    padding: 4px 8px;
+  }
+
+  .step-guide-title {
+    font-size: 10px;
+    margin-bottom: 4px;
+  }
+
+  /* Map controls: keep but make them more compact */
+  #map-controls {
+    top: 10px;
+    left: 10px;
+    padding: 6px;
+  }
+
+  .map-controls-hint {
+    display: none;
+  }
+
+  #legend-overlay {
+    font-size: 9px;
+    padding: 6px 8px;
+  }
 }

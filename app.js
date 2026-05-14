@@ -653,11 +653,26 @@ function iconFor(k) {
   return c.icon;
 }
 
+function toggleMobileSidebar(force) {
+  const sidebar = document.getElementById('sidebar');
+  const backdrop = document.getElementById('mobile-backdrop');
+  const next = force !== undefined ? force : !sidebar.classList.contains('open');
+  sidebar.classList.toggle('open', next);
+  backdrop.classList.toggle('open', next);
+}
+
+function closeMobileSidebar() {
+  toggleMobileSidebar(false);
+}
+
 function bindControls() {
+  document.getElementById('mobile-menu-toggle').addEventListener('click', () => toggleMobileSidebar());
+  document.getElementById('mobile-backdrop').addEventListener('click', closeMobileSidebar);
+
   document.querySelectorAll('.side-btn').forEach(btn => {
     btn.addEventListener('click', () => switchSide(btn.dataset.side));
   });
-  document.getElementById('simulate').addEventListener('click', startSim);
+  document.getElementById('simulate').addEventListener('click', () => { startSim(); closeMobileSidebar(); });
   document.getElementById('pause').addEventListener('click', pauseSim);
   document.getElementById('resume').addEventListener('click', resumeSim);
   document.getElementById('stop').addEventListener('click', stopSim);
@@ -1364,6 +1379,7 @@ function selectPlace(key) {
   }
   refreshButtonStates();
   updateStepGuide();
+  closeMobileSidebar();
 }
 
 function refreshButtonStates() {
@@ -1742,6 +1758,7 @@ function toggleDelete() {
   state.placeKey = null;
   refreshButtonStates();
   setStatus(state.mode === 'deleting' ? 'מצב מחיקה - לחץ על רכיב כדי להסיר' : 'בחר רכיב להוספה');
+  if (state.mode === 'deleting') closeMobileSidebar();
 }
 
 function findTargetAt(x, y) {
@@ -4148,6 +4165,7 @@ function startAttackChallenge(difficulty) {
   setStatus(`משימת התקפה ${profile.label} - בחר סוג איום מהתפריט`);
   showBackButton();
   updateStepGuide();
+  closeMobileSidebar();
 }
 
 // =============================================================
@@ -4260,6 +4278,7 @@ function startDefenseChallenge(difficulty = 'medium') {
   renderBudget();
   showBackButton();
   updateStepGuide();
+  closeMobileSidebar();
 }
 
 function renderBudget() {
