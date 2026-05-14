@@ -517,6 +517,10 @@ function placeScrubberForViewport() {
   if (sr.parentElement !== target) target.appendChild(sr);
 }
 
+function setScrubberActive(active) {
+  document.getElementById('map-container').classList.toggle('scrubber-active', active);
+}
+
 function buildButtons() {
   const bGrid = document.getElementById('battery-btns');
   const rGrid = document.getElementById('radar-btns');
@@ -1822,6 +1826,7 @@ function resetAll() {
   state.placeStep = null;
   state.placeOrigin = null;
   document.getElementById('scrubber-row').style.display = 'none';
+  setScrubberActive(false);
   // Regenerate the country borders and target locations so each game is fresh
   regenerateLand();
   regenerateTargets();
@@ -3177,6 +3182,7 @@ function startSim() {
   state.history = [];
   state.scrubTime = null;
   document.getElementById('scrubber-row').style.display = 'none';
+  setScrubberActive(false);
   // reset threats and defenses
   for (const t of state.threats) {
     t.x = t.sx; t.y = t.sy; t.status = 'inflight'; t.hitBy = null;
@@ -3571,6 +3577,7 @@ function finishSim() {
   document.getElementById('scrubber-time').textContent = total.toFixed(1);
   document.getElementById('scrubber-row').style.display = '';
   placeScrubberForViewport();
+  setScrubberActive(true);
   state.scrubTime = null;  // live until user drags
   computeResults();
   renderResults();

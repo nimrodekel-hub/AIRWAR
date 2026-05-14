@@ -1749,4 +1749,46 @@ html, body {
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
   }
+
+  /* Battery legend (attack mode): compact + pinned to bottom-left */
+  #battery-legend {
+    left: 8px;
+    right: auto;
+    bottom: 8px;
+    padding: 5px 8px;
+    min-width: 0;
+    max-width: calc(100vw - 70px);
+    font-size: 9px;
+  }
+
+  #battery-legend .battery-legend-title {
+    font-size: 10px;
+    padding-bottom: 2px;
+    margin-bottom: 3px;
+  }
+
+  #battery-legend .battery-legend-row {
+    font-size: 9px;
+    margin: 1px 0;
+    gap: 4px;
+  }
+
+  #battery-legend .battery-legend-swatch {
+    width: 8px;
+    height: 8px;
+  }
+
+  #battery-legend .battery-legend-name {
+    min-width: 70px;
+    font-size: 10px;
+  }
+
+  #battery-legend .battery-legend-stats {
+    font-size: 8.5px;
+  }
+
+  /* When the scrubber is visible, push the battery legend above it */
+  #map-container.scrubber-active #battery-legend {
+    bottom: 86px;
+  }
 }
