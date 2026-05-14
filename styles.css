@@ -1594,120 +1594,108 @@ html, body {
   .results-table th, .results-table td { padding: 5px 4px; }
 }
 
-/* ─── Mobile layout (sidebar → slide-in drawer) ───────────── */
+/* ─── Mobile layout (map top, sidebar bottom panel) ──────── */
 @media (max-width: 768px) {
+  /* Vertical stack: map fills top, sidebar panel at bottom */
+  #app {
+    flex-direction: column;
+  }
+
+  #map-container {
+    order: 1;
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* Sidebar becomes a fixed-height bottom panel, always visible */
   #sidebar {
-    position: fixed;
-    top: 0;
-    right: 0;
-    width: 88%;
-    max-width: 380px;
-    height: 100vh;
+    order: 2;
+    position: static;
+    width: 100%;
     min-width: 0;
-    z-index: 100;
-    transform: translateX(100%);
-    transition: transform 0.28s ease;
-    box-shadow: -8px 0 32px rgba(0,0,0,0.7);
+    height: 45vh;
+    min-height: 180px;
+    flex-shrink: 0;
+    overflow: hidden;
+    border-left: none;
+    border-top: 1px solid rgba(95,168,211,0.22);
+    padding: 6px 10px 0;
+    gap: 0;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.5);
   }
 
-  #sidebar.open {
-    transform: translateX(0);
-  }
-
-  #mobile-backdrop {
-    display: block;
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.55);
-    z-index: 90;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.28s ease;
-  }
-
-  #mobile-backdrop.open {
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  #mobile-menu-toggle {
+  /* Compact the header: hide title/subtitle, arrange buttons in one row */
+  #sidebar > header {
     display: flex;
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    width: 46px;
-    height: 46px;
+    flex-direction: row;
     align-items: center;
-    justify-content: center;
-    font-size: 22px;
-    background: rgba(8,12,22,0.92);
-    border: 1px solid rgba(95,168,211,0.4);
-    border-radius: 8px;
-    color: #5fc8e8;
-    z-index: 95;
-    cursor: pointer;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.6);
-    padding: 0;
-    line-height: 1;
+    gap: 6px;
+    padding: 0 0 6px;
+    border-bottom: 1px solid rgba(42,58,85,0.5);
+    flex-shrink: 0;
   }
 
-  #mobile-menu-toggle:active {
-    background: rgba(20,40,60,0.95);
+  #sidebar > header h1,
+  .subtitle { display: none; }
+
+  .side-toggle {
+    flex: 1;
+    margin-top: 0;
   }
 
-  /* Touch-target sizing for buttons inside the drawer */
-  #sidebar .btn-grid button,
-  #sidebar .control-buttons > button,
-  #sidebar .diff-btn,
-  #sidebar .side-btn,
   .instructions-btn,
-  .newgame-btn,
-  .back-btn {
+  .newgame-btn {
+    padding: 6px 8px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  #back-to-selection {
+    margin-top: 0;
+    width: auto;
+    flex: 1;
+    padding: 7px 8px;
+    font-size: 11px;
+  }
+
+  /* Sidebar scroll area fills between header and control panel */
+  #sidebar-scroll {
+    padding-bottom: 4px;
+  }
+
+  /* Touch-friendly button sizes */
+  .btn-grid button,
+  .control-buttons > button,
+  .diff-btn,
+  .side-btn {
     min-height: 44px;
     font-size: 13px;
   }
 
-  /* Banner-group: shrink so it doesn't dominate small screens */
+  /* Hamburger and backdrop not needed in bottom-panel layout */
+  #mobile-menu-toggle { display: none; }
+  #mobile-backdrop    { display: none; }
+
+  /* Banner and step-guide: narrower since map is shorter */
   #banner-group {
     flex-direction: column;
-    align-items: stretch;
     gap: 4px;
-    max-width: calc(100vw - 80px);
+    max-width: calc(100vw - 24px);
   }
 
   #banner {
     font-size: 12px;
-    padding: 8px 14px;
+    padding: 7px 12px;
     letter-spacing: 0.5px;
   }
 
-  #step-guide-overlay {
-    padding: 6px 10px 8px;
-  }
+  #step-guide-overlay { padding: 5px 10px 7px; }
+  #step-guide .step   { font-size: 11px; padding: 3px 8px; white-space: normal; }
+  .step-guide-title   { font-size: 10px; margin-bottom: 4px; }
 
-  #step-guide .step {
-    font-size: 11px;
-    padding: 4px 8px;
-  }
+  /* Map controls: compact */
+  #map-controls  { top: 8px; left: 8px; padding: 5px; }
+  .map-controls-hint { display: none; }
 
-  .step-guide-title {
-    font-size: 10px;
-    margin-bottom: 4px;
-  }
-
-  /* Map controls: keep but make them more compact */
-  #map-controls {
-    top: 10px;
-    left: 10px;
-    padding: 6px;
-  }
-
-  .map-controls-hint {
-    display: none;
-  }
-
-  #legend-overlay {
-    font-size: 9px;
-    padding: 6px 8px;
-  }
+  #legend-overlay { font-size: 9px; padding: 5px 8px; }
 }
