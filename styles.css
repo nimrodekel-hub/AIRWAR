@@ -1594,74 +1594,80 @@ html, body {
   .results-table th, .results-table td { padding: 5px 4px; }
 }
 
-/* ─── Mobile layout (map top, sidebar bottom panel) ──────── */
+/* ─── Mission expand button (hidden on desktop) ──────────── */
+#mission-expand-btn { display: none; }
+
+/* ─── Mobile layout (full-screen map + slide-in drawer) ───── */
 @media (max-width: 768px) {
-  /* Vertical stack: map fills top, sidebar panel at bottom */
-  #app {
-    flex-direction: column;
-  }
-
+  /* Map fills the entire screen */
   #map-container {
-    order: 1;
-    flex: 1;
-    min-height: 0;
+    position: fixed;
+    inset: 0;
+    z-index: 1;
   }
 
-  /* Sidebar becomes a fixed-height bottom panel, always visible */
+  /* Sidebar: off-screen to the right by default */
   #sidebar {
-    order: 2;
-    position: static;
-    width: 100%;
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 85%;
+    max-width: 360px;
+    height: 100%;
     min-width: 0;
-    height: 45vh;
-    min-height: 180px;
-    flex-shrink: 0;
-    overflow: hidden;
-    border-left: none;
-    border-top: 1px solid rgba(95,168,211,0.22);
-    padding: 6px 10px 0;
-    gap: 0;
-    box-shadow: 0 -4px 20px rgba(0,0,0,0.5);
+    z-index: 100;
+    visibility: hidden;
+    transform: translateX(110%);
+    transition: transform 0.28s ease, visibility 0s linear 0.28s;
+    box-shadow: -6px 0 28px rgba(0,0,0,0.75);
   }
 
-  /* Compact the header: hide title/subtitle, arrange buttons in one row */
-  #sidebar > header {
+  #sidebar.open {
+    visibility: visible;
+    transform: translateX(0);
+    transition: transform 0.28s ease, visibility 0s linear 0s;
+  }
+
+  /* Backdrop */
+  #mobile-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 90;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.28s ease;
+  }
+
+  #mobile-backdrop.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Hamburger button */
+  #mobile-menu-toggle {
     display: flex;
-    flex-direction: row;
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 46px;
+    height: 46px;
     align-items: center;
-    gap: 6px;
-    padding: 0 0 6px;
-    border-bottom: 1px solid rgba(42,58,85,0.5);
-    flex-shrink: 0;
+    justify-content: center;
+    font-size: 22px;
+    background: rgba(8,12,22,0.92);
+    border: 1px solid rgba(95,168,211,0.4);
+    border-radius: 8px;
+    color: #5fc8e8;
+    z-index: 95;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.55);
+    padding: 0;
+    line-height: 1;
   }
 
-  #sidebar > header h1,
-  .subtitle { display: none; }
-
-  .side-toggle {
-    flex: 1;
-    margin-top: 0;
-  }
-
-  .instructions-btn,
-  .newgame-btn {
-    padding: 6px 8px;
-    font-size: 11px;
-    white-space: nowrap;
-  }
-
-  #back-to-selection {
-    margin-top: 0;
-    width: auto;
-    flex: 1;
-    padding: 7px 8px;
-    font-size: 11px;
-  }
-
-  /* Sidebar scroll area fills between header and control panel */
-  #sidebar-scroll {
-    padding-bottom: 4px;
-  }
+  #mobile-menu-toggle:active { background: rgba(20,40,60,0.95); }
 
   /* Touch-friendly button sizes */
   .btn-grid button,
@@ -1672,30 +1678,58 @@ html, body {
     font-size: 13px;
   }
 
-  /* Hamburger and backdrop not needed in bottom-panel layout */
-  #mobile-menu-toggle { display: none; }
-  #mobile-backdrop    { display: none; }
-
-  /* Banner: single-line title only — clip the detail lines to save map space */
-  #banner-group {
-    flex-direction: column;
-    gap: 3px;
-    max-width: calc(100vw - 24px);
-  }
-
-  #banner {
-    font-size: 11px;
-    padding: 6px 12px;
-    letter-spacing: 0.3px;
-    max-height: 2.8em;
-    overflow: hidden;
-  }
-
-  /* Step guide hidden on mobile — mode-status line in the panel serves the same purpose */
-  #step-guide-overlay { display: none; }
-
-  /* Pan/zoom buttons hidden on mobile — touch gestures replace them */
+  /* Pan/zoom buttons hidden — touch gestures replace them */
   #map-controls { display: none; }
 
   #legend-overlay { font-size: 9px; padding: 5px 8px; }
+
+  /* ── Collapsible mission box ────────────────────────────── */
+  #banner-group {
+    flex-direction: column;
+    gap: 3px;
+    max-width: calc(100vw - 80px);
+  }
+
+  /* Collapsed: show only first line of the banner */
+  #banner {
+    font-size: 12px;
+    padding: 6px 12px;
+    letter-spacing: 0.3px;
+    max-height: 2em;
+    overflow: hidden;
+  }
+
+  /* Step guide hidden when collapsed */
+  #step-guide-overlay { display: none; }
+
+  /* "▸ פרטים" toggle — shown only when there is an active banner */
+  #mission-expand-btn {
+    display: block;
+    background: rgba(8,12,22,0.88);
+    border: 1px solid rgba(95,168,211,0.28);
+    border-radius: 0 0 4px 4px;
+    color: rgba(95,168,211,0.8);
+    font-size: 10px;
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 600;
+    padding: 3px 10px;
+    cursor: pointer;
+    text-align: center;
+    letter-spacing: 0.5px;
+    width: 100%;
+  }
+
+  /* Expanded state */
+  #banner-group.expanded #banner {
+    max-height: none;
+  }
+
+  #banner-group.expanded #step-guide-overlay {
+    display: block;
+  }
+
+  #banner-group.expanded #mission-expand-btn {
+    border-radius: 4px;
+    border-top: none;
+  }
 }

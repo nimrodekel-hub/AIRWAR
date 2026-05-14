@@ -668,6 +668,11 @@ function closeMobileSidebar() {
 function bindControls() {
   document.getElementById('mobile-menu-toggle').addEventListener('click', () => toggleMobileSidebar());
   document.getElementById('mobile-backdrop').addEventListener('click', closeMobileSidebar);
+  document.getElementById('mission-expand-btn').addEventListener('click', () => {
+    const group = document.getElementById('banner-group');
+    const expanded = group.classList.toggle('expanded');
+    document.getElementById('mission-expand-btn').textContent = expanded ? '▾ כסה' : '▸ פרטים';
+  });
 
   document.querySelectorAll('.side-btn').forEach(btn => {
     btn.addEventListener('click', () => switchSide(btn.dataset.side));
@@ -1396,8 +1401,18 @@ function showBanner(text, kind) {
   banner.innerHTML = text;
   banner.className = kind || '';
   banner.style.display = 'block';
+  // Reset to collapsed on mobile whenever a new banner is shown
+  const group = document.getElementById('banner-group');
+  group.classList.remove('expanded');
+  const expandBtn = document.getElementById('mission-expand-btn');
+  expandBtn.style.display = '';
+  expandBtn.textContent = '▸ פרטים';
 }
-function hideBanner() { banner.style.display = 'none'; }
+function hideBanner() {
+  banner.style.display = 'none';
+  document.getElementById('mission-expand-btn').style.display = 'none';
+  document.getElementById('banner-group').classList.remove('expanded');
+}
 
 // =============================================================
 // אינטראקציה - עכבר
