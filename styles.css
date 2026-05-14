@@ -1676,26 +1676,26 @@ html, body {
   #mobile-menu-toggle { display: none; }
   #mobile-backdrop    { display: none; }
 
-  /* Banner and step-guide: narrower since map is shorter */
+  /* Banner: single-line title only — clip the detail lines to save map space */
   #banner-group {
     flex-direction: column;
-    gap: 4px;
+    gap: 3px;
     max-width: calc(100vw - 24px);
   }
 
   #banner {
-    font-size: 12px;
-    padding: 7px 12px;
-    letter-spacing: 0.5px;
+    font-size: 11px;
+    padding: 6px 12px;
+    letter-spacing: 0.3px;
+    max-height: 2.8em;
+    overflow: hidden;
   }
 
-  #step-guide-overlay { padding: 5px 10px 7px; }
-  #step-guide .step   { font-size: 11px; padding: 3px 8px; white-space: normal; }
-  .step-guide-title   { font-size: 10px; margin-bottom: 4px; }
+  /* Step guide hidden on mobile — mode-status line in the panel serves the same purpose */
+  #step-guide-overlay { display: none; }
 
-  /* Map controls: compact */
-  #map-controls  { top: 8px; left: 8px; padding: 5px; }
-  .map-controls-hint { display: none; }
+  /* Pan/zoom buttons hidden on mobile — touch gestures replace them */
+  #map-controls { display: none; }
 
   #legend-overlay { font-size: 9px; padding: 5px 8px; }
 }
