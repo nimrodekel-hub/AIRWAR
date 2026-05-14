@@ -1397,6 +1397,10 @@ function bindCanvas() {
   });
   canvas.addEventListener('wheel', onWheel, { passive: false });
   canvas.addEventListener('contextmenu', (ev) => { ev.preventDefault(); });
+  canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+  canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+  canvas.addEventListener('touchend', onTouchEnd, { passive: false });
+  canvas.addEventListener('touchcancel', onTouchCancel, { passive: false });
 }
 
 function onWheel(ev) {
@@ -1586,6 +1590,90 @@ function onMouseUp() {
     canvas.classList.remove('panning');
   }
   canvas.classList.remove('dragging');
+}
+
+// =============================================================
+// Touch input — single touch maps to mouse, two touches → pinch zoom.
+// preventDefault on every touch event suppresses the synthetic mouse
+// events the browser would otherwise fire, so the mouse handlers stay
+// untouched on desktop and never double-fire on mobile.
+// =============================================================
+const _touchState = { pinch: null };
+
+function _touchToMouseEvent(touch) {
+  return { clientX: touch.clientX, clientY: touch.clientY, button: 0, preventDefault: () => {} };
+}
+
+function _touchDist(t1, t2) {
+  return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+}
+
+function onTouchStart(ev) {
+  ev.preventDefault();
+  if (ev.touches.length === 2) {
+    state.drag = null;
+    if (state.pan) { state.pan = null; canvas.classList.remove('panning'); }
+    const t1 = ev.touches[0], t2 = ev.touches[1];
+    const r = canvas.getBoundingClientRect();
+    _touchState.pinch = {
+      startDist: _touchDist(t1, t2),
+      startScale: state.viewport.scale,
+      startOffsetX: state.viewport.offsetX,
+      startOffsetY: state.viewport.offsetY,
+      cx: (t1.clientX + t2.clientX) / 2 - r.left,
+      cy: (t1.clientY + t2.clientY) / 2 - r.top,
+    };
+    tooltip.style.display = 'none';
+  } else if (ev.touches.length === 1 && !_touchState.pinch) {
+    onMouseDown(_touchToMouseEvent(ev.touches[0]));
+  }
+}
+
+function onTouchMove(ev) {
+  ev.preventDefault();
+  if (_touchState.pinch && ev.touches.length >= 2) {
+    const t1 = ev.touches[0], t2 = ev.touches[1];
+    const p = _touchState.pinch;
+    const factor = _touchDist(t1, t2) / p.startDist;
+    const wx = (p.cx - p.startOffsetX) / p.startScale;
+    const wy = (p.cy - p.startOffsetY) / p.startScale;
+    const newScale = Math.max(0.5, Math.min(3, p.startScale * factor));
+    state.viewport.scale = newScale;
+    state.viewport.offsetX = p.cx - wx * newScale;
+    state.viewport.offsetY = p.cy - wy * newScale;
+    updateZoomLevel();
+    return;
+  }
+  if (!_touchState.pinch && ev.touches.length === 1) {
+    onMouseMove(_touchToMouseEvent(ev.touches[0]));
+  }
+}
+
+function onTouchEnd(ev) {
+  ev.preventDefault();
+  if (_touchState.pinch) {
+    if (ev.touches.length < 2) {
+      _touchState.pinch = null;
+      state.drag = null;
+      if (state.pan) { state.pan = null; canvas.classList.remove('panning'); }
+    }
+    return;
+  }
+  if (ev.touches.length === 0) {
+    onMouseUp();
+    tooltip.style.display = 'none';
+    if (ev.changedTouches.length > 0) {
+      onCanvasClick(_touchToMouseEvent(ev.changedTouches[0]));
+    }
+  }
+}
+
+function onTouchCancel() {
+  _touchState.pinch = null;
+  state.drag = null;
+  if (state.pan) { state.pan = null; canvas.classList.remove('panning'); }
+  canvas.classList.remove('dragging');
+  tooltip.style.display = 'none';
 }
 
 function findEntityAt(x, y) {
