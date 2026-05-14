@@ -1556,8 +1556,19 @@ function flashStatus(msg, returnStep) {
 }
 
 function onMouseDown(ev) {
-  // Placing mode handles clicks for itself
-  if (state.mode === 'placing') return;
+  // In placing mode we still want to allow drag-to-pan and pinch-zoom.
+  // The click handler ignores the placement if state._suppressNextClick is
+  // set (which happens when state.pan.moved becomes true during the drag),
+  // so a real tap still places the item while a drag pans the map.
+  if (state.mode === 'placing') {
+    state.pan = {
+      sx: ev.clientX, sy: ev.clientY,
+      ox: state.viewport.offsetX, oy: state.viewport.offsetY,
+      moved: false
+    };
+    canvas.classList.add('panning');
+    return;
+  }
 
   const p = getPos(ev);
   let ent = null;
@@ -1586,7 +1597,7 @@ function onMouseMove(ev) {
   if (state.pan) {
     const dx = ev.clientX - state.pan.sx;
     const dy = ev.clientY - state.pan.sy;
-    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) state.pan.moved = true;
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) state.pan.moved = true;
     state.viewport.offsetX = state.pan.ox + dx;
     state.viewport.offsetY = state.pan.oy + dy;
     tooltip.style.display = 'none';
@@ -1645,7 +1656,7 @@ function onMouseUp() {
 // events the browser would otherwise fire, so the mouse handlers stay
 // untouched on desktop and never double-fire on mobile.
 // =============================================================
-const _touchState = { pinch: null };
+const _touchState = { pinch: null, suppressClick: false };
 
 function _touchToMouseEvent(touch) {
   return { clientX: touch.clientX, clientY: touch.clientY, button: 0, preventDefault: () => {} };
@@ -1672,6 +1683,7 @@ function onTouchStart(ev) {
     };
     tooltip.style.display = 'none';
   } else if (ev.touches.length === 1 && !_touchState.pinch) {
+    _touchState.suppressClick = false;
     onMouseDown(_touchToMouseEvent(ev.touches[0]));
   }
 }
@@ -1701,6 +1713,7 @@ function onTouchEnd(ev) {
   if (_touchState.pinch) {
     if (ev.touches.length < 2) {
       _touchState.pinch = null;
+      _touchState.suppressClick = true;
       state.drag = null;
       if (state.pan) { state.pan = null; canvas.classList.remove('panning'); }
     }
@@ -1709,6 +1722,10 @@ function onTouchEnd(ev) {
   if (ev.touches.length === 0) {
     onMouseUp();
     tooltip.style.display = 'none';
+    if (_touchState.suppressClick) {
+      _touchState.suppressClick = false;
+      return;
+    }
     if (ev.changedTouches.length > 0) {
       onCanvasClick(_touchToMouseEvent(ev.changedTouches[0]));
     }
