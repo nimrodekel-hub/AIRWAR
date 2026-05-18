@@ -1458,6 +1458,7 @@ function refreshButtonStates() {
   });
   canvas.classList.toggle('placing', state.mode === 'placing');
   canvas.classList.toggle('deleting', state.mode === 'deleting');
+  renderMobileBudgetPill();
 }
 
 function setStatus(text) { document.getElementById('mode-status').textContent = text; }
@@ -3257,6 +3258,7 @@ function setSimButtons(mode) {
   SIM_BTN.pause.style.display    = mode === 'running' ? '' : 'none';
   SIM_BTN.resume.style.display   = mode === 'paused'  ? '' : 'none';
   SIM_BTN.stop.style.display     = mode !== 'idle'    ? '' : 'none';
+  renderMobileBudgetPill();
 }
 
 function startSim() {
@@ -4461,5 +4463,49 @@ function renderBudget() {
       b.style.opacity = '1';
     }
   });
+  renderMobileBudgetPill();
+}
+
+// Compact floating "remaining budget" pill shown on the map in mobile mode
+// while a challenge is active and the sheet is closed. The sidebar buttons
+// (with their orange/red /max badges) are out of view once the sheet
+// auto-closes after placement, so this gives an at-a-glance reminder.
+function renderMobileBudgetPill() {
+  if (!window.MOBILE_MODE) return;
+  const pill = document.getElementById('mobile-budget-pill');
+  if (!pill) return;
+
+  const items = [];
+  if (state.budget) {
+    for (const k of [...BATTERY_KEYS, ...RADAR_KEYS]) {
+      const max = state.budget[k] || 0;
+      if (max === 0) continue;
+      const used = state.defenses.filter(d => d.key === k).length;
+      items.push({ key: k, remain: max - used });
+    }
+  } else if (state.threatBudget) {
+    for (const k of THREAT_KEYS) {
+      const max = state.threatBudget[k] || 0;
+      if (max === 0) continue;
+      const used = state.threats.filter(t => t.key === k).length;
+      items.push({ key: k, remain: max - used });
+    }
+  }
+
+  if (items.length === 0 || isSimActive()) {
+    pill.style.display = 'none';
+    return;
+  }
+
+  pill.style.display = '';
+  pill.innerHTML = items.map(it => {
+    const c = CATALOG[it.key];
+    const depleted = it.remain <= 0;
+    const cls = `budget-chip${depleted ? ' depleted' : ''}${state.placeKey === it.key ? ' active' : ''}`;
+    return `<div class="${cls}" data-key="${it.key}" style="border-color:${c.color};color:${c.color}">`
+         + `<span class="budget-chip-name">${c.short}</span>`
+         + `<span class="budget-chip-count">${Math.max(0, it.remain)}</span>`
+         + `</div>`;
+  }).join('');
 }
 
