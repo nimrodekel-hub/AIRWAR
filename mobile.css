@@ -343,15 +343,18 @@ body.mobile #map-container.scrubber-active #battery-legend {
   bottom: 86px;
 }
 
-/* ─── Floating budget pill (compact remaining-count chips) ──── */
+/* ─── Floating budget pill (bottom strip, hugs the action bar) ──
+   No explicit `top`/`height`: the pill is bottom-anchored and its
+   top edge floats upward as content wraps to additional rows. */
 #mobile-budget-pill {
   position: absolute;
-  top: 56px;
+  bottom: 6px;
   left: 8px;
   right: 8px;
-  z-index: 20;
+  z-index: 25;
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 3px;
   direction: ltr;
   pointer-events: none;
@@ -361,8 +364,8 @@ body.mobile #map-container.scrubber-active #battery-legend {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 2px 5px 2px 3px;
-  background: rgba(8,12,22,0.88);
+  padding: 2px 4px 2px 3px;
+  background: rgba(8,12,22,0.9);
   border: 1px solid;
   border-radius: 3px;
   font-family: 'Share Tech Mono', 'Courier New', monospace;
@@ -372,11 +375,7 @@ body.mobile #map-container.scrubber-active #battery-legend {
   line-height: 1.2;
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.5);
-}
-
-.budget-chip-name {
-  /* uses inherited color from chip border */
+  box-shadow: 0 1px 4px rgba(0,0,0,0.55);
 }
 
 .budget-chip-count {
@@ -384,17 +383,30 @@ body.mobile #map-container.scrubber-active #battery-legend {
   background: rgba(0,0,0,0.55);
   padding: 0 4px;
   border-radius: 2px;
-  font-size: 10px;
-  min-width: 14px;
+  font-size: 9px;
+  min-width: 22px;
   text-align: center;
 }
 
-.budget-chip.depleted {
-  opacity: 0.32;
+.budget-chip.depleted    { opacity: 0.32; }
+.budget-chip.active      { box-shadow: 0 0 0 1px currentColor, 0 0 8px rgba(95,200,232,0.45); }
+
+/* When the budget pill is on screen, free the bottom-left corner of
+   the map so it doesn't fight with the chips. The static legend can
+   be re-read from the tutorial; the live budget is more important. */
+body.mobile #map-container.challenge-active #legend-overlay {
+  display: none;
 }
 
-.budget-chip.active {
-  box-shadow: 0 0 0 1px currentColor, 0 0 8px rgba(95,200,232,0.45);
+/* In attack mode the bottom-left already shows the system's battery
+   legend, so float the pill above it. */
+body.mobile #map-container.attack-challenge #mobile-budget-pill {
+  bottom: 108px;
+}
+
+/* Replay scrubber takes priority — hide the pill during scrub. */
+body.mobile #map-container.scrubber-active #mobile-budget-pill {
+  display: none;
 }
 
 /* ─── Legend overlay: compact ────────────────────────────── */

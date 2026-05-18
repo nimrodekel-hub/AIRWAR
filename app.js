@@ -4481,18 +4481,24 @@ function renderMobileBudgetPill() {
       const max = state.budget[k] || 0;
       if (max === 0) continue;
       const used = state.defenses.filter(d => d.key === k).length;
-      items.push({ key: k, remain: max - used });
+      items.push({ key: k, remain: max - used, max });
     }
   } else if (state.threatBudget) {
     for (const k of THREAT_KEYS) {
       const max = state.threatBudget[k] || 0;
       if (max === 0) continue;
       const used = state.threats.filter(t => t.key === k).length;
-      items.push({ key: k, remain: max - used });
+      items.push({ key: k, remain: max - used, max });
     }
   }
 
-  if (items.length === 0 || isSimActive()) {
+  const mapEl = document.getElementById('map-container');
+  const isShowing = items.length > 0 && !isSimActive();
+  if (mapEl) {
+    mapEl.classList.toggle('challenge-active', isShowing);
+    mapEl.classList.toggle('attack-challenge', state.challengeMode === 'attack-challenge');
+  }
+  if (!isShowing) {
     pill.style.display = 'none';
     return;
   }
@@ -4504,7 +4510,7 @@ function renderMobileBudgetPill() {
     const cls = `budget-chip${depleted ? ' depleted' : ''}${state.placeKey === it.key ? ' active' : ''}`;
     return `<div class="${cls}" data-key="${it.key}" style="border-color:${c.color};color:${c.color}">`
          + `<span class="budget-chip-name">${c.short}</span>`
-         + `<span class="budget-chip-count">${Math.max(0, it.remain)}</span>`
+         + `<span class="budget-chip-count">${Math.max(0, it.remain)}/${it.max}</span>`
          + `</div>`;
   }).join('');
 }
