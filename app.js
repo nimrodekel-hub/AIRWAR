@@ -351,6 +351,33 @@ const ATTACK_DIFFICULTY = {
       { key: 'medRadar',   anchor: 'Talos', dx: 50, dy: 80 },
       { key: 'shortRadar', anchor: 'Miron', dx: -20, dy: 20 }
     ]
+  },
+  // ── "Extreme" — same dense defense as `hard`, but the defense layout is
+  // hidden from the user until they press ▶. They must plan their attack
+  // routes blind, as if without intelligence on the air-defense disposition.
+  extreme: {
+    label: 'קשה במיוחד',
+    noIntel: true,
+    threatBudget: { uav: 12, fighter: 4, helicopter: 4 },  // 20 total
+    objective: {
+      text: 'פגע ב-<b>4 יעדים שונים</b>, או ב<b>בירה + 2 נוספים</b> — <span style="color:#dc2626">ההגנה נסתרת!</span>',
+      check: (hits) => hits.size >= 4 || (hits.has('Arian (Capital)') && hits.size >= 3)
+    },
+    defenses: [
+      { key: 'ironDome',   anchor: 'Arian (Capital)' },
+      { key: 'ironDome',   anchor: 'Eagle Airbase' },
+      { key: 'ironDome',   anchor: 'Talos' },
+      { key: 'sa8',        anchor: 'Miron' },
+      { key: 'sa8',        anchor: 'Plaion' },
+      { key: 'patriot',    anchor: 'center', dx: -30, dy: -40 },
+      { key: 'patriot',    anchor: 'center', dx: 40, dy: 60 },
+      { key: 'barak8',     anchor: 'center', dx: -100, dy: 30 },
+      { key: 'davidsSling',anchor: 'center', dx: 80, dy: -20 },
+      { key: 'longRadar',  anchor: 'center', dy: 40 },
+      { key: 'longRadar',  anchor: 'Eagle Airbase', dx: 30, dy: -50 },
+      { key: 'medRadar',   anchor: 'Talos', dx: 50, dy: 80 },
+      { key: 'shortRadar', anchor: 'Miron', dx: -20, dy: 20 }
+    ]
   }
 };
 
@@ -394,6 +421,21 @@ const DEFENSE_DIFFICULTY = {
               longRadar: 1, medRadar: 1, shortRadar: 1 },
     objective: {
       text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר אף פגיעה ביעד נוסף',
+      check: (hits) => !hits.has('Arian (Capital)') && nonCapitalHits(hits) < 1
+    }
+  },
+  // ── "Extreme" — same dense attack as `hard`, but the user does NOT see
+  // the incoming threats while placing batteries. The incoming wave only
+  // reveals itself when ▶ is pressed. Forces blind defense planning.
+  extreme: {
+    label: 'קשה במיוחד',
+    noIntel: true,
+    countMin: 22, countMax: 29,
+    jitterX: 320, jitterY: 700, baseY: 30,
+    budget: { ironDome: 2, sa8: 1, barak8: 1, patriot: 1, davidsSling: 1,
+              longRadar: 1, medRadar: 1, shortRadar: 1 },
+    objective: {
+      text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר אף פגיעה ביעד נוסף — <span style="color:#dc2626">ההתקפה נסתרת!</span>',
       check: (hits) => !hits.has('Arian (Capital)') && nonCapitalHits(hits) < 1
     }
   }
@@ -450,6 +492,8 @@ const state = {
   placeOrigin: null,      // {x, y} captured between origin click and target click
   attackChallenge: false, // true when system-deployed defense + limited threat budget
   challengeDifficulty: null,
+  noIntel: false,         // true on the "extreme" difficulty: hide the opposing side's deployment
+  intelRevealed: false,   // flips to true when the user presses ▶ to start the sim
   side: 'blue',
   defenses: [],
   threats: [],
@@ -778,7 +822,8 @@ const TUTORIAL_STEPS = [
         <li>🛡 <b>אתגר הגנה</b> - אתה המגן. המערכת שולחת איומים, ואתה צריך לפרוס סוללות הגנה אווירית ומכ"מים כדי להגן על היעדים האסטרטגיים.</li>
         <li>🎯 <b>אתגר התקפה</b> - אתה התוקף. המערכת פורסת אוטומטית הגנה, ואתה צריך לתכנן ולפרוס איומים אוויריים שיפרצו דרכה.</li>
       </ul>
-      <p>שני המצבים תומכים בשלוש רמות קושי (קל / בינוני / קשה) שמשפיעות על מספר האיומים, פיזור הסוללות, והיעדים.</p>
+      <p>שני המצבים תומכים ב<b>ארבע רמות קושי</b> (קל / בינוני / קשה / 🕶 קשה במיוחד) שמשפיעות על מספר האיומים, פיזור הסוללות, והיעדים.</p>
+      <div class="tip" style="background:rgba(88,28,135,0.18);border-color:rgba(168,85,247,0.55);color:#e9d5ff">🕶 <b>קשה במיוחד — מתאר ללא מודיעין</b>: רמת קושי חדשה שמדמה תכנון ללא מודיעין מקדים. בהגנה — לא תראה את האיומים המתקרבים בזמן הפריסה. בהתקפה — לא תראה את פריסת ההגנה בזמן תכנון הנתיבים. הצד הנגדי נחשף רק כשלוחצים ▶ ומתחילה הסימולציה.</div>
       <div class="tip">💡 <b>טיפ:</b> בכל פעם שתאפס את המפה - גבולות המדינה ומיקומי היעדים האסטרטגיים יוגרלו מחדש, כך שכל משחק הוא אתגר חדש.</div>
     `
   },
@@ -1048,7 +1093,7 @@ const TUTORIAL_STEPS = [
       <p>אתה המגן. המערכת שולחת גלי איומים, ואתה צריך להגן על היעדים האסטרטגיים בעזרת תקציב מוגבל של סוללות ומכ"מים.</p>
       <h4>זרימת המשחק:</h4>
       <ul>
-        <li>1. בחר רמת קושי (קל / בינוני / קשה).</li>
+        <li>1. בחר רמת קושי (קל / בינוני / קשה / 🕶 קשה במיוחד).</li>
         <li>2. תראה את האיומים על המפה. <b>הם עדיין לא טסים</b> - יש לך זמן להתכונן ולתכנן נכון מול האיום הצפוי.</li>
         <li>3. <b>פרוס סוללות ומכ"מים</b> בתפריט (תג כתום = כמה זמין מכל סוג).</li>
         <li>4. לחץ "▶ הפעל סימולציה" כשמוכן להגנה.</li>
@@ -1058,7 +1103,9 @@ const TUTORIAL_STEPS = [
         <li>🟢 <b>קל</b>: הבירה (Arian) שלמה <u>וגם</u> פחות מ-4 יעדים נפגעו.</li>
         <li>🟡 <b>בינוני</b>: הבירה שלמה <u>וגם</u> פחות מ-3 יעדים נפגעו.</li>
         <li>🔴 <b>קשה</b>: הבירה שלמה <u>וגם</u> פחות מ-2 יעדים נפגעו.</li>
+        <li>🕶 <b>קשה במיוחד (ללא מודיעין)</b>: כמו <b>קשה</b>, אבל <u>לא רואים את האיומים בזמן הפריסה</u>. נתיבי האיום מתגלים רק בלחיצה על "▶ הפעל סימולציה".</li>
       </ul>
+      <div class="tip">🕶 <b>מתאר ללא מודיעין</b>: זוהי הסיטואציה המציאותית של מפקד הגנה אווירית — אין לך מודיעין מקדים על תוכניות התקיפה. חובה להתבסס על <b>הגנה רב-שכבתית</b>, פיזור גיאוגרפי, וכיסוי של היעדים בעלי הערך הגבוה ביותר.</div>
       <p><b style="color:#dc2626">פגיעה בבירה = הפסד מיידי</b>, לא משנה כמה יעדים אחרים שרדו.</p>
       <h4>🆕 ממשק חדש</h4>
       <ul>
@@ -1161,7 +1208,9 @@ const TUTORIAL_STEPS = [
         <li>🟢 <b>קל</b>: פגע ב<b>בירה (Arian)</b>. לרשותך 40 כלים אוויריים.</li>
         <li>🟡 <b>בינוני</b>: פגע ב<b>3 יעדים אסטרטגיים שונים</b>. לרשותך 30 כלים אוויריים.</li>
         <li>🔴 <b>קשה</b>: פגע ב<b>4 יעדים שונים</b>, או ב<b>בירה + 2 נוספים</b>. לרשותך 20 כלים אוויריים.</li>
+        <li>🕶 <b>קשה במיוחד (ללא מודיעין)</b>: כמו <b>קשה</b>, אבל <u>פריסת ההגנה נסתרת</u>. אתה לא רואה איפה ההגנה פרוסה — תכנן את נתיבי התקיפה לפי הנחות בלבד. ההגנה מתגלה רק כשתפעיל סימולציה.</li>
       </ul>
+      <div class="tip">🕶 <b>מתאר ללא מודיעין</b>: זוהי הסיטואציה של מתכנן תקיפה אווירית כאשר המודיעין על מערך ההגנה שלם או חלקי לא קיים. תפזר את האיומים על מספר וקטורים שונים כדי למקסם סיכויי פריצה דרך נקודות חולשה שאתה לא מכיר. שלח כטב"מים זולים כ"גלאים" לפני שיגור Fighters יקרים.</div>
       <h4>🆕 ממשק חדש</h4>
       <ul>
         <li>📋 <b>מדריך שלבים</b> - תראה למעלה פאנל "מה השלב הבא?" עם 4 שלבים מתעדכנים: <span class="key">בחר סוג</span> → <span class="key">לחץ מוצא</span> → <span class="key">לחץ יעד</span> → <span class="key">הפעל</span>. השלב הנוכחי בולט בצהוב.</li>
@@ -1740,10 +1789,23 @@ function onTouchCancel() {
   tooltip.style.display = 'none';
 }
 
+// Returns true when the opposing side's deployment is hidden from the user
+// (no-intel "extreme" difficulty, before the player presses ▶).
+function intelHidden() {
+  return state.noIntel && !state.intelRevealed;
+}
+
 function findEntityAt(x, y) {
-  const all = [...state.defenses, ...state.threats];
-  for (let i = all.length - 1; i >= 0; i--) {
-    const e = all[i];
+  // In no-intel mode, hide the opposing side's entities from cursor detection
+  // so hover / tooltips don't leak their positions.
+  const hideThreats  = intelHidden() && state.challengeMode === 'defense-challenge';
+  const hideDefenses = intelHidden() && state.challengeMode === 'attack-challenge';
+  const pool = [
+    ...(hideDefenses ? [] : state.defenses),
+    ...(hideThreats  ? [] : state.threats)
+  ];
+  for (let i = pool.length - 1; i >= 0; i--) {
+    const e = pool[i];
     if (e.status === 'destroyed') continue;
     if (Math.hypot(e.x - x, e.y - y) <= 18) return e;
   }
@@ -1838,6 +1900,8 @@ function resetAll() {
   state.attackChallenge = false;
   state.challengeDifficulty = null;
   state.challengeMode = null;
+  state.noIntel = false;
+  state.intelRevealed = false;
   state.mode = 'idle';
   state.placeKey = null;
   state.placeStep = null;
@@ -2359,6 +2423,7 @@ function drawStar(cx, cy, r, points) {
 }
 
 function drawCoverage() {
+  if (intelHidden() && state.challengeMode === 'attack-challenge') return;
   const now = Date.now() / 1000;
   for (const d of state.defenses) {
     const c = CATALOG[d.key];
@@ -2424,6 +2489,7 @@ function drawCoverage() {
 }
 
 function drawDefenses() {
+  if (intelHidden() && state.challengeMode === 'attack-challenge') return;
   for (let i = 0; i < state.defenses.length; i++) {
     const d = state.defenses[i];
     // When scrubbing, read ammo/prepareTarget/prepareUntil from the snapshot
@@ -2589,6 +2655,7 @@ function drawDefenses() {
 }
 
 function drawThreatPaths() {
+  if (intelHidden() && state.challengeMode === 'defense-challenge') return;
   for (const t of state.threats) {
     if (t.status === 'destroyed') continue;
     const c = CATALOG[t.key];
@@ -2616,6 +2683,7 @@ function drawThreatPaths() {
 }
 
 function drawThreats() {
+  if (intelHidden() && state.challengeMode === 'defense-challenge') return;
   for (const t of state.threats) {
     const c = CATALOG[t.key];
     if (t.status === 'destroyed') continue;
@@ -3136,6 +3204,9 @@ function drawHUD() {
   if (state.attackChallenge) {
     lines.push({ text: '◉ ATK CHALLENGE', color: 'rgba(220, 60, 60, 0.8)' });
   }
+  if (intelHidden()) {
+    lines.push({ text: '🕶 NO INTEL', color: 'rgba(216, 180, 254, 0.95)' });
+  }
 
   if (lines.length === 0) return;
 
@@ -3213,6 +3284,9 @@ function startSim() {
   }
   setSimButtons('running');
   hideBanner();
+  // Reveal the hidden opposing side ("intel" arrives) at the moment the
+  // simulation kicks off — no-intel mode only hides during planning.
+  state.intelRevealed = true;
   setStatus('סימולציה פעילה...');
 }
 
@@ -4185,6 +4259,8 @@ function startAttackChallenge(difficulty) {
   state.challengeDifficulty = difficulty;
   state.threatBudget = { ...profile.threatBudget };
   state.objective = profile.objective;
+  state.noIntel = !!profile.noIntel;
+  state.intelRevealed = !state.noIntel;
 
   const total = profile.threatBudget.uav + profile.threatBudget.fighter + profile.threatBudget.helicopter;
   const numBatteries = profile.defenses.filter(d => CATALOG[d.key].kind === 'battery').length;
@@ -4208,13 +4284,16 @@ function startAttackChallenge(difficulty) {
   renderBudget();
   renderBatteryLegend();
 
+  const intelLine = state.noIntel
+    ? `<span style="font-size:12px;font-weight:400;color:#ff7373"><b>🕶 ללא מודיעין:</b> פריסת ההגנה נסתרת — תיחשף רק כשתפעיל את הסימולציה. תקציב: ${total} איומים</span>`
+    : `<span style="font-size:12px;font-weight:400">תקציב: ${total} איומים | בחר סוג, לחץ מחוץ לגבולות, ואז על יעד</span>`;
   showBanner(
-    `🎯 <u>משימת התקפה - ${profile.label}</u><br>` +
+    `🎯 <u>משימת התקפה - ${profile.label}</u>${state.noIntel ? ' 🕶' : ''}<br>` +
     `<span style="color:#fbbf24">תנאי ניצחון:</span> ${profile.objective.text}<br>` +
-    `<span style="font-size:12px;font-weight:400">תקציב: ${total} איומים | בחר סוג, לחץ מחוץ לגבולות, ואז על יעד</span>`,
+    intelLine,
     ''
   );
-  setStatus(`משימת התקפה ${profile.label} - בחר סוג איום מהתפריט`);
+  setStatus(`משימת התקפה ${profile.label}${state.noIntel ? ' (ללא מודיעין)' : ''} - בחר סוג איום מהתפריט`);
   showBackButton();
   updateStepGuide();
   closeMobileSidebar();
@@ -4293,6 +4372,8 @@ function startDefenseChallenge(difficulty = 'medium') {
   const profile = DEFENSE_DIFFICULTY[difficulty];
   if (!profile) return;
   state.objective = profile.objective;
+  state.noIntel = !!profile.noIntel;
+  state.intelRevealed = !state.noIntel;
 
   const attackSize = profile.countMin + Math.floor(Math.random() * (profile.countMax - profile.countMin));
   for (let i = 0; i < attackSize; i++) {
@@ -4320,11 +4401,17 @@ function startDefenseChallenge(difficulty = 'medium') {
 
   state.budget = profile.budget;
   switchSide('blue');
-  setStatus(`משימת הגנה ${profile.label}: ${attackSize} איומים, פרוס במסגרת התקציב`);
+  const statusMsg = state.noIntel
+    ? `משימת הגנה ${profile.label} (ללא מודיעין) - תכנן הגנה רב-שכבתית`
+    : `משימת הגנה ${profile.label}: ${attackSize} איומים, פרוס במסגרת התקציב`;
+  setStatus(statusMsg);
+  const intelLine = state.noIntel
+    ? `<span style="font-size:12px;font-weight:400;color:#ff7373"><b>🕶 ללא מודיעין:</b> נתיבי האיומים יחשפו רק עם תחילת הסימולציה — תכנן הגנה רב-שכבתית!</span>`
+    : `<span style="font-size:12px;font-weight:400">איומים מתקרבים: ${attackSize} | פרוס במסגרת התקציב</span>`;
   showBanner(
-    `🛡 <u>משימת הגנה - ${profile.label}</u><br>` +
+    `🛡 <u>משימת הגנה - ${profile.label}</u>${state.noIntel ? ' 🕶' : ''}<br>` +
     `<span style="color:#fbbf24">תנאי ניצחון:</span> ${profile.objective.text}<br>` +
-    `<span style="font-size:12px;font-weight:400">איומים מתקרבים: ${attackSize} | פרוס במסגרת התקציב</span>`,
+    intelLine,
     ''
   );
   renderBudget();

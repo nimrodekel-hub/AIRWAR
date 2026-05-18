@@ -382,7 +382,7 @@ html, body {
 
 .diff-buttons {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 4px;
 }
 
@@ -430,6 +430,30 @@ html, body {
 .diff-btn.hard:hover {
   background: rgba(220,38,38,0.2);
   box-shadow: 0 0 10px rgba(220,38,38,0.18);
+}
+
+/* ── "Extra hard / no-intel" — purple, more ominous ─────── */
+.diff-btn.extreme {
+  background: linear-gradient(180deg, rgba(88,28,135,0.18) 0%, rgba(40,10,60,0.18) 100%);
+  border-color: rgba(168,85,247,0.55);
+  color: #e9d5ff;
+  text-shadow: 0 0 6px rgba(168,85,247,0.35);
+}
+
+.diff-btn.extreme:hover {
+  background: linear-gradient(180deg, rgba(88,28,135,0.32) 0%, rgba(50,10,80,0.32) 100%);
+  box-shadow: 0 0 12px rgba(168,85,247,0.28);
+}
+
+.start-section-extreme {
+  margin-top: 8px;
+  padding: 6px 9px;
+  background: rgba(88,28,135,0.12);
+  border: 1px solid rgba(168,85,247,0.35);
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #e9d5ff;
 }
 
 /* ─── Results panel ───────────────────────────────────────── */
@@ -1346,7 +1370,7 @@ html, body {
 
 .start-section .start-buttons {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 6px;
 }
 

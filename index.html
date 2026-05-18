@@ -7,14 +7,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20260514h">
+  <link rel="stylesheet" href="styles.css?v=20260518a">
 </head>
 <body>
   <div id="app">
     <aside id="sidebar">
       <header>
         <h1>פיקוד הגנה אווירית</h1>
-        <div class="subtitle">משחק מלחמה: כחול נגד אדום <span class="version-tag">v20260514h</span></div>
+        <div class="subtitle">משחק מלחמה: כחול נגד אדום <span class="version-tag">v20260518a</span></div>
         <button id="open-tutorial" class="instructions-btn">📘 הוראות המשחק</button>
         <button id="open-start" class="newgame-btn">🆕 משחק חדש</button>
         <div class="side-toggle" id="side-toggle">
@@ -47,12 +47,13 @@
                 <button class="diff-btn easy" data-attack="easy">קל</button>
                 <button class="diff-btn medium" data-attack="medium">בינוני</button>
                 <button class="diff-btn hard" data-attack="hard">קשה</button>
+                <button class="diff-btn extreme" data-attack="extreme">🕶 קשה במיוחד</button>
               </div>
             </div>
             <div class="btn-help">
               <b>מטרה:</b> לפרוץ את ההגנה האווירית שהמערכת פורסת אוטומטית.<br>
               <b>איך משחקים:</b><br>
-              1️⃣ בחר רמת קושי - <b>קל</b> (הגנה דלילה, 40 איומים), <b>בינוני</b> (הגנה בינונית, 30 איומים), <b>קשה</b> (הגנה צפופה, 20 איומים) - הכמות הגדולה מאפשרת הספקי יירוט למיצוי מיירטי הסוללות.<br>
+              1️⃣ בחר רמת קושי - <b>קל</b> (הגנה דלילה, 40 איומים), <b>בינוני</b> (הגנה בינונית, 30 איומים), <b>קשה</b> (הגנה צפופה, 20 איומים), <b>🕶 קשה במיוחד</b> (כמו קשה אבל פריסת ההגנה <u>נסתרת</u> — מתאר ללא מודיעין).<br>
               2️⃣ פרוס כל איום ב-<b>3 לחיצות</b>:<br>
               &nbsp;&nbsp;א. בחר סוג איום מתפריט "🔴 איומים אוויריים".<br>
               &nbsp;&nbsp;ב. לחץ על המפה <u>מחוץ לגבולות המדינה</u> - נקודת מוצא.<br>
@@ -66,12 +67,13 @@
                 <button class="diff-btn easy" data-defense="easy" data-diff="easy">קל</button>
                 <button class="diff-btn medium" data-defense="medium" data-diff="medium">בינוני</button>
                 <button class="diff-btn hard" data-defense="hard" data-diff="hard">קשה</button>
+                <button class="diff-btn extreme" data-defense="extreme" data-diff="extreme">🕶 קשה במיוחד</button>
               </div>
             </div>
             <div class="btn-help">
               <b>מטרה:</b> להגן על המדינה במשאבים מוגבלים.<br>
               <b>איך משחקים:</b><br>
-              1️⃣ בחר רמת קושי - <b>קל</b> (~9 איומים, תקציב גדול), <b>בינוני</b> (~16 איומים), <b>קשה</b> (~25 איומים, פיזור רחב, פחות סוללות).<br>
+              1️⃣ בחר רמת קושי - <b>קל</b> (~9 איומים, תקציב גדול), <b>בינוני</b> (~16 איומים), <b>קשה</b> (~25 איומים, פיזור רחב, פחות סוללות), <b>🕶 קשה במיוחד</b> (כמו קשה אבל נתיבי האיום <u>נסתרים</u> בזמן הפריסה — מתאר ללא מודיעין).<br>
               2️⃣ פרוס בחוכמה את הסוללות והמכ"מים על המפה (תג כתום מראה כמה נותר מכל סוג).<br>
               3️⃣ לחץ "הפעל סימולציה" וקבל ציון לפי % הערך האסטרטגי שהוגן.
             </div>
@@ -194,7 +196,9 @@
               <button class="diff-btn easy" data-startmode="defense" data-startdiff="easy">קל</button>
               <button class="diff-btn medium" data-startmode="defense" data-startdiff="medium">בינוני</button>
               <button class="diff-btn hard" data-startmode="defense" data-startdiff="hard">קשה</button>
+              <button class="diff-btn extreme" data-startmode="defense" data-startdiff="extreme">🕶 קשה במיוחד</button>
             </div>
+            <div class="start-section-extreme">🕶 <b>קשה במיוחד</b>: ההתקפה נסתרת בזמן הפריסה — תכנן הגנה בלי לראות את האיום.</div>
           </div>
           <div class="start-section attack">
             <div class="start-section-title">🎯 משחק התקפה</div>
@@ -203,7 +207,9 @@
               <button class="diff-btn easy" data-startmode="attack" data-startdiff="easy">קל</button>
               <button class="diff-btn medium" data-startmode="attack" data-startdiff="medium">בינוני</button>
               <button class="diff-btn hard" data-startmode="attack" data-startdiff="hard">קשה</button>
+              <button class="diff-btn extreme" data-startmode="attack" data-startdiff="extreme">🕶 קשה במיוחד</button>
             </div>
+            <div class="start-section-extreme">🕶 <b>קשה במיוחד</b>: פריסת ההגנה נסתרת בזמן התכנון — תכנן נתיבי תקיפה בלי לראות סוללות.</div>
           </div>
         </div>
         <div class="start-footer-row">
@@ -229,6 +235,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260514h"></script>
+  <script src="app.js?v=20260518a"></script>
 </body>
 </html>
