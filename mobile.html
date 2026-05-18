@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>הגנה אווירית | סלולר</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=20260514h">
+  <link rel="stylesheet" href="mobile.css?v=20260514h">
+</head>
+<body class="mobile">
+  <div id="app">
+
+    <!-- ═══════════════════════════════════════════════════════
+         MAIN MAP AREA (full screen, minus bottom bar)
+         ═══════════════════════════════════════════════════════ -->
+    <main id="map-container">
+      <canvas id="map"></canvas>
+      <div id="tooltip"></div>
+
+      <!-- Mission banner + step guide -->
+      <div id="banner-group">
+        <div id="banner" style="display:none"></div>
+        <button id="mission-expand-btn" style="display:none" aria-label="הרחב/כווץ פרטי משימה">▸ פרטים</button>
+        <div id="step-guide-overlay" style="display:none">
+          <div class="step-guide-title">📋 מה השלב הבא?</div>
+          <div id="step-guide"></div>
+        </div>
+      </div>
+
+      <!-- Zoom/pan controls — hidden visually; kept so app.js can bind them -->
+      <div id="map-controls" style="display:none">
+        <div class="map-controls-pan">
+          <button id="pan-up">▲</button>
+          <button id="pan-left">◀</button>
+          <button id="zoom-reset">⌂</button>
+          <button id="pan-right">▶</button>
+          <button id="pan-down">▼</button>
+        </div>
+        <div class="map-controls-zoom">
+          <button id="zoom-out">−</button>
+          <span id="zoom-level">100%</span>
+          <button id="zoom-in">+</button>
+        </div>
+      </div>
+
+      <!-- Map legend (bottom-right corner) -->
+      <div id="legend-overlay">
+        <div><span class="dot detection"></span>טווח גילוי מכ"ם</div>
+        <div><span class="dot engagement"></span>טווח יירוט סוללה</div>
+        <div><span class="dot threat-path"></span>נתיב איום</div>
+        <div><span class="dot target"></span>יעד אסטרטגי</div>
+        <div><span class="dot mountain"></span>רכס הר (חוסם LOS)</div>
+      </div>
+
+      <!-- Attack-mode battery legend -->
+      <div id="battery-legend" style="display:none">
+        <div class="battery-legend-title">סוללות הגנה</div>
+        <div id="battery-legend-list"></div>
+      </div>
+
+      <!-- Scrubber lives here in mobile mode (placed by placeScrubberForViewport) -->
+      <div id="scrubber-row" style="display:none">
+        <div class="scrubber-label">📺 ציר זמן — גרור לחזרה קדימה/אחורה</div>
+        <input type="range" id="scrubber" min="0" max="100" value="100" step="0.05">
+        <div class="scrubber-info">
+          <span id="scrubber-time">0.0</span> / <span id="scrubber-total">0.0</span> שנ׳
+        </div>
+      </div>
+    </main>
+
+    <!-- ═══════════════════════════════════════════════════════
+         BOTTOM ACTION BAR (always visible)
+         ═══════════════════════════════════════════════════════ -->
+    <div id="mobile-bottom-bar">
+      <button id="mobile-menu-toggle" aria-label="פתח תפריט">☰</button>
+      <div id="mode-status" class="mobile-mode-status">בחר רכיב להוספה</div>
+      <div class="mobile-sim-controls">
+        <button id="delete-mode" title="מצב מחיקה">🗑</button>
+        <button id="simulate"    class="primary" title="הפעל סימולציה">▶</button>
+        <button id="pause"       class="warn"    title="השהה" style="display:none">⏸</button>
+        <button id="resume"      class="primary" title="המשך" style="display:none">▶</button>
+        <button id="stop"        class="warn"    title="עצור" style="display:none">■</button>
+        <button id="clear-threats" title="נקה איומים">⨯</button>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         SLIDE-UP SHEET  (replaces the desktop sidebar)
+         Opens / closes via toggleMobileSidebar() in app.js
+         ═══════════════════════════════════════════════════════ -->
+    <aside id="sidebar">
+      <!-- Drag handle -->
+      <div class="sheet-handle-bar"></div>
+
+      <!-- Sheet header -->
+      <header class="sheet-header">
+        <h1>פיקוד הגנה אווירית</h1>
+        <div class="sheet-header-btns">
+          <button id="open-tutorial" class="instructions-btn">📘 הוראות</button>
+          <button id="open-start"    class="newgame-btn">🆕 חדש</button>
+          <button id="back-to-selection" class="back-btn" style="display:none">↩ חזור</button>
+          <button id="sheet-close" class="sheet-close-btn" aria-label="סגור">✕</button>
+        </div>
+      </header>
+
+      <!-- Side toggle (blue / red) -->
+      <div class="sheet-side-toggle">
+        <div class="side-toggle" id="side-toggle">
+          <button class="side-btn blue active" data-side="blue">🔵 כחול - הגנה</button>
+          <button class="side-btn red"         data-side="red">🔴 אדום - התקפה</button>
+        </div>
+      </div>
+
+      <!-- Scrollable content -->
+      <div id="sidebar-scroll">
+
+        <!-- Blue panel: batteries + radars -->
+        <section class="panel" id="blue-panel">
+          <h2>🔵 סוללות נ"מ (כחול)</h2>
+          <div class="btn-grid" id="battery-btns"></div>
+          <h2 style="margin-top:10px">📡 מכ"מים (כחול)</h2>
+          <div class="btn-grid" id="radar-btns"></div>
+        </section>
+
+        <!-- Red panel: threats -->
+        <section class="panel" id="red-panel" style="display:none">
+          <h2>🔴 איומים אוויריים (אדום)</h2>
+          <div class="btn-grid" id="threat-btns"></div>
+          <div class="hint">לחץ על איום ואז על המפה כדי להציב נקודת מוצא. האיום יטוס לעבר יעד אסטרטגי.</div>
+        </section>
+
+        <!-- Scenarios -->
+        <section class="panel">
+          <h2>תרחישים</h2>
+          <div class="control-buttons">
+            <div class="difficulty-row">
+              <span class="diff-label">🎯 אתגר התקפה:</span>
+              <div class="diff-buttons">
+                <button class="diff-btn easy"   data-attack="easy">קל</button>
+                <button class="diff-btn medium" data-attack="medium">בינוני</button>
+                <button class="diff-btn hard"   data-attack="hard">קשה</button>
+              </div>
+            </div>
+            <div class="btn-help">
+              <b>מטרה:</b> לפרוץ את ההגנה האווירית שהמערכת פורסת.<br>
+              <b>קל</b> (40 איומים) / <b>בינוני</b> (30) / <b>קשה</b> (20 איומים, הגנה צפופה)
+            </div>
+
+            <div class="difficulty-row">
+              <span class="diff-label">🛡 אתגר הגנה:</span>
+              <div class="diff-buttons">
+                <button class="diff-btn easy"   data-defense="easy"   data-diff="easy">קל</button>
+                <button class="diff-btn medium" data-defense="medium" data-diff="medium">בינוני</button>
+                <button class="diff-btn hard"   data-defense="hard"   data-diff="hard">קשה</button>
+              </div>
+            </div>
+            <div class="btn-help">
+              <b>מטרה:</b> להגן על המדינה במשאבים מוגבלים.<br>
+              <b>קל</b> (~9 איומים) / <b>בינוני</b> (~16) / <b>קשה</b> (~25 איומים)
+            </div>
+          </div>
+        </section>
+
+        <!-- Results -->
+        <section class="panel" id="results-panel">
+          <h2>תוצאות</h2>
+          <div id="results">
+            <div class="placeholder">טרם בוצעה סימולציה</div>
+          </div>
+        </section>
+
+        <!-- Legend hint -->
+        <section class="panel">
+          <div class="legend">
+            <div>👆 לחץ על כפתור ואז על המפה להצבה</div>
+            <div>🔄 גרור רכיב כדי להזיז אותו</div>
+            <div>🤏 צבט שתי אצבעות לזום</div>
+          </div>
+        </section>
+
+      </div><!-- /sidebar-scroll -->
+
+      <!-- Sheet footer: destructive reset button -->
+      <div class="sheet-footer">
+        <button id="reset" class="danger full-width">↺ אפס הכל</button>
+      </div>
+
+      <!-- Hidden placeholder — app.js expects #control-panel to exist -->
+      <div id="control-panel" style="display:none"></div>
+
+    </aside><!-- /sidebar -->
+
+    <div id="mobile-backdrop"></div>
+  </div><!-- /app -->
+
+  <!-- ═══════════════════════════════════════════════════════
+       MODALS  (identical structure to index.html)
+       ═══════════════════════════════════════════════════════ -->
+
+  <!-- Results modal -->
+  <div id="modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="modal-title">תוצאות סימולציה</h2>
+        <button id="modal-close" aria-label="סגור">×</button>
+      </div>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- System info modal -->
+  <div id="info-modal" class="modal">
+    <div class="modal-content" style="max-width:520px">
+      <div class="modal-header">
+        <h2 id="info-title">פרטי מערכת</h2>
+        <button id="info-close" aria-label="סגור">×</button>
+      </div>
+      <div id="info-body"></div>
+    </div>
+  </div>
+
+  <!-- New-game start modal -->
+  <div id="start-modal" class="modal">
+    <div class="modal-content start-content">
+      <div class="modal-header">
+        <h2>🎯 ברוך הבא לסימולטור הגנה אווירית</h2>
+      </div>
+      <div id="start-body">
+        <p class="start-intro">איזה משחק תרצה לשחק?<br>בחר מצב משחק ורמת קושי כדי להתחיל.</p>
+        <div class="start-grid">
+          <div class="start-section defense">
+            <div class="start-section-title">🛡 משחק הגנה</div>
+            <div class="start-section-sub">אתה המגן - פרוס סוללות נגד גלי איומים אוויריים</div>
+            <div class="start-buttons">
+              <button class="diff-btn easy"   data-startmode="defense" data-startdiff="easy">קל</button>
+              <button class="diff-btn medium" data-startmode="defense" data-startdiff="medium">בינוני</button>
+              <button class="diff-btn hard"   data-startmode="defense" data-startdiff="hard">קשה</button>
+            </div>
+          </div>
+          <div class="start-section attack">
+            <div class="start-section-title">🎯 משחק התקפה</div>
+            <div class="start-section-sub">אתה התוקף - פרוץ את ההגנה האוטומטית של המערכת</div>
+            <div class="start-buttons">
+              <button class="diff-btn easy"   data-startmode="attack" data-startdiff="easy">קל</button>
+              <button class="diff-btn medium" data-startmode="attack" data-startdiff="medium">בינוני</button>
+              <button class="diff-btn hard"   data-startmode="attack" data-startdiff="hard">קשה</button>
+            </div>
+          </div>
+        </div>
+        <div class="start-footer-row">
+          <button id="start-tutorial-btn" class="instructions-btn">📘 הוראות המשחק</button>
+          <button id="start-free-btn">▶ מצב חופשי (ללא משימה)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tutorial modal -->
+  <div id="tutorial-modal" class="modal">
+    <div class="modal-content tutorial-content">
+      <div class="modal-header">
+        <h2>📘 מדריך למשתמש - סימולטור הגנה אווירית</h2>
+        <button id="tutorial-close" aria-label="סגור">×</button>
+      </div>
+      <div id="tutorial-body"></div>
+      <div class="tutorial-footer">
+        <button id="tutorial-prev" disabled>‹ הקודם</button>
+        <div class="tutorial-dots" id="tutorial-dots"></div>
+        <button id="tutorial-next" class="primary">הבא ›</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Force mobile mode before app.js initialises -->
+  <script>window.MOBILE_MODE = true;</script>
+  <script src="app.js?v=20260514h"></script>
+  <script>
+    // Wire up the sheet close button (app.js only wires #mobile-menu-toggle and #mobile-backdrop)
+    document.getElementById('sheet-close').addEventListener('click', function () {
+      document.getElementById('sidebar').classList.remove('open');
+      document.getElementById('mobile-backdrop').classList.remove('open');
+    });
+
+    // Auto-close sheet when a weapon / threat button is tapped for placement
+    ['battery-btns', 'radar-btns', 'threat-btns'].forEach(function (id) {
+      document.getElementById(id).addEventListener('click', function (ev) {
+        if (ev.target.closest('button[data-key]')) {
+          document.getElementById('sidebar').classList.remove('open');
+          document.getElementById('mobile-backdrop').classList.remove('open');
+        }
+      });
+    });
+
+    // Close sheet when a scenario (difficulty) button is pressed
+    document.querySelectorAll('.diff-btn[data-attack], .diff-btn[data-diff]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        document.getElementById('sidebar').classList.remove('open');
+        document.getElementById('mobile-backdrop').classList.remove('open');
+      });
+    });
+  </script>
+</body>
+</html>

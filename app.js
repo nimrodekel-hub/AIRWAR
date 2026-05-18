@@ -512,7 +512,7 @@ function resize() {
 function placeScrubberForViewport() {
   const sr = document.getElementById('scrubber-row');
   if (!sr) return;
-  const isMobile = window.matchMedia('(max-width: 768px)').matches;
+  const isMobile = window.MOBILE_MODE || window.matchMedia('(max-width: 768px)').matches;
   const target = document.getElementById(isMobile ? 'map-container' : 'control-panel');
   if (sr.parentElement !== target) target.appendChild(sr);
 }

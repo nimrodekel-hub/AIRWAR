@@ -1,0 +1,391 @@
+/* ============================================================
+   AIR DEFENSE COMMAND — Mobile Layout  v20260514h
+   Loaded AFTER styles.css.
+   Uses body.mobile selector for higher specificity so these
+   rules win over the @media (max-width:768px) block in
+   styles.css without needing !important.
+   ============================================================ */
+
+/* ─── Layout reset ──────────────────────────────────────── */
+body.mobile #app {
+  display: block;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+/* ─── Map: full screen minus bottom bar (60px) ──────────── */
+body.mobile #map-container {
+  position: fixed;
+  inset: 0 0 60px 0;
+  z-index: 1;
+}
+
+/* ─── Bottom action bar ─────────────────────────────────── */
+#mobile-bottom-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  direction: ltr;
+  background:
+    repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.05) 3px, rgba(0,0,0,0.05) 4px),
+    linear-gradient(180deg, #0c1422 0%, #080d18 100%);
+  border-top: 1px solid rgba(95,168,211,0.22);
+  box-shadow: 0 -4px 18px rgba(0,0,0,0.55);
+}
+
+#mobile-bottom-bar button {
+  height: 44px;
+  min-width: 44px;
+  border-radius: 6px;
+  font-size: 16px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+/* Menu toggle in the bar */
+body.mobile #mobile-menu-toggle {
+  /* override the absolute positioning from styles.css media query */
+  position: static;
+  top: auto;
+  right: auto;
+  width: 44px;
+  height: 44px;
+  background: rgba(8,12,22,0.92);
+  border: 1px solid rgba(95,168,211,0.4);
+  border-radius: 6px;
+  color: #5fc8e8;
+  font-size: 20px;
+  box-shadow: none;
+}
+
+body.mobile #mobile-menu-toggle:active {
+  background: rgba(20,40,60,0.95);
+}
+
+/* Mode status: fills the available space */
+.mobile-mode-status {
+  flex: 1;
+  font-size: 11px;
+  color: rgba(143,180,201,0.8);
+  font-family: 'Rajdhani', sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+  direction: rtl;
+  padding: 0 4px;
+}
+
+/* Sim control buttons on the right */
+.mobile-sim-controls {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+/* ─── Sidebar → slide-up bottom sheet ───────────────────── */
+body.mobile #sidebar {
+  position: fixed;
+  top: auto;
+  bottom: 0;
+  right: 0;
+  left: 0;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  height: auto;
+  max-height: 78vh;
+  z-index: 100;
+  visibility: hidden;
+  transform: translateY(110%);
+  transition: transform 0.3s cubic-bezier(0.4,0,0.2,1), visibility 0s linear 0.3s;
+  border-radius: 18px 18px 0 0;
+  border-top: 1px solid rgba(95,168,211,0.3);
+  border-left: none;
+  box-shadow: 0 -8px 32px rgba(0,0,0,0.8);
+  padding: 0;
+  padding-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  gap: 0;
+}
+
+body.mobile #sidebar.open {
+  visibility: visible;
+  transform: translateY(0);
+  transition: transform 0.3s cubic-bezier(0.4,0,0.2,1), visibility 0s linear 0s;
+}
+
+/* ─── Sheet drag handle ──────────────────────────────────── */
+.sheet-handle-bar {
+  width: 44px;
+  height: 4px;
+  background: rgba(95,168,211,0.35);
+  border-radius: 2px;
+  margin: 10px auto 0;
+  flex-shrink: 0;
+}
+
+/* ─── Sheet header ───────────────────────────────────────── */
+.sheet-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 8px 8px;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(31,42,61,0.8);
+  direction: rtl;
+}
+
+.sheet-header h1 {
+  flex: 1;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: #5fc8e8;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-shadow: 0 0 12px rgba(95,200,232,0.3);
+}
+
+.sheet-header-btns {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  direction: ltr;
+}
+
+.sheet-header-btns button {
+  height: 34px;
+  padding: 0 8px;
+  font-size: 11px;
+  border-radius: 4px;
+}
+
+.sheet-close-btn {
+  width: 34px;
+  height: 34px;
+  background: rgba(20,30,48,0.8);
+  border: 1px solid rgba(42,58,85,0.7);
+  border-radius: 4px;
+  color: rgba(143,180,201,0.7);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sheet-close-btn:hover {
+  background: rgba(42,58,85,0.8);
+  color: #fbbf24;
+}
+
+/* ─── Side toggle row inside sheet ──────────────────────── */
+.sheet-side-toggle {
+  padding: 8px 12px;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(31,42,61,0.6);
+}
+
+/* ─── Scrollable sheet content ───────────────────────────── */
+body.mobile #sidebar-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+/* ─── Sheet footer: reset button ────────────────────────── */
+.sheet-footer {
+  padding: 8px 12px;
+  flex-shrink: 0;
+  border-top: 1px solid rgba(31,42,61,0.8);
+}
+
+.sheet-footer button.full-width {
+  width: 100%;
+  justify-content: center;
+  min-height: 44px;
+}
+
+/* ─── Touch-friendly tap targets ────────────────────────── */
+body.mobile .btn-grid button,
+body.mobile .control-buttons > button,
+body.mobile .diff-btn,
+body.mobile .side-btn {
+  min-height: 44px;
+  font-size: 13px;
+}
+
+/* ─── Mission banner overlay ────────────────────────────── */
+body.mobile #banner-group {
+  flex-direction: column;
+  gap: 3px;
+  max-width: calc(100vw - 20px);
+  direction: rtl;
+}
+
+body.mobile #banner {
+  font-size: 12px;
+  padding: 6px 12px;
+  letter-spacing: 0.3px;
+  max-height: 2em;
+  overflow: hidden;
+  direction: rtl;
+  text-align: right;
+}
+
+body.mobile #step-guide-overlay {
+  display: none;
+  direction: rtl;
+  text-align: right;
+}
+
+body.mobile #mission-expand-btn {
+  display: block;
+  background: rgba(8,12,22,0.88);
+  border: 1px solid rgba(95,168,211,0.28);
+  border-radius: 0 0 4px 4px;
+  color: rgba(95,168,211,0.8);
+  font-size: 10px;
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 600;
+  padding: 3px 10px;
+  cursor: pointer;
+  text-align: center;
+  letter-spacing: 0.5px;
+  width: 100%;
+}
+
+body.mobile #banner-group.expanded #banner      { max-height: none; }
+body.mobile #banner-group.expanded #step-guide-overlay { display: block; }
+body.mobile #banner-group.expanded #mission-expand-btn {
+  border-radius: 4px;
+  border-top: none;
+}
+
+/* ─── Scrubber: floating overlay on map ─────────────────── */
+body.mobile #map-container > #scrubber-row {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 50;
+  margin-top: 0;
+  background: rgba(8,12,22,0.94);
+  border: 1px solid rgba(95,168,211,0.35);
+  border-radius: 8px;
+  padding: 8px 12px;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* ─── Battery legend: compact, pinned bottom-left ────────── */
+body.mobile #battery-legend {
+  left: 8px;
+  right: auto;
+  bottom: 8px;
+  padding: 5px 8px;
+  min-width: 0;
+  max-width: calc(100vw - 70px);
+  font-size: 9px;
+}
+
+body.mobile #battery-legend .battery-legend-title {
+  font-size: 10px;
+  padding-bottom: 2px;
+  margin-bottom: 3px;
+}
+
+body.mobile #battery-legend .battery-legend-row {
+  font-size: 9px;
+  margin: 1px 0;
+  gap: 4px;
+}
+
+body.mobile #battery-legend .battery-legend-swatch {
+  width: 8px;
+  height: 8px;
+}
+
+body.mobile #battery-legend .battery-legend-name {
+  min-width: 60px;
+  font-size: 10px;
+}
+
+body.mobile #battery-legend .battery-legend-stats {
+  font-size: 8.5px;
+}
+
+/* Push battery legend above scrubber when replay is active */
+body.mobile #map-container.scrubber-active #battery-legend {
+  bottom: 86px;
+}
+
+/* ─── Legend overlay: compact ────────────────────────────── */
+body.mobile #legend-overlay {
+  font-size: 9px;
+  padding: 5px 8px;
+}
+
+/* ─── Backdrop ───────────────────────────────────────────── */
+body.mobile #mobile-backdrop {
+  display: block;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 90;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.28s ease;
+}
+
+body.mobile #mobile-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ─── Map controls: hidden (touch replaces them) ─────────── */
+body.mobile #map-controls {
+  display: none;
+}
+
+/* ─── Step guide text alignment ──────────────────────────── */
+body.mobile .step-guide-title,
+body.mobile #step-guide .step {
+  direction: rtl;
+  text-align: right;
+}
+
+/* ─── Modals: tighter on small screens ──────────────────── */
+@media (max-width: 480px) {
+  .modal-content          { max-width: calc(100vw - 16px); margin: 8px; }
+  .start-grid             { grid-template-columns: 1fr; }
+  .start-footer-row       { grid-template-columns: 1fr; }
+  .modal-summary          { grid-template-columns: 1fr 1fr; }
+  .results-table          { font-size: 11px; }
+  .results-table th,
+  .results-table td       { padding: 5px 4px; }
+  .tutorial-content       { max-height: 90vh; }
+}
