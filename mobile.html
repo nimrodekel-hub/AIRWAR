@@ -7,8 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20260518j">
-  <link rel="stylesheet" href="mobile.css?v=20260518j">
+  <link rel="stylesheet" href="styles.css?v=20260518k">
+  <link rel="stylesheet" href="mobile.css?v=20260518k">
 </head>
 <body class="mobile">
   <div id="app">
@@ -82,12 +82,12 @@
       <button id="mobile-menu-toggle" aria-label="פתח תפריט">☰</button>
       <div id="mode-status" class="mobile-mode-status">בחר רכיב להוספה</div>
       <div class="mobile-sim-controls">
-        <button id="delete-mode" title="מצב מחיקה">🗑</button>
-        <button id="simulate"    class="primary" title="הפעל סימולציה">▶</button>
-        <button id="pause"       class="warn"    title="השהה" style="display:none">⏸</button>
-        <button id="resume"      class="primary" title="המשך" style="display:none">▶</button>
-        <button id="stop"        class="warn"    title="עצור" style="display:none">■</button>
-        <button id="clear-threats" title="נקה איומים">⨯</button>
+        <button id="delete-mode" title="מצב מחיקה"><span class="icn">🗑</span><span class="lbl">מחק</span></button>
+        <button id="simulate"    class="primary" title="הפעל סימולציה"><span class="icn">▶</span><span class="lbl">הפעל</span></button>
+        <button id="pause"       class="warn"    title="השהה" style="display:none"><span class="icn">⏸</span><span class="lbl">השהה</span></button>
+        <button id="resume"      class="primary" title="המשך" style="display:none"><span class="icn">▶</span><span class="lbl">המשך</span></button>
+        <button id="stop"        class="warn"    title="עצור" style="display:none"><span class="icn">■</span><span class="lbl">עצור</span></button>
+        <button id="clear-threats" title="נקה איומים"><span class="icn">⨯</span><span class="lbl">נקה</span></button>
       </div>
     </div>
 
@@ -288,7 +288,7 @@
 
   <!-- Force mobile mode before app.js initialises -->
   <script>window.MOBILE_MODE = true;</script>
-  <script src="app.js?v=20260518j"></script>
+  <script src="app.js?v=20260518k"></script>
   <script>
     // Wire up the sheet close button (app.js only wires #mobile-menu-toggle and #mobile-backdrop)
     document.getElementById('sheet-close').addEventListener('click', function () {

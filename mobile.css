@@ -96,6 +96,26 @@ body.mobile #mobile-menu-toggle:active {
   align-items: center;
 }
 
+/* Stack icon + small label inside each sim-control button */
+.mobile-sim-controls button {
+  flex-direction: column;
+  gap: 1px;
+  padding: 3px 6px;
+  line-height: 1;
+}
+.mobile-sim-controls button .icn {
+  font-size: 16px;
+  line-height: 1;
+}
+.mobile-sim-controls button .lbl {
+  font-size: 8.5px;
+  line-height: 1;
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  opacity: 0.85;
+}
+
 /* ─── Sidebar → slide-up bottom sheet ───────────────────── */
 body.mobile #sidebar {
   position: fixed;
