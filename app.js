@@ -720,6 +720,20 @@ function toggleMobileSidebar(force) {
   const next = force !== undefined ? force : !sidebar.classList.contains('open');
   sidebar.classList.toggle('open', next);
   backdrop.classList.toggle('open', next);
+  if (next) {
+    // Player tapped the menu — kill the attention pulse for this challenge.
+    const m = document.getElementById('mobile-menu-toggle');
+    if (m) m.classList.remove('attention');
+  }
+}
+
+// Add the pulsing-blink hint to the hamburger so a new player notices
+// it's the entry point to pick weapons. Called at the start of each
+// challenge; auto-cleared once the sheet is opened.
+function armMenuAttention() {
+  if (!window.MOBILE_MODE) return;
+  const m = document.getElementById('mobile-menu-toggle');
+  if (m) m.classList.add('attention');
 }
 
 function closeMobileSidebar() {
@@ -729,6 +743,14 @@ function closeMobileSidebar() {
 function bindControls() {
   document.getElementById('mobile-menu-toggle').addEventListener('click', () => toggleMobileSidebar());
   document.getElementById('mobile-backdrop').addEventListener('click', closeMobileSidebar);
+  const newGameCta = document.getElementById('mobile-new-game-cta');
+  if (newGameCta) {
+    newGameCta.addEventListener('click', () => {
+      hideNewGameCta();
+      resetAll();
+      showStartModal();
+    });
+  }
   document.getElementById('mission-expand-btn').addEventListener('click', () => {
     const group = document.getElementById('banner-group');
     const expanded = group.classList.toggle('expanded');
@@ -1901,6 +1923,7 @@ function resetAll() {
   state.scrubTime = null;
   state.serialCounters = {};
   state.results = null;
+  hideNewGameCta();
   state.budget = null;
   state.threatBudget = null;
   state.objective = null;
@@ -3279,6 +3302,7 @@ function startSim() {
   state.history = [];
   state.scrubTime = null;
   state.endLinger = null;
+  hideNewGameCta();
   document.getElementById('scrubber-row').style.display = 'none';
   setScrubberActive(false);
   // reset threats and defenses
@@ -4048,6 +4072,20 @@ function generateAttackRecommendations(r) {
 
 function hideModal() {
   document.getElementById('modal').classList.remove('visible');
+  // After the results modal closes, surface a 'Start new game' CTA on the
+  // map so the player has a clear next step on mobile.
+  if (state.results) showNewGameCta();
+}
+
+function showNewGameCta() {
+  if (!window.MOBILE_MODE) return;
+  const btn = document.getElementById('mobile-new-game-cta');
+  if (btn) btn.style.display = '';
+}
+
+function hideNewGameCta() {
+  const btn = document.getElementById('mobile-new-game-cta');
+  if (btn) btn.style.display = 'none';
 }
 
 // Theoretical best result with the current placement: every viable engagement succeeds.
@@ -4315,6 +4353,8 @@ function startAttackChallenge(difficulty) {
   showBackButton();
   updateStepGuide();
   closeMobileSidebar();
+  armMenuAttention();
+  hideNewGameCta();
 }
 
 // =============================================================
@@ -4436,6 +4476,8 @@ function startDefenseChallenge(difficulty = 'medium') {
   showBackButton();
   updateStepGuide();
   closeMobileSidebar();
+  armMenuAttention();
+  hideNewGameCta();
 }
 
 function renderBudget() {
