@@ -3278,6 +3278,7 @@ function startSim() {
   state.missiles = []; state.explosions = []; state.targetHits = [];
   state.history = [];
   state.scrubTime = null;
+  state.endLinger = null;
   document.getElementById('scrubber-row').style.display = 'none';
   setScrubberActive(false);
   // reset threats and defenses
@@ -3427,10 +3428,18 @@ function tick(dt) {
   }
   state.targetHits = state.targetHits.filter(e => e.t < e.dur);
 
-  // 6. End condition
+  // 6. End condition — linger 1s after the last threat/missile clears so
+  // the final impact (or interception) is visible before the results panel
+  // takes over.
   const active = state.threats.filter(t => t.status === 'inflight');
   if (active.length === 0 && state.missiles.length === 0) {
-    finishSim();
+    if (state.endLinger == null) state.endLinger = state.simElapsed + 1.0;
+    else if (state.simElapsed >= state.endLinger) {
+      state.endLinger = null;
+      finishSim();
+    }
+  } else if (state.endLinger != null) {
+    state.endLinger = null;
   }
 
   // 7. Snapshot for scrubber (every ~0.1s)
