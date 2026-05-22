@@ -107,7 +107,7 @@ body.mobile #sidebar {
   max-width: none;
   min-width: 0;
   height: auto;
-  max-height: 92vh;
+  max-height: 84vh;
   z-index: 100;
   visibility: hidden;
   transform: translateY(110%);
