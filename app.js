@@ -1250,12 +1250,14 @@ function showTutorial(stepIdx) {
   if (stepIdx >= TUTORIAL_STEPS.length) stepIdx = TUTORIAL_STEPS.length - 1;
   state.tutorialStep = stepIdx;
   const step = TUTORIAL_STEPS[stepIdx];
-  document.getElementById('tutorial-body').innerHTML = `
+  const bodyEl = document.getElementById('tutorial-body');
+  bodyEl.innerHTML = `
     <div class="tutorial-step">
       <h3>${step.title}</h3>
       ${step.html()}
     </div>
   `;
+  bodyEl.scrollTop = 0;
   // Render dots
   const dotsEl = document.getElementById('tutorial-dots');
   dotsEl.innerHTML = TUTORIAL_STEPS.map((_, i) =>
