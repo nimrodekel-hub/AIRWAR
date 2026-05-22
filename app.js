@@ -541,6 +541,7 @@ window.addEventListener('DOMContentLoaded', () => {
   bindControls();
   initSimButtons();
   bindCanvas();
+  resetView();
   requestAnimationFrame(loop);
 });
 
@@ -1304,7 +1305,8 @@ function panBy(dx, dy) {
 }
 
 function resetView() {
-  const s = 0.85;
+  const isMobile = window.MOBILE_MODE || window.matchMedia('(max-width: 768px)').matches;
+  const s = isMobile ? 0.55 : 0.85;
   const cx = 720, cy = 410;
   state.viewport = {
     offsetX: W / 2 - cx * s,

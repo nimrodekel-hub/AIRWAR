@@ -237,11 +237,18 @@ body.mobile .side-btn {
   font-size: 13px;
 }
 
-/* ─── Mission banner overlay ────────────────────────────── */
+/* ─── Mission banner overlay ──────────────────────────────
+   Pin to top-LEFT so it doesn't fight with the HUD that the
+   canvas draws on the top-RIGHT corner. */
 body.mobile #banner-group {
+  top: 8px;
+  left: 8px;
+  right: auto;
+  transform: none;
   flex-direction: column;
   gap: 3px;
-  max-width: calc(100vw - 20px);
+  max-width: calc(100vw - 150px);
+  align-items: flex-start;
   direction: rtl;
 }
 
