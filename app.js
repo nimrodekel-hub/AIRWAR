@@ -1308,8 +1308,11 @@ function panBy(dx, dy) {
 
 function resetView() {
   const isMobile = window.MOBILE_MODE || window.matchMedia('(max-width: 768px)').matches;
-  const s = isMobile ? 0.55 : 0.85;
-  const cx = 720, cy = 410;
+  const s  = isMobile ? 0.48 : 0.85;
+  // On mobile bias the view toward the LEFT two-thirds of the country
+  // so the western spawn region (where threats originate) is visible.
+  const cx = isMobile ? 600 : 720;
+  const cy = 410;
   state.viewport = {
     offsetX: W / 2 - cx * s,
     offsetY: H / 2 - cy * s,
