@@ -2154,15 +2154,49 @@ function drawBackground() {
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WORLD_W, y); ctx.stroke();
   }
 
-  // Grid coordinate labels
-  ctx.fillStyle = 'rgba(95, 168, 211, 0.18)';
+  // ── Tactical map frame: border + graduated edge ticks + corner brackets ──
+  const GC = 'rgba(95, 168, 211, ';
+  // Border
+  ctx.strokeStyle = GC + '0.28)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0, 0, WORLD_W, WORLD_H);
+  // Graduated ticks: long at 100km, short at 50km, on all four edges
+  ctx.strokeStyle = GC + '0.32)';
+  for (let x = 50; x < WORLD_W; x += 50) {
+    const major = x % 100 === 0;
+    const len = major ? 8 : 4;
+    ctx.lineWidth = major ? 0.9 : 0.6;
+    ctx.beginPath(); ctx.moveTo(x, 0);        ctx.lineTo(x, len);             ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, WORLD_H);  ctx.lineTo(x, WORLD_H - len);   ctx.stroke();
+  }
+  for (let y = 50; y < WORLD_H; y += 50) {
+    const major = y % 100 === 0;
+    const len = major ? 8 : 4;
+    ctx.lineWidth = major ? 0.9 : 0.6;
+    ctx.beginPath(); ctx.moveTo(0, y);        ctx.lineTo(len, y);             ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(WORLD_W, y);  ctx.lineTo(WORLD_W - len, y);   ctx.stroke();
+  }
+  // Corner brackets
+  ctx.strokeStyle = GC + '0.5)';
+  ctx.lineWidth = 1.4;
+  const cb = 22;
+  const corner = (cx, cy, sx, sy) => {
+    ctx.beginPath();
+    ctx.moveTo(cx + sx * cb, cy); ctx.lineTo(cx, cy); ctx.lineTo(cx, cy + sy * cb);
+    ctx.stroke();
+  };
+  corner(0, 0, 1, 1); corner(WORLD_W, 0, -1, 1);
+  corner(0, WORLD_H, 1, -1); corner(WORLD_W, WORLD_H, -1, -1);
+
+  // Grid coordinate labels (km)
+  ctx.fillStyle = GC + '0.22)';
   ctx.font = '9px monospace';
   ctx.textAlign = 'right';
   for (let x = 100; x < WORLD_W; x += 100) {
-    ctx.fillText(x, x - 2, 10);
+    ctx.fillText(x, x - 2, 18);
   }
   for (let y = 100; y < WORLD_H; y += 100) {
-    ctx.fillText(y, 28, y - 2);
+    ctx.fillText(y, 30, y - 2);
   }
 
   // Red zone - diagonal hazard stripe
@@ -2459,7 +2493,7 @@ function drawCoverage() {
   for (const d of state.defenses) {
     const c = CATALOG[d.key];
     if (c.kind === 'radar') {
-      // Gradient fill for detection zone
+      // Detection zone — gradient fill
       const rGrad = ctx.createRadialGradient(d.x, d.y, 0, d.x, d.y, c.detection);
       rGrad.addColorStop(0,   c.color + '22');
       rGrad.addColorStop(0.6, c.color + '0e');
@@ -2468,33 +2502,55 @@ function drawCoverage() {
       ctx.arc(d.x, d.y, c.detection, 0, Math.PI * 2);
       ctx.fillStyle = rGrad;
       ctx.fill();
+
+      // Concentric range rings — the signature look of a PPI radar scope
+      ctx.strokeStyle = c.color + '24';
+      ctx.lineWidth = 0.7;
+      for (let f = 0.25; f < 1; f += 0.25) {
+        ctx.beginPath(); ctx.arc(d.x, d.y, c.detection * f, 0, Math.PI * 2); ctx.stroke();
+      }
+      // Cross-hairs through centre
+      ctx.beginPath();
+      ctx.moveTo(d.x - c.detection, d.y); ctx.lineTo(d.x + c.detection, d.y);
+      ctx.moveTo(d.x, d.y - c.detection); ctx.lineTo(d.x, d.y + c.detection);
+      ctx.strokeStyle = c.color + '18';
+      ctx.stroke();
+
+      // Outer perimeter
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, c.detection, 0, Math.PI * 2);
       ctx.strokeStyle = c.color + '60';
       ctx.setLineDash([5, 8]);
       ctx.lineWidth = 1;
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Rotating sweep wedge — slow, calm rotation (~6 RPM)
-      const sweepAng = (now * 0.18 + d.x * 0.009) * Math.PI * 2;
-      const wedge = Math.PI * 0.18;
+      // Rotating sweep with a fading afterglow trail (~10 RPM)
+      const sweepAng = (now * 0.32 + d.x * 0.009) * Math.PI * 2;
+      const TRAIL = Math.PI * 0.6, SEGS = 8;
       ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(d.x, d.y);
-      ctx.arc(d.x, d.y, c.detection, sweepAng - wedge, sweepAng);
-      ctx.closePath();
-      ctx.fillStyle = c.color + '18';
-      ctx.fill();
-      // Leading edge bright line
+      for (let s = 0; s < SEGS; s++) {
+        const a2 = sweepAng - TRAIL * (s / SEGS);
+        const a1 = sweepAng - TRAIL * ((s + 1) / SEGS);
+        ctx.globalAlpha = (1 - s / SEGS) * 0.16;
+        ctx.beginPath();
+        ctx.moveTo(d.x, d.y);
+        ctx.arc(d.x, d.y, c.detection, a1, a2);
+        ctx.closePath();
+        ctx.fillStyle = c.color;
+        ctx.fill();
+      }
+      ctx.restore();
+      // Leading-edge bright line
       ctx.beginPath();
       ctx.moveTo(d.x, d.y);
       ctx.lineTo(d.x + Math.cos(sweepAng) * c.detection, d.y + Math.sin(sweepAng) * c.detection);
-      ctx.strokeStyle = c.color + '90';
+      ctx.strokeStyle = c.color + 'b0';
       ctx.lineWidth = 1.2;
       ctx.stroke();
-      ctx.restore();
 
     } else if (c.kind === 'battery') {
-      // Gradient fill for engagement zone
+      // Engagement zone — gradient fill
       const eGrad = ctx.createRadialGradient(d.x, d.y, c.minRange, d.x, d.y, c.maxRange);
       eGrad.addColorStop(0,   c.color + '22');
       eGrad.addColorStop(0.7, c.color + '12');
@@ -2503,9 +2559,34 @@ function drawCoverage() {
       ctx.arc(d.x, d.y, c.maxRange, 0, Math.PI * 2);
       ctx.fillStyle = eGrad;
       ctx.fill();
+
+      // Mid-range reference ring
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, c.maxRange * 0.5, 0, Math.PI * 2);
+      ctx.strokeStyle = c.color + '2e';
+      ctx.lineWidth = 0.7;
+      ctx.stroke();
+
+      // Outer engagement perimeter
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, c.maxRange, 0, Math.PI * 2);
       ctx.strokeStyle = c.color + 'b8';
       ctx.lineWidth = 1.4;
       ctx.stroke();
+
+      // Cardinal range ticks on the perimeter (range-scale cue)
+      ctx.strokeStyle = c.color + '8a';
+      ctx.lineWidth = 1.1;
+      for (let k = 0; k < 4; k++) {
+        const a = k * Math.PI / 2;
+        const ca = Math.cos(a), sa = Math.sin(a);
+        ctx.beginPath();
+        ctx.moveTo(d.x + ca * (c.maxRange - 5), d.y + sa * (c.maxRange - 5));
+        ctx.lineTo(d.x + ca * (c.maxRange + 4), d.y + sa * (c.maxRange + 4));
+        ctx.stroke();
+      }
+
+      // Inner dead-zone (minimum range)
       if (c.minRange > 5) {
         ctx.beginPath();
         ctx.arc(d.x, d.y, c.minRange, 0, Math.PI * 2);
@@ -2733,44 +2814,26 @@ function drawThreats() {
     ctx.stroke();
     ctx.lineCap = 'butt';
 
-    // ── Velocity leader: a line from the track in the heading direction,
-    // length scaled by speed. This is how real C2 displays convey course &
-    // relative velocity, so the symbol itself can stay screen-upright. ──
-    const leaderLen = 9 + c.speed * 0.5;
-    const lx = t.x + cdx * leaderLen, ly = t.y + cdy * leaderLen;
-    ctx.beginPath();
-    ctx.moveTo(t.x, t.y);
-    ctx.lineTo(lx, ly);
-    ctx.strokeStyle = c.color + 'cc';
-    ctx.lineWidth = 1.3;
-    ctx.stroke();
-    // Arrowhead at the leader tip
-    const ah = 3.4, aw = 2.2;
-    ctx.beginPath();
-    ctx.moveTo(lx, ly);
-    ctx.lineTo(lx - cdx * ah - cdy * aw, ly - cdy * ah + cdx * aw);
-    ctx.lineTo(lx - cdx * ah + cdy * aw, ly - cdy * ah - cdx * aw);
-    ctx.closePath();
-    ctx.fillStyle = c.color + 'cc';
-    ctx.fill();
+    // Subtle affiliation glow so the track pops over coverage rings
+    const haloR = t.key === 'fighter' ? 17 : 12;
+    const halo = ctx.createRadialGradient(t.x, t.y, 1, t.x, t.y, haloR);
+    halo.addColorStop(0, c.color + '38');
+    halo.addColorStop(1, c.color + '00');
+    ctx.beginPath(); ctx.arc(t.x, t.y, haloR, 0, Math.PI * 2);
+    ctx.fillStyle = halo; ctx.fill();
 
-    // ── Hostile track symbol — red diamond affiliation frame (MIL-STD-2525).
-    // Upright, non-rotated; the leader line above carries the heading. ──
-    const fr = t.key === 'fighter' ? 7.5 : 6.5;
+    // Aircraft silhouette — top-down, rotated to its heading.
     ctx.save();
     ctx.translate(t.x, t.y);
-    // Outer affiliation glow + dark fill for contrast over coverage rings
-    ctx.shadowColor = c.color; ctx.shadowBlur = 9;
-    milHostileFrame(fr);
-    ctx.fillStyle = 'rgba(8, 12, 22, 0.82)';
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    // Frame stroke
-    milHostileFrame(fr);
-    ctx.strokeStyle = c.color; ctx.lineWidth = 1.7; ctx.stroke();
-    // Inner type glyph (symmetric, non-directional)
-    ctx.fillStyle = c.color; ctx.strokeStyle = c.color;
-    milThreatGlyph(t.key);
+    ctx.rotate(ang);
+    ctx.scale(2.8, 2.8);
+    ctx.fillStyle = c.color;
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.78)';
+    ctx.lineWidth = 0.5;
+    ctx.lineJoin = 'round';
+    if (t.key === 'fighter') drawFighter();
+    else if (t.key === 'helicopter') drawHelo();
+    else drawDrone();
     ctx.restore();
 
     // Label with absolute altitude (changes over terrain)
@@ -2799,57 +2862,145 @@ function drawThreats() {
   }
 }
 
-// ── MIL-STD-2525-inspired track symbology ───────────────────────────
-// Symbols are screen-upright (never rotated); heading is conveyed by the
-// velocity leader line, matching real command-and-control displays.
-// Each helper traces a path centred on the current origin — the caller
-// is responsible for fill/stroke and for having translated into place.
-
-function milHostileFrame(r) {
-  // Red diamond (rotated square): universal hostile affiliation marker.
-  ctx.beginPath();
-  ctx.moveTo(0, -r);
-  ctx.lineTo(r, 0);
-  ctx.lineTo(0, r);
-  ctx.lineTo(-r, 0);
-  ctx.closePath();
-}
-
+// ── Friendly affiliation frame (MIL-STD-2525) for ground equipment ──
+// Traces a rounded rectangle centred on the current origin; the caller
+// fills/strokes and is responsible for having translated into place.
 function milFriendlyFrame(r) {
-  // Rounded rectangle: friendly affiliation marker.
   const w = r * 1.18, h = r * 0.92;
   ctx.beginPath();
   if (ctx.roundRect) ctx.roundRect(-w, -h, w * 2, h * 2, 2.5);
   else ctx.rect(-w, -h, w * 2, h * 2);
 }
 
-function milThreatGlyph(key) {
-  // Minimal, symmetric type indicator drawn inside a hostile frame.
-  // Symmetric on purpose so it never competes with the leader for "heading".
-  ctx.lineWidth = 1;
-  if (key === 'fighter') {
-    // Fixed-wing: small upward delta wedge
-    ctx.beginPath();
-    ctx.moveTo(0, -3.4);
-    ctx.lineTo(2.6, 2.6);
-    ctx.lineTo(0, 1.3);
-    ctx.lineTo(-2.6, 2.6);
-    ctx.closePath();
-    ctx.fill();
-  } else if (key === 'helicopter') {
-    // Rotary-wing: rotor cross + hub
-    ctx.beginPath();
-    ctx.moveTo(-3.4, -2.4); ctx.lineTo(3.4, 2.4);
-    ctx.moveTo(-3.4, 2.4);  ctx.lineTo(3.4, -2.4);
-    ctx.stroke();
-    ctx.beginPath(); ctx.arc(0, 0, 1.4, 0, Math.PI * 2); ctx.fill();
-  } else {
-    // UAV: straight wing line + small body dot
-    ctx.beginPath();
-    ctx.moveTo(-3.6, 0); ctx.lineTo(3.6, 0);
-    ctx.stroke();
-    ctx.beginPath(); ctx.arc(0, 0, 1.2, 0, Math.PI * 2); ctx.fill();
-  }
+// ── Threat silhouettes — refined top-down aircraft profiles ──────────
+// Drawn in a local frame with the nose pointing +x; the caller rotates
+// to the track's heading. fillStyle is the affiliation colour on entry.
+
+function drawFighter() {
+  // Modern multirole jet: pointed nose, swept delta wing, twin stabilators.
+  const col = ctx.fillStyle;
+  // Afterburner bloom at the tail
+  const ab = ctx.createRadialGradient(-6, 0, 0, -6, 0, 3.2);
+  ab.addColorStop(0, 'rgba(255, 214, 130, 0.9)');
+  ab.addColorStop(1, 'rgba(255, 140, 40, 0)');
+  ctx.fillStyle = ab;
+  ctx.beginPath(); ctx.arc(-6, 0, 3.2, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = col;
+  // Single sleek silhouette (nose → left wing → tail → right wing)
+  ctx.beginPath();
+  ctx.moveTo(7.6, 0);
+  ctx.lineTo(2.0, -1.05);
+  ctx.lineTo(0.4, -1.5);
+  ctx.lineTo(-3.0, -6.1);   // left wing leading edge
+  ctx.lineTo(-4.6, -5.9);   // wingtip
+  ctx.lineTo(-2.1, -1.7);   // wing trailing edge
+  ctx.lineTo(-4.8, -2.7);   // left stabilator
+  ctx.lineTo(-6.3, -2.2);
+  ctx.lineTo(-5.2, -0.85);
+  ctx.lineTo(-6.1, 0);      // tail cone
+  ctx.lineTo(-5.2, 0.85);
+  ctx.lineTo(-6.3, 2.2);
+  ctx.lineTo(-4.8, 2.7);
+  ctx.lineTo(-2.1, 1.7);
+  ctx.lineTo(-4.6, 5.9);
+  ctx.lineTo(-3.0, 6.1);
+  ctx.lineTo(0.4, 1.5);
+  ctx.lineTo(2.0, 1.05);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // Canopy highlight
+  ctx.beginPath();
+  ctx.ellipse(2.4, 0, 1.5, 0.85, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(190, 225, 245, 0.6)';
+  ctx.fill();
+  ctx.fillStyle = col;
+}
+
+function drawHelo() {
+  // Attack helicopter, top-down: teardrop fuselage, tail boom, rotor disc.
+  const col = ctx.fillStyle;
+  // Tail boom
+  ctx.beginPath();
+  ctx.moveTo(-1.5, -0.7);
+  ctx.lineTo(-7.6, -0.5);
+  ctx.lineTo(-7.6, 0.5);
+  ctx.lineTo(-1.5, 0.7);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // Horizontal stabilizer at tail
+  ctx.beginPath();
+  ctx.moveTo(-7.1, 0);
+  ctx.lineTo(-8.7, -1.9);
+  ctx.lineTo(-8.0, 0);
+  ctx.lineTo(-8.7, 1.9);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // Fuselage (teardrop cabin)
+  ctx.beginPath();
+  ctx.moveTo(4.9, 0);
+  ctx.bezierCurveTo(4.9, -2.4, 0.2, -2.5, -2.0, -1.9);
+  ctx.lineTo(-2.0, 1.9);
+  ctx.bezierCurveTo(0.2, 2.5, 4.9, 2.4, 4.9, 0);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // Cockpit windshield
+  ctx.beginPath();
+  ctx.moveTo(4.5, -0.8);
+  ctx.bezierCurveTo(3.5, -1.9, 1.5, -1.9, 0.9, -1.3);
+  ctx.lineTo(0.9, 1.3);
+  ctx.bezierCurveTo(1.5, 1.9, 3.5, 1.9, 4.5, 0.8);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(190, 225, 245, 0.55)';
+  ctx.fill();
+  ctx.fillStyle = col;
+  // Main rotor disc (translucent) + spinning blades + hub
+  ctx.save();
+  ctx.globalAlpha = 0.15;
+  ctx.beginPath(); ctx.arc(1.0, 0, 6.7, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  ctx.save();
+  ctx.globalAlpha = 0.7; ctx.strokeStyle = col; ctx.lineWidth = 0.7;
+  ctx.beginPath(); ctx.moveTo(-5.7, 0); ctx.lineTo(7.7, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(1.0, -6.7); ctx.lineTo(1.0, 6.7); ctx.stroke();
+  ctx.restore();
+  ctx.beginPath(); ctx.arc(1.0, 0, 0.85, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawDrone() {
+  // MALE-class UAV (Predator/Heron style): slim fuselage, long straight
+  // high-aspect wings, V-tail, chin sensor turret.
+  const col = ctx.fillStyle;
+  // Wings
+  ctx.beginPath();
+  ctx.moveTo(0.8, -0.55);
+  ctx.lineTo(-0.4, -7.3);
+  ctx.lineTo(0.9, -7.3);
+  ctx.lineTo(2.0, -0.5);
+  ctx.lineTo(2.0, 0.5);
+  ctx.lineTo(0.9, 7.3);
+  ctx.lineTo(-0.4, 7.3);
+  ctx.lineTo(0.8, 0.55);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // Fuselage
+  ctx.beginPath();
+  ctx.moveTo(6.6, 0);
+  ctx.lineTo(5.0, -0.8);
+  ctx.lineTo(-5.6, -0.85);
+  ctx.lineTo(-6.1, 0);
+  ctx.lineTo(-5.6, 0.85);
+  ctx.lineTo(5.0, 0.8);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // V-tail
+  ctx.lineWidth = 0.85;
+  ctx.beginPath();
+  ctx.moveTo(-5.0, -0.6); ctx.lineTo(-7.1, -2.5);
+  ctx.moveTo(-5.0, 0.6);  ctx.lineTo(-7.1, 2.5);
+  ctx.stroke();
+  ctx.lineWidth = 0.5;
+  // Chin sensor turret
+  ctx.beginPath(); ctx.arc(3.3, 0, 1.2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
 }
 
 function drawMissiles() {
