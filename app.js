@@ -2493,30 +2493,23 @@ function drawCoverage() {
   for (const d of state.defenses) {
     const c = CATALOG[d.key];
     if (c.kind === 'radar') {
-      // Detection zone — gradient fill
-      const rGrad = ctx.createRadialGradient(d.x, d.y, 0, d.x, d.y, c.detection);
-      rGrad.addColorStop(0,   c.color + '22');
-      rGrad.addColorStop(0.6, c.color + '0e');
-      rGrad.addColorStop(1,   c.color + '04');
-      ctx.beginPath();
-      ctx.arc(d.x, d.y, c.detection, 0, Math.PI * 2);
-      ctx.fillStyle = rGrad;
-      ctx.fill();
+      // NO fill — the detection area must stay fully see-through so
+      // terrain, threats and other coverages remain readable through it.
 
-      // Concentric range rings — the signature look of a PPI radar scope
-      ctx.strokeStyle = c.color + '24';
-      ctx.lineWidth = 0.7;
+      // Faint concentric range rings (PPI scope geometry, very subtle)
+      ctx.strokeStyle = c.color + '14';
+      ctx.lineWidth = 0.6;
       for (let f = 0.25; f < 1; f += 0.25) {
         ctx.beginPath(); ctx.arc(d.x, d.y, c.detection * f, 0, Math.PI * 2); ctx.stroke();
       }
-      // Cross-hairs through centre
+      // Faint cross-hairs through centre
       ctx.beginPath();
       ctx.moveTo(d.x - c.detection, d.y); ctx.lineTo(d.x + c.detection, d.y);
       ctx.moveTo(d.x, d.y - c.detection); ctx.lineTo(d.x, d.y + c.detection);
-      ctx.strokeStyle = c.color + '18';
+      ctx.strokeStyle = c.color + '10';
       ctx.stroke();
 
-      // Outer perimeter
+      // Outer perimeter (dashed)
       ctx.beginPath();
       ctx.arc(d.x, d.y, c.detection, 0, Math.PI * 2);
       ctx.strokeStyle = c.color + '60';
@@ -2525,7 +2518,7 @@ function drawCoverage() {
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Rotating sweep line — single bright leading edge, no trailing fill
+      // Rotating sweep line — single bright leading edge
       const sweepAng = (now * 0.32 + d.x * 0.009) * Math.PI * 2;
       ctx.beginPath();
       ctx.moveTo(d.x, d.y);
