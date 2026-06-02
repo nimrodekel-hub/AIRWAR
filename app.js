@@ -2525,23 +2525,8 @@ function drawCoverage() {
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Rotating sweep with a fading afterglow trail (~10 RPM)
+      // Rotating sweep line — single bright leading edge, no trailing fill
       const sweepAng = (now * 0.32 + d.x * 0.009) * Math.PI * 2;
-      const TRAIL = Math.PI * 0.6, SEGS = 8;
-      ctx.save();
-      for (let s = 0; s < SEGS; s++) {
-        const a2 = sweepAng - TRAIL * (s / SEGS);
-        const a1 = sweepAng - TRAIL * ((s + 1) / SEGS);
-        ctx.globalAlpha = (1 - s / SEGS) * 0.16;
-        ctx.beginPath();
-        ctx.moveTo(d.x, d.y);
-        ctx.arc(d.x, d.y, c.detection, a1, a2);
-        ctx.closePath();
-        ctx.fillStyle = c.color;
-        ctx.fill();
-      }
-      ctx.restore();
-      // Leading-edge bright line
       ctx.beginPath();
       ctx.moveTo(d.x, d.y);
       ctx.lineTo(d.x + Math.cos(sweepAng) * c.detection, d.y + Math.sin(sweepAng) * c.detection);
@@ -3326,35 +3311,80 @@ function drawHUD() {
   if (lines.length === 0) return;
 
   ctx.save();
-  ctx.font = '11px monospace';
-  const lineH = 17, padX = 10, padY = 7;
+  ctx.font = '11px "Share Tech Mono", ui-monospace, monospace';
+  const lineH = 17, padX = 12, padY = 22;          // padY leaves room for the title bar
+  const titleH = 13;
   const maxW = lines.reduce((w, l) => Math.max(w, ctx.measureText(l.text).width), 0);
-  const bw = maxW + padX * 2;
-  const bh = lines.length * lineH + padY * 2;
+  const bw = Math.max(maxW + padX * 2, 132);
+  const bh = lines.length * lineH + padY + 10;
   const bx = W - bw - 10;
   const by = 8;
+  const chamfer = 9;                                // angled corner depth (MFD look)
 
-  // Background panel
-  ctx.fillStyle = 'rgba(5, 8, 16, 0.88)';
-  ctx.strokeStyle = 'rgba(42, 58, 85, 0.65)';
-  ctx.lineWidth = 1;
-  if (ctx.roundRect) {
-    ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 3); ctx.fill(); ctx.stroke();
-  } else {
-    ctx.fillRect(bx, by, bw, bh); ctx.strokeRect(bx, by, bw, bh);
+  // Chamfered panel path — six-sided with the top-right and bottom-left
+  // corners shaved off. Reads as a tactical multifunction display.
+  function chamferedPath() {
+    ctx.beginPath();
+    ctx.moveTo(bx, by);
+    ctx.lineTo(bx + bw - chamfer, by);
+    ctx.lineTo(bx + bw, by + chamfer);
+    ctx.lineTo(bx + bw, by + bh);
+    ctx.lineTo(bx + chamfer, by + bh);
+    ctx.lineTo(bx, by + bh - chamfer);
+    ctx.closePath();
   }
-  // Top accent line
-  ctx.beginPath();
-  ctx.moveTo(bx + 3, by + 1); ctx.lineTo(bx + bw - 3, by + 1);
-  ctx.strokeStyle = 'rgba(95, 200, 232, 0.25)';
+
+  // Background fill + frame
+  chamferedPath();
+  ctx.fillStyle = 'rgba(5, 8, 16, 0.9)';
+  ctx.fill();
+  chamferedPath();
+  ctx.strokeStyle = 'rgba(95, 200, 232, 0.42)';
   ctx.lineWidth = 1;
   ctx.stroke();
 
+  // Title strip
+  ctx.fillStyle = 'rgba(95, 200, 232, 0.10)';
+  ctx.fillRect(bx + 1, by + 1, bw - chamfer - 1, titleH);
+  ctx.beginPath();
+  ctx.moveTo(bx + 4, by + titleH + 1.5);
+  ctx.lineTo(bx + bw - 4, by + titleH + 1.5);
+  ctx.strokeStyle = 'rgba(95, 200, 232, 0.35)';
+  ctx.stroke();
+
+  // Title text
+  ctx.font = '9px "Share Tech Mono", ui-monospace, monospace';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = 'rgba(95, 200, 232, 0.85)';
+  ctx.fillText('TACSIT // STATUS', bx + 8, by + 10);
+
+  // Status pulse dot on the right of the title bar
+  const pulse = 0.55 + 0.45 * Math.abs(Math.sin(Date.now() * 0.004));
+  ctx.beginPath();
+  ctx.arc(bx + bw - chamfer - 8, by + 6.5, 2.6, 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(95, 200, 232, ${pulse})`;
+  ctx.fill();
+
+  // Data rows
+  ctx.font = '11px "Share Tech Mono", ui-monospace, monospace';
   ctx.textAlign = 'right';
   for (let i = 0; i < lines.length; i++) {
     ctx.fillStyle = lines[i].color;
-    ctx.fillText(lines[i].text, bx + bw - padX, by + padY + i * lineH + 11);
+    ctx.fillText(lines[i].text, bx + bw - padX, by + padY + i * lineH + 4);
   }
+
+  // Inner corner brackets (subtle tactical accent on opposite corners)
+  const brk = 6;
+  ctx.strokeStyle = 'rgba(95, 200, 232, 0.55)';
+  ctx.lineWidth = 1.2;
+  // top-left
+  ctx.beginPath();
+  ctx.moveTo(bx + 1, by + brk + 1); ctx.lineTo(bx + 1, by + 1); ctx.lineTo(bx + brk + 1, by + 1);
+  ctx.stroke();
+  // bottom-right
+  ctx.beginPath();
+  ctx.moveTo(bx + bw - 1, by + bh - brk - 1); ctx.lineTo(bx + bw - 1, by + bh - 1); ctx.lineTo(bx + bw - brk - 1, by + bh - 1);
+  ctx.stroke();
   ctx.restore();
 }
 
