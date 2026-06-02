@@ -2612,30 +2612,21 @@ function drawDefenses() {
       ctx.beginPath(); ctx.arc(0, 0, 2.5, 0, Math.PI * 2);
       ctx.fillStyle = c.color; ctx.fill();
     } else {
-      // Battery hexagon with glow
+      // Friendly air-defense equipment — rectangle affiliation frame
+      // (MIL-STD-2525 friendly), in the system's identifying colour.
+      const fr = 12;
       ctx.shadowColor = c.color; ctx.shadowBlur = depleted ? 0 : 8;
-      ctx.beginPath();
-      for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
-        const x = Math.cos(a) * 12, y = Math.sin(a) * 12;
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      }
-      ctx.closePath();
+      milFriendlyFrame(fr);
       // Gradient fill (lit from top)
-      const hxGrad = ctx.createLinearGradient(0, -12, 0, 12);
-      hxGrad.addColorStop(0, c.color + 'dd');
-      hxGrad.addColorStop(1, c.color + '88');
-      ctx.fillStyle = hxGrad; ctx.fill();
+      const rgGrad = ctx.createLinearGradient(0, -fr, 0, fr);
+      rgGrad.addColorStop(0, c.color + 'dd');
+      rgGrad.addColorStop(1, c.color + '88');
+      ctx.fillStyle = rgGrad; ctx.fill();
       ctx.shadowBlur = 0;
+      milFriendlyFrame(fr);
       ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 1.8; ctx.stroke();
-      // Inner outline
-      ctx.beginPath();
-      for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
-        const x = Math.cos(a) * 8.5, y = Math.sin(a) * 8.5;
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      }
-      ctx.closePath();
+      // Inner highlight outline
+      milFriendlyFrame(fr - 3);
       ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 0.8; ctx.stroke();
       // Abbreviation label
       ctx.fillStyle = 'rgba(255,255,255,0.92)';
@@ -2645,11 +2636,14 @@ function drawDefenses() {
     }
     ctx.restore();
 
-    // Short label below
-    ctx.fillStyle = depleted ? 'rgba(126,145,168,0.7)' : 'rgba(198,214,230,0.85)';
-    ctx.font = '9px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(c.short, d.x, d.y + 26);
+    // Identifier label below — radars only (batteries already show the
+    // abbreviation inside the frame, so a second copy would be redundant).
+    if (c.kind === 'radar') {
+      ctx.fillStyle = depleted ? 'rgba(126,145,168,0.7)' : 'rgba(198,214,230,0.85)';
+      ctx.font = '9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(c.short, d.x, d.y + 26);
+    }
 
     // Ammo counter pill (only for batteries)
     if (c.kind === 'battery') {
@@ -2739,25 +2733,44 @@ function drawThreats() {
     ctx.stroke();
     ctx.lineCap = 'butt';
 
-    // Outer glow halo
-    const haloR = t.key === 'fighter' ? 20 : 14;
-    const halo = ctx.createRadialGradient(t.x, t.y, 2, t.x, t.y, haloR);
-    halo.addColorStop(0, c.color + '40');
-    halo.addColorStop(1, c.color + '00');
-    ctx.beginPath(); ctx.arc(t.x, t.y, haloR, 0, Math.PI * 2);
-    ctx.fillStyle = halo; ctx.fill();
+    // ── Velocity leader: a line from the track in the heading direction,
+    // length scaled by speed. This is how real C2 displays convey course &
+    // relative velocity, so the symbol itself can stay screen-upright. ──
+    const leaderLen = 9 + c.speed * 0.5;
+    const lx = t.x + cdx * leaderLen, ly = t.y + cdy * leaderLen;
+    ctx.beginPath();
+    ctx.moveTo(t.x, t.y);
+    ctx.lineTo(lx, ly);
+    ctx.strokeStyle = c.color + 'cc';
+    ctx.lineWidth = 1.3;
+    ctx.stroke();
+    // Arrowhead at the leader tip
+    const ah = 3.4, aw = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(lx, ly);
+    ctx.lineTo(lx - cdx * ah - cdy * aw, ly - cdy * ah + cdx * aw);
+    ctx.lineTo(lx - cdx * ah + cdy * aw, ly - cdy * ah - cdx * aw);
+    ctx.closePath();
+    ctx.fillStyle = c.color + 'cc';
+    ctx.fill();
 
-    // Icon — scaled up 2.8×
+    // ── Hostile track symbol — red diamond affiliation frame (MIL-STD-2525).
+    // Upright, non-rotated; the leader line above carries the heading. ──
+    const fr = t.key === 'fighter' ? 7.5 : 6.5;
     ctx.save();
     ctx.translate(t.x, t.y);
-    ctx.rotate(ang);
-    ctx.scale(2.8, 2.8);
-    ctx.fillStyle = c.color;
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.75)';
-    ctx.lineWidth = 0.45;
-    if (t.key === 'fighter') drawFighter();
-    else if (t.key === 'helicopter') drawHelo();
-    else drawDrone();
+    // Outer affiliation glow + dark fill for contrast over coverage rings
+    ctx.shadowColor = c.color; ctx.shadowBlur = 9;
+    milHostileFrame(fr);
+    ctx.fillStyle = 'rgba(8, 12, 22, 0.82)';
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Frame stroke
+    milHostileFrame(fr);
+    ctx.strokeStyle = c.color; ctx.lineWidth = 1.7; ctx.stroke();
+    // Inner type glyph (symmetric, non-directional)
+    ctx.fillStyle = c.color; ctx.strokeStyle = c.color;
+    milThreatGlyph(t.key);
     ctx.restore();
 
     // Label with absolute altitude (changes over terrain)
@@ -2786,137 +2799,57 @@ function drawThreats() {
   }
 }
 
-function drawFighter() {
-  // Fast jet silhouette: pointed nose, swept-back delta wings, tail fin
-  const fillStyle = ctx.fillStyle;
+// ── MIL-STD-2525-inspired track symbology ───────────────────────────
+// Symbols are screen-upright (never rotated); heading is conveyed by the
+// velocity leader line, matching real command-and-control displays.
+// Each helper traces a path centred on the current origin — the caller
+// is responsible for fill/stroke and for having translated into place.
+
+function milHostileFrame(r) {
+  // Red diamond (rotated square): universal hostile affiliation marker.
   ctx.beginPath();
-  ctx.moveTo(7, 0);
-  ctx.lineTo(-2, -1.2);
-  ctx.lineTo(-3, -5);
-  ctx.lineTo(-5, -5);
-  ctx.lineTo(-4, -1);
-  ctx.lineTo(-6, 0);
-  ctx.lineTo(-4, 1);
-  ctx.lineTo(-5, 5);
-  ctx.lineTo(-3, 5);
-  ctx.lineTo(-2, 1.2);
+  ctx.moveTo(0, -r);
+  ctx.lineTo(r, 0);
+  ctx.lineTo(0, r);
+  ctx.lineTo(-r, 0);
   ctx.closePath();
-  ctx.fill(); ctx.stroke();
-  // Tail fin
-  ctx.beginPath();
-  ctx.moveTo(-5, 0); ctx.lineTo(-7, -2.5); ctx.lineTo(-4, -0.5);
-  ctx.closePath();
-  ctx.fillStyle = fillStyle; ctx.fill();
-}
-function drawHelo() {
-  const fillStyle = ctx.fillStyle;
-
-  // Tail boom — filled tapered wedge from body to tail
-  ctx.beginPath();
-  ctx.moveTo(-1.8, -0.7);
-  ctx.lineTo(-8.5, -0.55);
-  ctx.lineTo(-8.5, 0.15);
-  ctx.lineTo(-1.8, 0.7);
-  ctx.closePath();
-  ctx.fillStyle = fillStyle;
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
-  ctx.lineWidth = 0.4;
-  ctx.fill(); ctx.stroke();
-
-  // Vertical tail fin
-  ctx.beginPath();
-  ctx.moveTo(-7.6, -0.55);
-  ctx.lineTo(-8.7, -2.4);
-  ctx.lineTo(-6.6, -0.55);
-  ctx.closePath();
-  ctx.fill(); ctx.stroke();
-
-  // Tail rotor (small motion-blur line at very rear)
-  ctx.save();
-  ctx.globalAlpha = 0.7;
-  ctx.strokeStyle = fillStyle;
-  ctx.lineWidth = 0.8;
-  ctx.beginPath();
-  ctx.moveTo(-9.2, -1.5); ctx.lineTo(-7.9, -1.5);
-  ctx.stroke();
-  ctx.restore();
-
-  // Main body — curved teardrop cabin (covers body-to-boom joint)
-  ctx.beginPath();
-  ctx.moveTo(4.6, 0);
-  ctx.bezierCurveTo(4.6, -2.3, 0.5, -2.4, -2, -1.85);
-  ctx.lineTo(-2, 1.85);
-  ctx.bezierCurveTo(0.5, 2.4, 4.6, 2.3, 4.6, 0);
-  ctx.closePath();
-  ctx.fillStyle = fillStyle;
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
-  ctx.lineWidth = 0.5;
-  ctx.fill(); ctx.stroke();
-
-  // Curved cockpit windshield (translucent)
-  ctx.beginPath();
-  ctx.moveTo(4.4, -0.7);
-  ctx.bezierCurveTo(3.6, -1.85, 1.2, -1.9, 0.5, -1.4);
-  ctx.lineTo(0.5, -0.4);
-  ctx.bezierCurveTo(1.7, -0.9, 3.5, -0.95, 4.4, -0.7);
-  ctx.closePath();
-  ctx.fillStyle = 'rgba(155, 205, 235, 0.55)';
-  ctx.fill();
-
-  // Rotor mast
-  ctx.fillStyle = fillStyle;
-  ctx.fillRect(0.5, -2.55, 0.85, 0.7);
-
-  // Main rotor disc — long horizontal line + translucent blur fan
-  ctx.save();
-  ctx.globalAlpha = 0.7;
-  ctx.strokeStyle = fillStyle;
-  ctx.lineWidth = 1.3;
-  ctx.beginPath();
-  ctx.moveTo(-5.8, -2.9); ctx.lineTo(8, -2.9);
-  ctx.stroke();
-  ctx.globalAlpha = 0.2;
-  ctx.fillStyle = fillStyle;
-  ctx.beginPath();
-  ctx.ellipse(1, -2.9, 6.8, 0.5, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
 }
 
-function drawDrone() {
-  // Fixed-wing UAV (Predator-style): slim fuselage, swept wings, V-tail, sensor dome
-  const fillStyle = ctx.fillStyle;
-  // Wings — swept back from mid-fuselage
+function milFriendlyFrame(r) {
+  // Rounded rectangle: friendly affiliation marker.
+  const w = r * 1.18, h = r * 0.92;
   ctx.beginPath();
-  ctx.moveTo(0.5, -0.5);
-  ctx.lineTo(-2.5, -5.5);
-  ctx.lineTo(-1.0, -5.6);
-  ctx.lineTo(2.2, -0.4);
-  ctx.lineTo(-1.0, 5.6);
-  ctx.lineTo(-2.5, 5.5);
-  ctx.lineTo(0.5, 0.5);
-  ctx.closePath();
-  ctx.fillStyle = fillStyle; ctx.fill(); ctx.stroke();
-  // Fuselage — long thin tube with pointed nose
-  ctx.beginPath();
-  ctx.moveTo(7, 0);
-  ctx.lineTo(5.5, -0.9);
-  ctx.lineTo(-5, -1.1);
-  ctx.lineTo(-5.5, 0);
-  ctx.lineTo(-5, 1.1);
-  ctx.lineTo(5.5, 0.9);
-  ctx.closePath();
-  ctx.fill(); ctx.stroke();
-  // Sensor dome on top of fuselage (signature UAV feature)
-  ctx.beginPath();
-  ctx.arc(2.5, -1.4, 1.1, 0, Math.PI * 2);
-  ctx.fill(); ctx.stroke();
-  // V-tail (two angled fins at rear)
-  ctx.beginPath();
-  ctx.moveTo(-4.5, -0.8); ctx.lineTo(-6.5, -2.6);
-  ctx.moveTo(-4.5,  0.8); ctx.lineTo(-6.5,  2.6);
-  ctx.lineWidth = 0.9; ctx.stroke();
-  ctx.lineWidth = 0.45;
+  if (ctx.roundRect) ctx.roundRect(-w, -h, w * 2, h * 2, 2.5);
+  else ctx.rect(-w, -h, w * 2, h * 2);
+}
+
+function milThreatGlyph(key) {
+  // Minimal, symmetric type indicator drawn inside a hostile frame.
+  // Symmetric on purpose so it never competes with the leader for "heading".
+  ctx.lineWidth = 1;
+  if (key === 'fighter') {
+    // Fixed-wing: small upward delta wedge
+    ctx.beginPath();
+    ctx.moveTo(0, -3.4);
+    ctx.lineTo(2.6, 2.6);
+    ctx.lineTo(0, 1.3);
+    ctx.lineTo(-2.6, 2.6);
+    ctx.closePath();
+    ctx.fill();
+  } else if (key === 'helicopter') {
+    // Rotary-wing: rotor cross + hub
+    ctx.beginPath();
+    ctx.moveTo(-3.4, -2.4); ctx.lineTo(3.4, 2.4);
+    ctx.moveTo(-3.4, 2.4);  ctx.lineTo(3.4, -2.4);
+    ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 0, 1.4, 0, Math.PI * 2); ctx.fill();
+  } else {
+    // UAV: straight wing line + small body dot
+    ctx.beginPath();
+    ctx.moveTo(-3.6, 0); ctx.lineTo(3.6, 0);
+    ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 0, 1.2, 0, Math.PI * 2); ctx.fill();
+  }
 }
 
 function drawMissiles() {
