@@ -2818,7 +2818,7 @@ function drawThreats() {
     ctx.lineCap = 'butt';
 
     // Subtle affiliation glow so the track pops over coverage rings
-    const haloR = t.key === 'fighter' ? 17 : 12;
+    const haloR = t.key === 'fighter' ? 17 : t.key === 'uav' ? 8 : 12;
     const halo = ctx.createRadialGradient(t.x, t.y, 1, t.x, t.y, haloR);
     halo.addColorStop(0, c.color + '38');
     halo.addColorStop(1, c.color + '00');
@@ -2826,10 +2826,13 @@ function drawThreats() {
     ctx.fillStyle = halo; ctx.fill();
 
     // Aircraft silhouette — top-down, rotated to its heading.
+    // UAV is rendered 30% smaller than the manned platforms to reflect
+    // its true relative footprint.
+    const iconScale = t.key === 'uav' ? 1.96 : 2.8;
     ctx.save();
     ctx.translate(t.x, t.y);
     ctx.rotate(ang);
-    ctx.scale(2.8, 2.8);
+    ctx.scale(iconScale, iconScale);
     ctx.fillStyle = c.color;
     ctx.strokeStyle = 'rgba(0, 0, 0, 0.78)';
     ctx.lineWidth = 0.5;
