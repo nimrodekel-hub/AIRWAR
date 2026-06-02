@@ -532,7 +532,25 @@ window.addEventListener('DOMContentLoaded', () => {
   banner = document.getElementById('banner');
   zoomLevelEl = document.getElementById('zoom-level');
   resize();
-  window.addEventListener('resize', () => { resize(); placeScrubberForViewport(); });
+  // Orientation change on iOS often fires `resize` while the address bar
+  // is still mid-transition — we end up capturing stale dimensions and
+  // the canvas bitmap stretches incorrectly when the layout settles
+  // (the squished-map symptom). Re-measure on the next two frames to
+  // catch the final size, and listen to every viewport event mobile
+  // browsers expose.
+  const reflow = () => {
+    resize();
+    requestAnimationFrame(() => {
+      resize();
+      requestAnimationFrame(resize);
+    });
+    placeScrubberForViewport();
+  };
+  window.addEventListener('resize', reflow);
+  window.addEventListener('orientationchange', reflow);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', reflow);
+  }
   placeScrubberForViewport();
   regenerateLand();
   regenerateTargets();
@@ -547,8 +565,15 @@ window.addEventListener('DOMContentLoaded', () => {
 
 function resize() {
   const r = canvas.parentElement.getBoundingClientRect();
-  canvas.width = W = r.width;
-  canvas.height = H = r.height;
+  const newW = Math.round(r.width);
+  const newH = Math.round(r.height);
+  // Mid-transition viewports (especially during iOS orientation change)
+  // can report a 0-sized rect — ignore them so we don't blank the canvas.
+  if (newW === 0 || newH === 0) return;
+  // Skip the reallocation if nothing changed (assignment clears the canvas).
+  if (canvas.width  !== newW) canvas.width  = newW;
+  if (canvas.height !== newH) canvas.height = newH;
+  W = newW; H = newH;
 }
 
 // On mobile, the sidebar is hidden behind the hamburger — relocate the
