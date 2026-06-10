@@ -977,7 +977,7 @@ function renderLeaderboard() {
     : [];
 
   let rows = players.map((p, i) => `
-    <tr class="${p.name === profile.callsign ? 'lb-me' : ''}">
+    <tr class="lb-row ${p.name === profile.callsign ? 'lb-me' : ''}" data-callsign="${p.name}" title="התחל לשחק בשם ${p.name}">
       <td class="lb-pos">${i + 1}</td>
       <td class="lb-name">${p.name}</td>
       <td class="lb-rank">${p.rank || rankForXp(p.xp || 0).name}</td>
@@ -992,10 +992,21 @@ function renderLeaderboard() {
       <span class="lb-status ${statusCls}">${statusTxt}</span>
       ${token ? '' : '<button id="lb-set-token" class="lb-key-btn" title="הגדר מפתח GitHub לעדכון הטבלה">🔑</button>'}
     </div>
+    <div class="lb-hint">💡 לחץ על שורה כדי לשחק בשם המפקד הזה</div>
     <table class="lb-table">
       <thead><tr><th>#</th><th>שם קוד</th><th>דרגה</th><th>XP</th><th>נצ׳</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
+
+  // Click a row → switch to that commander (loads their stats from the
+  // remote table; useful for sharing one device between multiple players).
+  el.querySelectorAll('.lb-row').forEach(tr => {
+    tr.addEventListener('click', () => {
+      const name = tr.dataset.callsign;
+      if (!name || name === profile.callsign) return;
+      switchPlayerTo(name);
+    });
+  });
 
   const keyBtn = document.getElementById('lb-set-token');
   if (keyBtn) {
@@ -1418,11 +1429,16 @@ function renderProfileStrip() {
 // once more to be safe, then load the requested callsign: an existing
 // name pulls its stats from the table, a new name starts a fresh record.
 function switchPlayer() {
-  syncRemoteProfile();   // flush any unsynced progress for the current player
   const v = prompt('שם קוד של השחקן (שם קיים יטען את ההתקדמות שלו, שם חדש יתחיל מאפס):', '');
   if (!v || !v.trim()) return;
-  const name = v.trim().slice(0, 14);
-  if (name === profile.callsign) return;
+  switchPlayerTo(v.trim().slice(0, 14));
+}
+
+// Programmatic variant — used by the leaderboard rows. Same flow, just
+// without the prompt() so the name comes from the click instead.
+function switchPlayerTo(name) {
+  if (!name || name === profile.callsign) return;
+  syncRemoteProfile();   // flush any unsynced progress for the current player
   profile = { xp: 0, games: 0, wins: 0, bests: {}, callsign: name };
   saveProfile();
   mergeRemoteIntoLocal();   // adopt this callsign's existing stats, if any
