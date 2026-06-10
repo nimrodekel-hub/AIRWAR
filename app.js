@@ -615,11 +615,16 @@ function isInsideRedZone(x, y) {
 }
 
 // ---- Miss reason labels (Hebrew UI) ----
+// "out-of-envelope" used to be a single bucket; it's now split into the
+// three distinct physical causes the player can actually act on.
 const REASON_LABEL = {
-  'statistical': 'החטאה סטטיסטית',
-  'tangent':     'חציה משיקית (ניצב לסוללה)',
-  'flight-time': 'זמן מעוף לא מספיק',
-  'out-of-range':'יציאה מטווח היירוט'
+  'statistical':  'החטאה סטטיסטית',
+  'tangent':      'חציה משיקית (ניצב לסוללה)',
+  'flight-time':  'זמן מעוף לא מספיק',
+  'out-of-range': 'מחוץ לטווח היירוט הנומינלי',
+  'rcs-shrunk':   'מעטפת מצומצמת בשל RCS נמוך',
+  'altitude':     'מחוץ למעטפת הגובה של הסוללה',
+  'los-blocked':  'קו ראיה חסום ע"י טופוגרפיה'
 };
 
 // ---- מצב כללי ----
@@ -725,10 +730,10 @@ function nextRankFor(xp) {
 }
 
 // Mission score 0-100, intentionally harsh:
-//   • Each performance ratio is raised to ^1.5, so 50 % execution scores
-//     ~35, not 50. Mediocre runs no longer "feel" like 70/100.
-//   • Failing the mission objective applies a hard 0.65 × penalty to the
-//     whole score — a partial victory is worth a lot less than a clean win.
+//   • Protected-value is the dominant component (70 pts, ^1.8 curve), so
+//     any meaningful damage drops the score steeply.
+//   • Failing the mission objective applies a hard 0.4 × penalty — losing
+//     a key target should not leave the player above 50.
 // Defense rewards protecting value, interception rate and ammo discipline;
 // attack rewards damage dealt and breach rate.
 function computeMissionScore(r) {
@@ -736,7 +741,7 @@ function computeMissionScore(r) {
   if (state.challengeMode === 'attack-challenge') {
     const damageRatio = 1 - r.protectedValue / r.totalValue;
     const breachRatio = r.total ? r.survived / r.total : 0;
-    score = 65 * Math.pow(damageRatio, 1.5) + 35 * Math.pow(breachRatio, 1.5);
+    score = 70 * Math.pow(damageRatio, 1.8) + 30 * Math.pow(breachRatio, 1.5);
   } else {
     const protectedRatio = r.protectedValue / r.totalValue;
     const killRatio = r.total ? r.killed / r.total : 0;
@@ -746,14 +751,14 @@ function computeMissionScore(r) {
       if (c.kind === 'battery') spent += (d.initialAmmo !== undefined ? d.initialAmmo : c.ammo) - d.ammo;
     }
     const efficiency = spent > 0 ? Math.min(1, r.killed / spent) : 0;
-    score = 60 * Math.pow(protectedRatio, 1.5)
-          + 25 * Math.pow(killRatio, 1.5)
-          + 15 * efficiency;
+    score = 70 * Math.pow(protectedRatio, 1.8)
+          + 20 * Math.pow(killRatio, 1.5)
+          + 10 * efficiency;
   }
   // Objective gate: meeting it inflates the score a touch (a perfect
   // execution can hit 100); missing it deflates it sharply.
   if (r.objectiveMet) score *= 1.05;
-  else score *= 0.65;
+  else score *= 0.4;
   return Math.max(0, Math.min(100, Math.round(score)));
 }
 
@@ -4914,14 +4919,18 @@ function generateDefenseRecommendations(r) {
     return recs;
   }
 
-  // Count threats per the 4 user-defined reason categories - by scanning b.reason text
-  const counts = { statistical: 0, tangent: 0, 'flight-time': 0, 'out-of-range': 0 };
-  const targetsPerReason = { statistical: [], tangent: [], 'flight-time': [], 'out-of-range': [] };
-  const typesPerReason = { statistical: [], tangent: [], 'flight-time': [], 'out-of-range': [] };
+  // Count threats per miss-reason — by scanning b.reason text for each label
+  const reasonKeys = Object.keys(REASON_LABEL);
+  const counts = {}, targetsPerReason = {}, typesPerReason = {};
+  for (const k of reasonKeys) {
+    counts[k] = 0;
+    targetsPerReason[k] = [];
+    typesPerReason[k] = [];
+  }
 
   for (const b of survived) {
     if (!b.reason) continue;
-    for (const key of Object.keys(REASON_LABEL)) {
+    for (const key of reasonKeys) {
       if (b.reason.includes(REASON_LABEL[key])) {
         counts[key]++;
         targetsPerReason[key].push(b.target);
@@ -4932,7 +4941,22 @@ function generateDefenseRecommendations(r) {
 
   if (counts['out-of-range'] > 0) {
     const tgts = [...new Set(targetsPerReason['out-of-range'])].join(', ');
-    recs.push(`📍 <b>${counts['out-of-range']} איומים סווגו "יציאה מטווח"</b> (יעדים: ${tgts}). הסיבה: לא היה כיסוי גאומטרי, גובה הטיסה מחוץ לתקרת הסוללה, או שהאיום עזב את הטווח לפני שהמיירט הגיע. <b>פתרון:</b> פרוס סוללה ארוכת טווח (Patriot 160km / David's Sling 200km / Barak 100km) קרוב יותר לציר התקיפה.`);
+    recs.push(`📍 <b>${counts['out-of-range']} איומים מחוץ לטווח הנומינלי</b> (יעדים: ${tgts}). אף סוללה בפריסה הנוכחית אינה מספיק קרובה לציר התקיפה גם בהנחת RCS מלא. <b>פתרון:</b> פרוס סוללה ארוכת-טווח (Patriot 160km / David's Sling 200km / Barak 100km) קרוב יותר לאזור החדירה.`);
+  }
+
+  if (counts['rcs-shrunk'] > 0) {
+    const types = [...new Set(typesPerReason['rcs-shrunk'])].join(', ');
+    recs.push(`📡 <b>${counts['rcs-shrunk']} פספוסים — מעטפת מצומצמת בשל RCS נמוך</b> (${types}). הסוללה היתה בטווח נומינלי, אבל ה-RCS הקטן של האיום הקטין את טווח היירוט האפקטיבי שלה אל מתחת למרחק האיום. <b>פתרון:</b> הוסף Short-Range Radar שמשפר זיהוי מטרות RCS נמוכות (טווח אפקטיבי גדל ב-~25% מול UAV), או קרב סוללת point-defense (Iron shield/SA-8) שמתמודדת טוב יותר עם איומים קטנים.`);
+  }
+
+  if (counts['altitude'] > 0) {
+    const types = [...new Set(typesPerReason['altitude'])].join(', ');
+    recs.push(`📏 <b>${counts['altitude']} פספוסים — מחוץ למעטפת הגובה</b> (${types}). הסוללה לא יכולה לפגוע באיום בגובה הזה (טס נמוך מדי או גבוה מדי). <b>פתרון:</b> השלם הגנה רב-שכבתית — Iron shield/SA-8 לגובה נמוך, Barak/Patriot/David's Sling לגובה גבוה.`);
+  }
+
+  if (counts['los-blocked'] > 0) {
+    const tgts = [...new Set(targetsPerReason['los-blocked'])].join(', ');
+    recs.push(`⛰ <b>${counts['los-blocked']} איומים נסתרו מאחורי טופוגרפיה</b> (יעדים: ${tgts}). הסוללה היתה בטווח אך הר/רכס חסם קו ראיה לכל אורך המעבר של האיום במעטפת. <b>פתרון:</b> פזר את הסוללות בזוויות שונות סביב היעד כך ש<u>לפחות אחת</u> רואה את האיום מכיוון אחר, או הצב סוללה על שטח גבוה שמתעלה מעל הרכס החוסם.`);
   }
 
   if (counts['flight-time'] > 0) {
@@ -5111,20 +5135,8 @@ function computeResults() {
 }
 
 // Returns true if the threat's straight-line path comes within the battery's effective engagement range.
-function threatPathEntersEnvelope(t, d, c, tc) {
-  const altMSL = getThreatAltMSL(t);
-  if (altMSL < c.minAlt || altMSL > c.maxAlt) return false;
-  const effMax = effectiveEngagementRange(c, tc);
-  const dx = t.tx - t.sx, dy = t.ty - t.sy;
-  const len = Math.hypot(dx, dy) || 1;
-  const ux = dx / len, uy = dy / len;
-  const proj = (d.x - t.sx) * ux + (d.y - t.sy) * uy;
-  const cpx = t.sx + proj * ux, cpy = t.sy + proj * uy;
-  return Math.hypot(cpx - d.x, cpy - d.y) <= effMax;
-}
-
-// Classify EVERY surviving threat into exactly one of the 4 user-defined miss categories:
-//   statistical | flight-time | out-of-range | tangent
+// Classify every surviving threat into the most informative miss category
+// for the player. See REASON_LABEL for the full list of categories.
 function diagnoseFailure(t) {
   // Case A: threat WAS engaged - report grouped miss reasons by battery
   if (t.firedAt > 0) {
@@ -5151,26 +5163,26 @@ function diagnoseFailure(t) {
     return `<b>בתוך מעטפת סוללה, גמר מיירטים</b> [${batts}]`;
   }
 
-  // B2: threat path never entered any battery's engagement envelope
+  // B2: threat was never engaged. Diagnose per battery to find the FIRST
+  // blocker, then summarise across batteries by best-case outcome (the
+  // priority order goes from "would have hit" → "no shot possible").
   const batteries = state.defenses.filter(d => CATALOG[d.key].kind === 'battery');
-  if (batteries.length > 0) {
-    const anyInRange = batteries.some(d => threatPathEntersEnvelope(t, d, CATALOG[d.key], tc));
-    if (!anyInRange) {
-      return `<b>מטרה מחוץ למעטפות היירוט של הסוללות</b>`;
-    }
+  if (!batteries.length) {
+    return `<b>אין סוללות הגנה במפה</b>`;
   }
-
-  // B3: path entered an envelope but engagement physics prevented a shot
   const candidates = [];
   for (const d of batteries) {
     const c = CATALOG[d.key];
     candidates.push({ battery: c.short, reason: simulateEngagementOutcome(t, d, c, tc) });
   }
-
-  if (!candidates.length) {
-    return `<b>${REASON_LABEL['out-of-range']}</b> - אין סוללה כלשהי במפה`;
-  }
-  const priority = ['statistical', 'tangent', 'flight-time', 'out-of-range'];
+  // From "closest to a viable engagement" to "physically impossible".
+  // Statistical = the battery would have engaged and just missed by chance,
+  // los-blocked / rcs-shrunk / altitude = structural reasons the player
+  // could plan around.
+  const priority = [
+    'statistical', 'tangent', 'flight-time',
+    'los-blocked', 'rcs-shrunk', 'altitude', 'out-of-range'
+  ];
   for (const p of priority) {
     const list = candidates.filter(x => x.reason === p);
     if (list.length) {
@@ -5190,38 +5202,54 @@ function closestApproachOnPath(t, d) {
   return { x: t.sx + k * dx, y: t.sy + k * dy };
 }
 
-// Walk the engagement physics for a virtual fire.  Returns a 4-reason classification.
+// Walk the engagement physics for a virtual fire. Returns one of:
+//   altitude | out-of-range | rcs-shrunk | los-blocked |
+//   flight-time | tangent | statistical
+// Diagnoses in priority order, so we report the FIRST physical blocker
+// the threat encountered — that's the cause the player can act on.
 function simulateEngagementOutcome(t, d, c, tc) {
-  // 1. Altitude envelope (MSL: AGL altitude + terrain elevation under threat)
+  // 1. Altitude envelope — outside means the missile literally can't reach
+  // that altitude. (MSL = threat AGL + terrain elevation under the threat.)
   const altMSL = getThreatAltMSL(t);
-  if (altMSL < c.minAlt || altMSL > c.maxAlt) return 'out-of-range';
+  if (altMSL < c.minAlt || altMSL > c.maxAlt) return 'altitude';
 
-  // RCS-adjusted effective engagement range
-  const effMax = effectiveEngagementRange(c, tc);
-
-  // 2. Path geometry vs effective range circle
+  // 2. Nominal vs RCS-adjusted range — distinguish "physically out of
+  // range" from "would be in range but RCS shrunk the envelope".
+  const effMax = effectiveEngagementRange(c, tc);   // RCS-adjusted
   const dx = t.tx - t.sx, dy = t.ty - t.sy;
   const len = Math.hypot(dx, dy) || 1;
   const ux = dx / len, uy = dy / len;
   const proj = (d.x - t.sx) * ux + (d.y - t.sy) * uy;
-  const cdx = (t.sx + proj * ux) - d.x;
-  const cdy = (t.sy + proj * uy) - d.y;
-  const closestDist = Math.hypot(cdx, cdy);
-  if (closestDist > effMax) return 'out-of-range';
+  const closestDist = Math.hypot((t.sx + proj * ux) - d.x,
+                                 (t.sy + proj * uy) - d.y);
+  if (closestDist > c.maxRange) return 'out-of-range';   // beyond nominal too
+  if (closestDist > effMax)    return 'rcs-shrunk';      // nominal yes, RCS no
 
-  // 3. In-range chord and entry/exit times along the path
+  // 3. LOS — terrain may hide the threat from the battery during the entire
+  // in-envelope chord. Sample three points along the engagement window; if
+  // ALL three are blocked, the battery never has a clear shot.
   const halfChord = Math.sqrt(effMax*effMax - closestDist*closestDist);
   const entryDist = Math.max(0, proj - halfChord);
   const exitDist  = Math.min(len, proj + halfChord);
+  const losClear = [0, 0.5, 1].some(f => {
+    const sx = t.sx + ux * (entryDist + (exitDist - entryDist) * f);
+    const sy = t.sy + uy * (entryDist + (exitDist - entryDist) * f);
+    // Use the actual threat AGL altitude at the sampled point (terrain follows)
+    const sAlt = tc.altitude + getTerrainAlt(sx, sy);
+    return hasLOS(d.x, d.y, sx, sy, sAlt);
+  });
+  if (!losClear) return 'los-blocked';
+
+  // 4. In-range chord too short for the reaction time
   const inRangeTime = (exitDist - entryDist) / tc.speed;
   if (c.reactionTime > inRangeTime) return 'flight-time';
 
-  // 4. Battery commits at entry, missile launches after reactionTime
+  // 5. Battery commits at entry, missile launches after reactionTime
   const launchTimeFromEntry = c.reactionTime;
   const launchX = t.sx + ux * (entryDist + tc.speed * launchTimeFromEntry);
   const launchY = t.sy + uy * (entryDist + tc.speed * launchTimeFromEntry);
 
-  // 5. Iterative lead-pursuit intercept
+  // 6. Iterative lead-pursuit intercept
   let T = Math.hypot(launchX - d.x, launchY - d.y) / c.missileSpeed;
   let ipx = launchX, ipy = launchY;
   for (let i = 0; i < 6; i++) {
@@ -5230,20 +5258,20 @@ function simulateEngagementOutcome(t, d, c, tc) {
     T = Math.hypot(ipx - d.x, ipy - d.y) / c.missileSpeed;
   }
 
-  // 6. Threat may reach its target before missile arrives
+  // 7. Threat may reach its target before the missile arrives
   const remaining = Math.hypot(t.tx - launchX, t.ty - launchY) / tc.speed;
   if (T > remaining) return 'flight-time';
 
-  // 7. Intercept point may be outside effective range
-  if (Math.hypot(ipx - d.x, ipy - d.y) > effMax) return 'out-of-range';
+  // 8. Intercept point may be outside the (RCS-adjusted) envelope
+  if (Math.hypot(ipx - d.x, ipy - d.y) > effMax) return 'rcs-shrunk';
 
-  // 8. Tangent crossing at intercept (within 15% of perpendicular)
+  // 9. Tangent crossing at intercept (within 15% of perpendicular)
   const btx = ipx - d.x, bty = ipy - d.y;
   const blen = Math.hypot(btx, bty) || 1;
   const cosAng = (btx / blen) * ux + (bty / blen) * uy;
   if (Math.abs(cosAng) < 0.15) return 'tangent';
 
-  // 9. Engagement was viable - this is a statistical miss
+  // 10. Engagement was viable — this is a statistical miss
   return 'statistical';
 }
 
