@@ -779,7 +779,7 @@ function awardMission(score) {
 const REMOTE_DB = {
   owner: 'nimrodekel-hub',
   repo: 'AIRWAR',
-  branch: 'main',
+  branch: 'gh-pages',   // GitHub Pages serves the live site from this branch
   path: 'playerdb.json',
   // Embedded token, split across parts (and through the prefix) so GitHub's
   // secret scanner won't match a contiguous pattern and auto-revoke it.
