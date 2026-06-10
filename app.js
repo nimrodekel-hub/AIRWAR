@@ -668,25 +668,30 @@ let nextId = 1;
 // המבנה מוכן להזרקה עתידית של backend (טבלת שחקנים גלובלית):
 // כל הקריאות עוברות דרך loadProfile/saveProfile בלבד.
 // =============================================================
+// Rank progression — long ladder so that promotion feels earned and a
+// player can't shortcut to high ranks by spamming easy missions.
 const RANKS = [
   { name: 'טוראי',  minXp: 0 },
-  { name: 'רב"ט',   minXp: 150 },
-  { name: 'סמל',    minXp: 350 },
+  { name: 'רב"ט',   minXp: 80 },
+  { name: 'סמל',    minXp: 250 },
   { name: 'סמ"ר',   minXp: 600 },
-  { name: 'רס"ל',   minXp: 950 },
-  { name: 'רס"ר',   minXp: 1400 },
-  { name: 'סג"מ',   minXp: 2000 },
-  { name: 'סגן',    minXp: 2700 },
-  { name: 'סרן',    minXp: 3500 },
-  { name: 'רס"ן',   minXp: 4500 },
-  { name: 'סא"ל',   minXp: 5700 },
-  { name: 'אל"מ',   minXp: 7100 },
-  { name: 'תא"ל',   minXp: 8700 },
-  { name: 'אלוף',   minXp: 10500 },
-  { name: 'רמטכ"ל', minXp: 13000 }
+  { name: 'רס"ל',   minXp: 1200 },
+  { name: 'רס"ר',   minXp: 2200 },
+  { name: 'סג"מ',   minXp: 4000 },
+  { name: 'סגן',    minXp: 6800 },
+  { name: 'סרן',    minXp: 11000 },
+  { name: 'רס"ן',   minXp: 17000 },
+  { name: 'סא"ל',   minXp: 25000 },
+  { name: 'אל"מ',   minXp: 36000 },
+  { name: 'תא"ל',   minXp: 50000 },
+  { name: 'אלוף',   minXp: 70000 },
+  { name: 'רמטכ"ל', minXp: 100000 }
 ];
 
-const XP_MULTIPLIER = { easy: 1, medium: 1.5, hard: 2, extreme: 3 };
+// Maximum XP a perfectly-played mission can yield, per difficulty.
+// The spread is intentionally wide so a perfect extreme run is worth
+// dozens of perfect easy runs.
+const XP_MAX_BY_DIFF = { easy: 25, medium: 100, hard: 320, extreme: 900 };
 const PROFILE_KEY = 'airwar-profile-v1';
 
 let profile = loadProfile();
@@ -717,14 +722,19 @@ function nextRankFor(xp) {
   return null; // top rank reached
 }
 
-// Mission score 0-100. Defense rewards protecting value, interception
-// rate and ammo discipline; attack rewards damage dealt and breach rate.
+// Mission score 0-100, intentionally harsh:
+//   • Each performance ratio is raised to ^1.5, so 50 % execution scores
+//     ~35, not 50. Mediocre runs no longer "feel" like 70/100.
+//   • Failing the mission objective applies a hard 0.65 × penalty to the
+//     whole score — a partial victory is worth a lot less than a clean win.
+// Defense rewards protecting value, interception rate and ammo discipline;
+// attack rewards damage dealt and breach rate.
 function computeMissionScore(r) {
   let score;
   if (state.challengeMode === 'attack-challenge') {
     const damageRatio = 1 - r.protectedValue / r.totalValue;
     const breachRatio = r.total ? r.survived / r.total : 0;
-    score = 65 * damageRatio + 35 * breachRatio;
+    score = 65 * Math.pow(damageRatio, 1.5) + 35 * Math.pow(breachRatio, 1.5);
   } else {
     const protectedRatio = r.protectedValue / r.totalValue;
     const killRatio = r.total ? r.killed / r.total : 0;
@@ -734,18 +744,29 @@ function computeMissionScore(r) {
       if (c.kind === 'battery') spent += (d.initialAmmo !== undefined ? d.initialAmmo : c.ammo) - d.ammo;
     }
     const efficiency = spent > 0 ? Math.min(1, r.killed / spent) : 0;
-    score = 60 * protectedRatio + 25 * killRatio + 15 * efficiency;
+    score = 60 * Math.pow(protectedRatio, 1.5)
+          + 25 * Math.pow(killRatio, 1.5)
+          + 15 * efficiency;
   }
-  if (r.objectiveMet) score += 5;
+  // Objective gate: meeting it inflates the score a touch (a perfect
+  // execution can hit 100); missing it deflates it sharply.
+  if (r.objectiveMet) score *= 1.05;
+  else score *= 0.65;
   return Math.max(0, Math.min(100, Math.round(score)));
 }
 
 // Award XP for a completed challenge run and persist bests/rank.
+// XP = (score/100)^1.4 × XP_MAX[difficulty] × objective-penalty.
+// The ^1.4 curve plus the wide per-difficulty cap means a perfect
+// 'easy' run earns ≈ 25 XP, a perfect 'extreme' run ≈ 900 XP, and
+// a partial easy ≈ 4-8 XP — exactly the spread the user asked for.
 function awardMission(score) {
   const diff = state.challengeDifficulty || 'medium';
-  const mult = XP_MULTIPLIER[diff] || 1;
+  const xpMax = XP_MAX_BY_DIFF[diff] || 100;
   const won = !!(state.results && state.results.objectiveMet);
-  const xpGain = Math.round(score * mult * (won ? 1 : 0.5));
+  const qualityFactor = Math.pow(score / 100, 1.4);
+  const objectiveFactor = won ? 1 : 0.25;
+  const xpGain = Math.round(xpMax * qualityFactor * objectiveFactor);
 
   const oldRank = rankForXp(profile.xp);
   profile.xp += xpGain;
@@ -1485,10 +1506,27 @@ const TUTORIAL_STEPS = [
         <li>🏛 <b>Plaion</b> - עיר (ערך 2)</li>
       </ul>
       <p>היעדים מסומנים עם <b>הילה צהובה בולטת</b> כדי שיהיה קל לראות אותם גם מתחת לסוללות.</p>
-      <h4>⛰ טופוגרפיה - רכסי הרים</h4>
-      <p>בכל משחק חדש המערכת מייצרת <b>2 רכסי הרים</b> אקראיים בתוך המדינה, בגבהים של <b>2,000-4,000 מטר</b>. הרכסים מסומנים בקו רכס לבן וצל חום, ומוצגים גם בתיוג הגובה שלהם.</p>
-      <p>ההרים <b style="color:#fbbf24">חוסמים קו ראיה (LOS - Line Of Sight)</b> - מכ"ם או סוללה שמסתתר מאחורי רכס לא יכולים לזהות או ליירט איום מהצד השני, כל עוד האיום נמוך מצמרת הרכס.</p>
-      <div class="tip">🎲 בכל פעם שתאפס את המפה - גבולות המדינה, מיקומי היעדים <u>וגם רכסי ההרים</u> יוגרלו מחדש כדי לוודא שכל משחק שונה ומאתגר.</div>
+      <h4>⛰ טופוגרפיה אמיתית — שדה גבהים מצויר ומחושב</h4>
+      <p>המפה מציגה <b>טופוגרפיה אמיתית</b>: רשת גבהים נאפית בכל יצירת מפה, ושני דברים נגזרים ממנה <u>מאותו מקור</u> — הוויזואל וההיגיון של המשחק. מה שאתה רואה הוא בדיוק מה שהמשחק מחשב.</p>
+      <ul>
+        <li><b>🎨 צביעה היפסומטרית</b> כמו במפה טופוגרפית אמיתית: ירוק עמוק בשפלה → ירוק בהיר → צהוב-חום בגבעות (~1.4 ק"מ) → כתום (~2.1 ק"מ) → אדום-חום בהרים (~2.9 ק"מ) → סלע בהיר בפסגות (4+ ק"מ).</li>
+        <li><b>🌑 הצללה כיוונית</b>: האור מצפון-מערב, מדרונות פונים אליו בהירים יותר, צללים בצד שמנגד. ככה רואים את הצורה התלת-ממדית של הרכסים.</li>
+        <li><b>📏 קווי גובה</b> כל 0.5 ק"מ — חצי-קילומטר בין קו לקו.</li>
+        <li><b>▲ פסגות מסומנות</b>: ליד כל פסגה אמיתית מופיע משולש קטן + מספר הגובה במטרים (למשל "▲ 3150m").</li>
+      </ul>
+      <h4>🎯 השפעת הטופוגרפיה על המשחק (LOS — Line Of Sight)</h4>
+      <p>גובה הקרקע <b style="color:#fbbf24">חוסם קו ראייה</b>: מכ"ם או סוללה שמאחורי רכס לא יכולים לזהות או ליירט איום נמוך מהצד השני של הרכס, עד שהאיום עולה מעל גובה הרכס.</p>
+      <p>זה משנה כל החלטה אסטרטגית: <b>פסגה גבוהה</b> = "עיניים" טובות יותר לסוללות שמוצבות עליה; <b>עמק</b> = מסתור טבעי. איומים שטסים נמוך (מסוקים, כטב"מים) יכולים לנצל עמקים כדי להתחבא; מטוסי קרב שטסים גבוה — פחות.</p>
+      <h4>🎲 טופוגרפיה לפי רמת קושי</h4>
+      <p>ככל שרמת הקושי עולה, השטח מורכב יותר — יותר רכסים, פסגות גבוהות יותר, יותר גבעות. בכל משחק התבליט נוצר אקראית, כך שכל מפה היא חידה חדשה.</p>
+      <table>
+        <tr><th>רמה</th><th>רכסים</th><th>פסגות</th><th>גבעות</th></tr>
+        <tr><td><b>קל</b></td><td>1</td><td>1.8-2.8 ק"מ</td><td>4</td></tr>
+        <tr><td><b>בינוני</b></td><td>3</td><td>2.0-3.2 ק"מ</td><td>6</td></tr>
+        <tr><td><b>קשה</b></td><td>4</td><td>2.4-3.8 ק"מ</td><td>8</td></tr>
+        <tr><td><b>🕶 קשה במיוחד</b></td><td>5</td><td>2.8-4.5 ק"מ</td><td>10</td></tr>
+      </table>
+      <div class="tip">🎲 בכל פעם שתאתחל משחק - גבולות המדינה, מיקומי היעדים <u>והטופוגרפיה כולה</u> מוגרלים מחדש.</div>
     `
   },
   {
@@ -1859,6 +1897,78 @@ const TUTORIAL_STEPS = [
         <li>ⓘ <b>כפתורי מידע</b> - ליד כל סוללה/מכ"ם/איום בתפריט, לקבלת פרטים מלאים.</li>
       </ul>
       <div class="tip">💡 <b>בהצלחה!</b> אפשר לפתוח את המדריך הזה שוב בכל זמן ע"י לחיצה על הכפתור <span class="key">📘 הוראות המשחק</span> מתחת לכותרת. אפשר גם להתחיל משחק חדש דרך הכפתור <span class="key">🆕 משחק חדש</span>.</div>
+    `
+  },
+  {
+    title: '🎖 ציון, XP ודרגות',
+    html: () => `
+      <p>בסיום כל משימה אתה מקבל <b>ציון 0-100</b> שמשקף את איכות הביצוע, ו-<b>XP</b> שמצטבר לפרופיל וקובע את <b>הדרגה הצבאית</b> שלך. הניקוד נשמר בגיטהאב ומופיע בטבלת המפקדים הגלובלית.</p>
+
+      <h4>📊 איך מחושב הציון (0-100)</h4>
+      <p>הציון לא לינארי במכוון — ביצוע בינוני <u>לא</u> נותן 70/100, נותן בערך 35. כל יחס ביצועים מועלה בחזקת 1.5 (מענישה מצוינות חלקית).</p>
+      <p><b>אתגר הגנה</b> נמדד לפי:</p>
+      <ul>
+        <li>🛡 <b>60 נק'</b> — אחוז הערך האסטרטגי שהוגן (היעדים השלמים × ערכם)</li>
+        <li>🎯 <b>25 נק'</b> — אחוז יירוטים מסך האיומים</li>
+        <li>📦 <b>15 נק'</b> — יעילות תחמושת (יירוטים מוצלחים ÷ טילים ששוגרו)</li>
+      </ul>
+      <p><b>אתגר התקפה</b> נמדד לפי:</p>
+      <ul>
+        <li>💥 <b>65 נק'</b> — אחוז הנזק שגרמת לערך האסטרטגי</li>
+        <li>🚀 <b>35 נק'</b> — אחוז האיומים שפרצו את ההגנה</li>
+      </ul>
+      <h4>🎯 שער המשימה (Objective Gate)</h4>
+      <p>אם <b>עמדת בתנאי הניצחון</b> שהוגדר במשימה — הציון מוכפל ב-<b>1.05</b> (ביצוע מושלם יכול להגיע ל-100).<br>
+      אם <b>לא עמדת</b> — הציון מוכפל ב-<b>0.65</b>. כישלון לעמוד ביעד פוגע משמעותית בציון, גם אם הביצוע הטכני היה לא רע.</p>
+
+      <h4>⭐ XP לפי רמת קושי</h4>
+      <p>ה-XP שתקבל תלוי גם בציון וגם בקושי המשימה. <b>פער המשמעות בין הקשיים גדול במכוון</b> — משחקים קלים נותנים מעט מאוד, קשים-במיוחד נותנים המון:</p>
+      <table>
+        <tr><th>רמה</th><th>XP מקסימלי (ציון 100 + עמידה ביעד)</th></tr>
+        <tr><td><b>קל</b></td><td>25 XP</td></tr>
+        <tr><td><b>בינוני</b></td><td>100 XP</td></tr>
+        <tr><td><b>קשה</b></td><td>320 XP</td></tr>
+        <tr><td><b>🕶 קשה במיוחד</b></td><td>900 XP</td></tr>
+      </table>
+      <p>הנוסחה: <code style="background:#0f1420;padding:2px 5px;border-radius:3px;color:#5fa86b">XP = XP_מקסימלי × (ציון÷100)^1.4 × (יעד הושג ? 1 : 0.25)</code></p>
+      <p>שתי הענישות (חזקת 1.4 על הציון, וכפול 0.25 על אי-עמידה ביעד) משלבות כך ש<b>הצלחה חלקית במשימה קלה מזכה ב-3-8 XP בלבד</b>, בעוד שהצלחה מושלמת בקשה במיוחד שווה כמו 36 משימות קלות מושלמות.</p>
+
+      <h4>🎖 דרגות צבאיות (15 שלבים)</h4>
+      <p>ה-XP המצטבר קובע את הדרגה. הסולם ארוך במכוון — דרגת רמטכ"ל דורשת ~110 משימות מושלמות בקשה במיוחד.</p>
+      <table>
+        <tr><th>דרגה</th><th>XP נדרש</th></tr>
+        <tr><td>טוראי</td><td>0</td></tr>
+        <tr><td>רב"ט</td><td>80</td></tr>
+        <tr><td>סמל</td><td>250</td></tr>
+        <tr><td>סמ"ר</td><td>600</td></tr>
+        <tr><td>רס"ל</td><td>1,200</td></tr>
+        <tr><td>רס"ר</td><td>2,200</td></tr>
+        <tr><td>סג"מ</td><td>4,000</td></tr>
+        <tr><td>סגן</td><td>6,800</td></tr>
+        <tr><td>סרן</td><td>11,000</td></tr>
+        <tr><td>רס"ן</td><td>17,000</td></tr>
+        <tr><td>סא"ל</td><td>25,000</td></tr>
+        <tr><td>אל"מ</td><td>36,000</td></tr>
+        <tr><td>תא"ל</td><td>50,000</td></tr>
+        <tr><td>אלוף</td><td>70,000</td></tr>
+        <tr><td>רמטכ"ל</td><td>100,000</td></tr>
+      </table>
+
+      <h4>🏆 טבלת מפקדים</h4>
+      <p>הציון ושיא אישי לכל שילוב של מצב משחק × רמת קושי נשמרים אוטומטית בגיטהאב אחרי כל משימה. במסך הפתיחה מופיעה טבלת המפקדים הגלובלית — 10 השחקנים עם ה-XP הגבוה ביותר.</p>
+      <ul>
+        <li>🪪 <b>שם קוד</b> — מזהה אותך בטבלה. שינוי השם (✎) שומר על הניקוד.</li>
+        <li>🔄 <b>החלף שחקן</b> — להתחיל עם משתמש אחר; שם קיים יטען את ההתקדמות שלו, שם חדש יתחיל מאפס.</li>
+      </ul>
+
+      <h4>⚡ פידבק רגעי בסימולציה</h4>
+      <ul>
+        <li>✓ <b>SPLASH ירוק</b> — מופיע מעל כל יירוט מוצלח, עם שם הסוללה.</li>
+        <li>✗ <b>MISS אדום</b> — מופיע על כל פספוס, עם שם הסוללה שירתה.</li>
+        <li>🔢 <b>מונה חי</b> במרכז העליון — "INTERCEPTED 12/18" בהגנה, "BREACHED 5/20" בהתקפה.</li>
+        <li>⚠ <b>LEAKER</b> — הבזק אדום בקצוות המסך + התראה בכל חדירה ליעד.</li>
+      </ul>
+      <div class="tip">💡 <b>מטרת מערכת הניקוד</b>: לתת לך סיבה לחזור ולשפר. אם עברת משימה ב-50, נסה שוב לעלות ל-70. אם הגעת ל-90 — נסה את הקושי הבא. הספרים הקטנים על כפתורי הקושי במסך הפתיחה מציגים את השיא האישי שלך.</div>
     `
   }
 ];
@@ -2659,25 +2769,29 @@ function draw() {
   drawSimOverlay();
 }
 
-// Floating ✓ SPLASH confirmations — world space, rise & fade
+// Floating intercept confirmations — green ✓ SPLASH for hits, red ✗ MISS
+// for misses. World space, rise & fade.
 function drawKillLabels() {
   for (const k of state.killLabels) {
     const p = k.t / k.dur;
     const alpha = p < 0.15 ? p / 0.15 : 1 - (p - 0.15) / 0.85;
     const rise = p * 26;
+    const isMiss = k.kind === 'miss';
+    const txt = isMiss ? '✗ MISS' : '✓ SPLASH';
+    const mainColor = isMiss ? '#fca5a5' : '#86efac';
+    const subColor  = isMiss ? 'rgba(252, 165, 165, 0.75)' : 'rgba(134, 239, 172, 0.75)';
     ctx.save();
     ctx.globalAlpha = Math.max(0, alpha);
     ctx.font = 'bold 12px "Share Tech Mono", ui-monospace, monospace';
     ctx.textAlign = 'center';
-    const txt = '✓ SPLASH';
     const y = k.y - 18 - rise;
     ctx.fillStyle = 'rgba(8, 14, 22, 0.85)';
     const tw = ctx.measureText(txt).width;
     ctx.fillRect(k.x - tw / 2 - 5, y - 11, tw + 10, 15);
-    ctx.fillStyle = '#86efac';
+    ctx.fillStyle = mainColor;
     ctx.fillText(txt, k.x, y);
     ctx.font = '9px "Share Tech Mono", ui-monospace, monospace';
-    ctx.fillStyle = 'rgba(134, 239, 172, 0.75)';
+    ctx.fillStyle = subColor;
     ctx.fillText(k.battery, k.x, y + 11);
     ctx.restore();
   }
@@ -4210,10 +4324,13 @@ function tick(dt) {
           // Smaller, brief mid-air interception puff
           state.explosions.push({ x: target.x, y: target.y, r: 9, t: 0, dur: 0.5 });
           // Kill confirmation — floating label rising over the intercept point
-          state.killLabels.push({ x: target.x, y: target.y, t: 0, dur: 1.4, battery: m.battery });
+          state.killLabels.push({ kind: 'hit', x: target.x, y: target.y, t: 0, dur: 1.4, battery: m.battery });
         } else {
           target.missedBy.push({ battery: m.battery, reason: m.reason });
           state.explosions.push({ x: m.x + (Math.random()-0.5)*10, y: m.y + (Math.random()-0.5)*10, r: 5, t: 0, dur: 0.35 });
+          // Miss confirmation — symmetric to SPLASH so the player can see
+          // which engagements went wrong, not just which succeeded.
+          state.killLabels.push({ kind: 'miss', x: m.x, y: m.y, t: 0, dur: 1.2, battery: m.battery });
         }
       }
     }
