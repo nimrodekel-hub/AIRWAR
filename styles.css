@@ -890,7 +890,7 @@ html, body {
 #legend-overlay .dot.engagement   { border-color: rgba(220,38,38,0.8);   background: rgba(220,38,38,0.07); }
 #legend-overlay .dot.threat-path  { border-color: rgba(251,191,36,0.8);  border-style: dashed; }
 #legend-overlay .dot.target       { border-color: rgba(251,191,36,0.8);  background: rgba(251,191,36,0.1); }
-.dot.mountain { background: rgba(120,95,72,0.9); border-color: rgba(215,210,205,0.8); }
+.dot.mountain { background: rgba(196,90,50,0.9); border-color: rgba(226,208,196,0.8); }
 
 /* ─── Scrubber ────────────────────────────────────────────── */
 #scrubber-row {

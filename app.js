@@ -206,9 +206,37 @@ function buildTerrainGrid() {
   }
 }
 
-// Render the terrain overlay once per map regen: directional hillshade
-// (lit from NW), hypsometric rock tint on high ground and contour lines —
-// all derived from the same heightfield the LOS engine uses.
+// Hypsometric tint ramp — classic topographic-map colours:
+// deep green lowlands → light green → tan/yellow → orange → red-brown →
+// pale rock at the summits. [alt km, r, g, b, alpha]
+const HYPSO_STOPS = [
+  [0.10,  46, 110,  60, 0.00],
+  [0.35,  62, 138,  68, 0.40],
+  [0.80, 116, 160,  74, 0.55],
+  [1.40, 188, 176,  92, 0.62],
+  [2.10, 205, 132,  56, 0.68],
+  [2.90, 188,  74,  44, 0.74],
+  [3.80, 226, 208, 196, 0.80]
+];
+
+function hypsoColor(alt) {
+  if (alt <= HYPSO_STOPS[0][0]) return [0, 0, 0, 0];
+  const last = HYPSO_STOPS[HYPSO_STOPS.length - 1];
+  if (alt >= last[0]) return [last[1], last[2], last[3], last[4]];
+  for (let i = 1; i < HYPSO_STOPS.length; i++) {
+    if (alt <= HYPSO_STOPS[i][0]) {
+      const [h0, r0, g0, b0, a0] = HYPSO_STOPS[i - 1];
+      const [h1, r1, g1, b1, a1] = HYPSO_STOPS[i];
+      const t = (alt - h0) / (h1 - h0);
+      return [r0 + (r1 - r0) * t, g0 + (g1 - g0) * t, b0 + (b1 - b0) * t, a0 + (a1 - a0) * t];
+    }
+  }
+  return [0, 0, 0, 0];
+}
+
+// Render the terrain overlay once per map regen: hypsometric colouring +
+// directional hillshade (lit from NW) + contour lines — all derived from
+// the same heightfield the LOS engine raycasts.
 function buildTerrainOverlay() {
   const w = 1200, h = 800;
   const cnv = document.createElement('canvas');
@@ -227,41 +255,35 @@ function buildTerrainOverlay() {
     for (let x = 0; x < w; x++) {
       const idx = (y * w + x) * 4;
       const alt = getTerrainAlt(x, y);
-      if (alt < 0.05) continue;   // flat plain — leave base terrain untouched
+      if (alt < 0.1) continue;   // lowland plain — base map colour shows through
 
-      // Surface normal from central differences
+      // 1. Hypsometric base colour
+      let [r, g, b, a] = hypsoColor(alt);
+
+      // 2. Hillshade composited over the tint
       const gx = getTerrainAlt(x + 2, y) - getTerrainAlt(x - 2, y);
       const gy = getTerrainAlt(x, y + 2) - getTerrainAlt(x, y - 2);
       let nx = -gx * EXAG, ny = -gy * EXAG, nz = 4;
       const nl = Math.hypot(nx, ny, nz); nx /= nl; ny /= nl; nz /= nl;
       const lam = nx * Lx + ny * Ly + nz * Lz;
-      const flat = Lz * (4 / Math.hypot(0, 0, 4));   // lambert of flat ground
-      const shade = lam - flat;
-
-      // Compose: shade layer + rock tint + contour line → one rgba
-      let r = 0, g = 0, b = 0, a = 0;
-      if (shade > 0) {          // sun-facing slope — warm light
-        r = 255; g = 246; b = 214;
-        a = Math.min(0.32, shade * 1.5);
-      } else {                  // shadow slope — cold dark
-        r = 4; g = 10; b = 16;
-        a = Math.min(0.5, -shade * 1.8);
-      }
-      // High-ground rock tint fades in above 1.6 km
-      if (alt > 1.6) {
-        const ta = Math.min(0.38, (alt - 1.6) * 0.2);
-        const na = ta + a * (1 - ta);
-        r = (110 * ta + r * a * (1 - ta)) / (na || 1);
-        g = (96  * ta + g * a * (1 - ta)) / (na || 1);
-        b = (82  * ta + b * a * (1 - ta)) / (na || 1);
+      const shade = lam - Lz;   // 0 on flat ground, +lit / −shadow on slopes
+      let sr, sg, sb, sa;
+      if (shade > 0) { sr = 255; sg = 246; sb = 214; sa = Math.min(0.30, shade * 1.4); }
+      else           { sr = 4;   sg = 10;  sb = 16;  sa = Math.min(0.48, -shade * 1.7); }
+      if (sa > 0) {
+        const na = sa + a * (1 - sa);
+        r = (sr * sa + r * a * (1 - sa)) / na;
+        g = (sg * sa + g * a * (1 - sa)) / na;
+        b = (sb * sa + b * a * (1 - sa)) / na;
         a = na;
       }
-      // Contour lines every 0.5 km (only meaningful above 0.25 km)
+
+      // 3. Contour lines every 0.5 km
       if (alt > 0.25) {
         const f = alt / CONTOUR_STEP;
         const frac = f - Math.floor(f);
         if (frac < 0.06 || frac > 0.94) {
-          const ca = 0.22;
+          const ca = 0.25;
           const na = ca + a * (1 - ca);
           r = (10 * ca + r * a * (1 - ca)) / na;
           g = (16 * ca + g * a * (1 - ca)) / na;
@@ -296,123 +318,65 @@ function hasLOS(ax, ay, bx, by, tgtAltMSL) {
   return true;
 }
 
-function regenerateMountains() {
+// Terrain complexity scales with mission difficulty: more ridges and
+// higher peaks on harder levels. Free play uses the medium profile.
+const TERRAIN_PROFILES = {
+  easy:    { west: 1, interior: 0, peakMin: 1.8, peakMax: 2.8, hills: 4 },
+  medium:  { west: 2, interior: 1, peakMin: 2.0, peakMax: 3.2, hills: 6 },
+  hard:    { west: 3, interior: 1, peakMin: 2.4, peakMax: 3.8, hills: 8 },
+  extreme: { west: 3, interior: 2, peakMin: 2.8, peakMax: 4.5, hills: 10 }
+};
+
+const PEAK_LABELS = [];   // [{x, y, alt}] — highest point of each ridge, labelled on the map
+
+function regenerateMountains(difficulty) {
+  const prof = TERRAIN_PROFILES[difficulty] || TERRAIN_PROFILES.medium;
   MOUNTAINS.length = 0;
-  const count = 2;
+
+  // Western blocking ridges — between the red zone (x≤380) and the
+  // west-most strategic targets (~560), roughly north-south so they
+  // present a wide face to the W→E threat axis.
   let placed = 0;
-  for (let attempt = 0; attempt < 120 && placed < count; attempt++) {
-    // Mountains must sit between the red zone (enemy, x≤380) and the
-    // strategic targets (west-most ~560).  Placing them in this western
-    // strip is the only way they'll actually block LOS for incoming
-    // threats — east of the targets they're irrelevant.
+  for (let attempt = 0; attempt < 200 && placed < prof.west; attempt++) {
     const cx = 410 + Math.random() * 180;
     const cy = 140 + Math.random() * 460;
     if (!isInsideCountry(cx, cy)) continue;
-    // Bias the ridge toward a roughly north-south orientation so it
-    // presents a wider face to the W→E threat axis.
     const angle = (Math.PI / 2) + (Math.random() - 0.5) * (Math.PI / 2);
     const len = 90 + Math.random() * 110;
-    const x1 = cx - Math.cos(angle) * len / 2;
-    const y1 = cy - Math.sin(angle) * len / 2;
-    const x2 = cx + Math.cos(angle) * len / 2;
-    const y2 = cy + Math.sin(angle) * len / 2;
-    const peak = 2.0 + Math.random() * 2.0;
-    const sigma = 15 + Math.random() * 17;
-    // Pre-compute jagged ridgeline for stable rendering
-    const dx = x2 - x1, dy = y2 - y1;
-    const rlen = Math.hypot(dx, dy) || 1;
-    const nx = -dy / rlen, ny = dx / rlen;
-    const segs = 12;
-    const ridgePts = [[x1, y1]];
-    for (let i = 1; i < segs; i++) {
-      const ft = i / segs;
-      const jitter = (Math.random() - 0.5) * 18;
-      ridgePts.push([x1 + ft*dx + nx*jitter, y1 + ft*dy + ny*jitter]);
-    }
-    ridgePts.push([x2, y2]);
-
-    // Pre-compute snow patches near the highest ridge points
-    const snowPatches = [];
-    for (let i = 1; i < ridgePts.length - 1; i++) {
-      if (Math.random() < 0.55) {
-        const [px, py] = ridgePts[i];
-        snowPatches.push({
-          cx: px + (Math.random() - 0.5) * 3,
-          cy: py + 1.5 + Math.random() * 3,
-          rx: 4 + Math.random() * 4,
-          ry: 1.8 + Math.random() * 1.6
-        });
-      }
-    }
-
-    // Pre-compute tree dots scattered around the mountain base
-    const treeDots = [];
-    const spread = sigma * 2.4;
-    for (let i = 0; i < 38; i++) {
-      const f = Math.random();
-      const side = Math.random() < 0.5 ? 1 : -1;
-      const offset = spread * (0.78 + Math.random() * 0.18);
-      treeDots.push({
-        x: x1 + dx * f + nx * offset * side + (Math.random() - 0.5) * 5,
-        y: y1 + dy * f + ny * offset * side + (Math.random() - 0.5) * 5,
-        s: 0.6 + Math.random() * 0.7,
-        shade: Math.random() < 0.5 ? 0 : 1
-      });
-    }
-
-    // Pre-compute hatching strokes on the shadow side (rock texture)
-    const hatches = [];
-    for (let i = 0; i < 22; i++) {
-      const f = 0.08 + Math.random() * 0.84;
-      const offset = spread * (0.25 + Math.random() * 0.5);
-      const baseX = x1 + dx * f - nx * offset;
-      const baseY = y1 + dy * f - ny * offset;
-      hatches.push({
-        x1: baseX,
-        y1: baseY,
-        x2: baseX + nx * (2.5 + Math.random() * 3),
-        y2: baseY + ny * (2.5 + Math.random() * 3)
-      });
-    }
-
-    MOUNTAINS.push({ x1, y1, x2, y2, peak, sigma, ridgePts, snowPatches, treeDots, hatches });
+    MOUNTAINS.push({
+      x1: cx - Math.cos(angle) * len / 2,
+      y1: cy - Math.sin(angle) * len / 2,
+      x2: cx + Math.cos(angle) * len / 2,
+      y2: cy + Math.sin(angle) * len / 2,
+      peak: prof.peakMin + Math.random() * (prof.peakMax - prof.peakMin),
+      sigma: 15 + Math.random() * 17
+    });
     placed++;
   }
 
-  // One interior ridge deeper in the country — lower than the western
-  // blockers but tall enough to matter for low-flyers and to give the
-  // east half of the map real relief.
-  for (let attempt = 0; attempt < 120; attempt++) {
+  // Interior ridges — lower, deeper in the country, any orientation
+  let interiorPlaced = 0;
+  for (let attempt = 0; attempt < 200 && interiorPlaced < prof.interior; attempt++) {
     const cx = 620 + Math.random() * 280;
     const cy = 160 + Math.random() * 420;
     if (!isInsideCountry(cx, cy)) continue;
     const angle = Math.random() * Math.PI;
     const len = 70 + Math.random() * 90;
-    const x1 = cx - Math.cos(angle) * len / 2;
-    const y1 = cy - Math.sin(angle) * len / 2;
-    const x2 = cx + Math.cos(angle) * len / 2;
-    const y2 = cy + Math.sin(angle) * len / 2;
-    const peak = 1.2 + Math.random() * 1.0;
-    const sigma = 14 + Math.random() * 14;
-    const dx = x2 - x1, dy = y2 - y1;
-    const rlen = Math.hypot(dx, dy) || 1;
-    const nx = -dy / rlen, ny = dx / rlen;
-    const ridgePts = [[x1, y1]];
-    for (let i = 1; i < 10; i++) {
-      const ft = i / 10;
-      ridgePts.push([x1 + ft * dx + nx * (Math.random() - 0.5) * 14,
-                     y1 + ft * dy + ny * (Math.random() - 0.5) * 14]);
-    }
-    ridgePts.push([x2, y2]);
-    MOUNTAINS.push({ x1, y1, x2, y2, peak, sigma, ridgePts, snowPatches: [], treeDots: [], hatches: [] });
-    break;
+    MOUNTAINS.push({
+      x1: cx - Math.cos(angle) * len / 2,
+      y1: cy - Math.sin(angle) * len / 2,
+      x2: cx + Math.cos(angle) * len / 2,
+      y2: cy + Math.sin(angle) * len / 2,
+      peak: (prof.peakMin + Math.random() * (prof.peakMax - prof.peakMin)) * 0.6,
+      sigma: 14 + Math.random() * 14
+    });
+    interiorPlaced++;
   }
 
-  // Broad low hills scattered across the country — gentle relief that the
-  // hillshade picks up; threats terrain-follow over them (AGL model).
+  // Broad low hills — gentle relief everywhere
   HILLS.length = 0;
   let hillsPlaced = 0;
-  for (let attempt = 0; attempt < 220 && hillsPlaced < 6; attempt++) {
+  for (let attempt = 0; attempt < 300 && hillsPlaced < prof.hills; attempt++) {
     const x = 430 + Math.random() * 600;
     const y = 110 + Math.random() * 580;
     if (!isInsideCountry(x, y)) continue;
@@ -424,9 +388,24 @@ function regenerateMountains() {
     hillsPlaced++;
   }
 
-  // Bake the heightfield + pre-render the shaded overlay
+  // Bake the heightfield + pre-render the hypsometric overlay
   buildTerrainGrid();
   buildTerrainOverlay();
+
+  // Locate each ridge's true summit (max of the combined field along
+  // the ridge line) for the elevation labels.
+  PEAK_LABELS.length = 0;
+  for (const m of MOUNTAINS) {
+    let best = { x: m.x1, y: m.y1, alt: 0 };
+    for (let i = 0; i <= 12; i++) {
+      const f = i / 12;
+      const x = m.x1 + (m.x2 - m.x1) * f;
+      const y = m.y1 + (m.y2 - m.y1) * f;
+      const alt = getTerrainAlt(x, y);
+      if (alt > best.alt) best = { x, y, alt };
+    }
+    PEAK_LABELS.push(best);
+  }
 }
 
 function getCountryCenter() {
@@ -3065,124 +3044,31 @@ function drawCountry() {
   ctx.fillText('AIR DEFENSE COMMAND', 720, 176);
 }
 
+// The terrain body itself is rendered by the hypsometric overlay
+// (TERRAIN_CANVAS, see buildTerrainOverlay). Here we only annotate the
+// summits: a small triangle marker + the true elevation of each peak.
 function drawMountains() {
-  for (const m of MOUNTAINS) {
-    const dx = m.x2 - m.x1, dy = m.y2 - m.y1;
-    const len = Math.hypot(dx, dy) || 1;
-    const nx = -dy / len, ny = dx / len;
-    const spread = m.sigma * 2.4;
-
-    // 1. Cast shadow — softens edges, adds 3-D feel
+  ctx.textAlign = 'center';
+  for (const p of PEAK_LABELS) {
+    if (p.alt < 0.4) continue;
+    // Summit triangle
     ctx.beginPath();
-    ctx.moveTo(m.x1 + nx * spread + 5, m.y1 + ny * spread + 6);
-    ctx.lineTo(m.x1 - nx * spread + 5, m.y1 - ny * spread + 6);
-    ctx.lineTo(m.x2 - nx * spread + 5, m.y2 - ny * spread + 6);
-    ctx.lineTo(m.x2 + nx * spread + 5, m.y2 + ny * spread + 6);
+    ctx.moveTo(p.x, p.y - 4);
+    ctx.lineTo(p.x - 3.6, p.y + 2.6);
+    ctx.lineTo(p.x + 3.6, p.y + 2.6);
     ctx.closePath();
-    ctx.fillStyle = 'rgba(4, 3, 2, 0.42)';
+    ctx.fillStyle = 'rgba(20, 14, 10, 0.85)';
     ctx.fill();
-
-    // 2. Foothill / forested base (greenish-brown)
-    ctx.beginPath();
-    ctx.moveTo(m.x1 + nx * spread, m.y1 + ny * spread);
-    ctx.lineTo(m.x1 - nx * spread, m.y1 - ny * spread);
-    ctx.lineTo(m.x2 - nx * spread, m.y2 - ny * spread);
-    ctx.lineTo(m.x2 + nx * spread, m.y2 + ny * spread);
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(48, 60, 38, 0.55)';
-    ctx.fill();
-
-    // 3. Tree-line vegetation dots scattered at base
-    for (const t of m.treeDots) {
-      ctx.beginPath();
-      ctx.arc(t.x, t.y, t.s, 0, Math.PI * 2);
-      ctx.fillStyle = t.shade ? 'rgba(28, 52, 30, 0.78)' : 'rgba(38, 62, 36, 0.72)';
-      ctx.fill();
-    }
-
-    // 4. Mid-elevation rocky body — gradient lit from upper-left
-    const litX = m.x1 + nx * spread * 0.7, litY = m.y1 + ny * spread * 0.7;
-    const shadX = m.x1 - nx * spread * 0.7, shadY = m.y1 - ny * spread * 0.7;
-    const bodyGrad = ctx.createLinearGradient(litX, litY, shadX, shadY);
-    bodyGrad.addColorStop(0.0, 'rgba(155, 130, 95,  0.78)');
-    bodyGrad.addColorStop(0.4, 'rgba(110, 88,  62,  0.7)');
-    bodyGrad.addColorStop(0.8, 'rgba(65,  50,  32,  0.78)');
-    bodyGrad.addColorStop(1.0, 'rgba(30,  22,  14,  0.85)');
-
-    const midSpread = spread * 0.7;
-    ctx.beginPath();
-    ctx.moveTo(m.x1 + nx * midSpread, m.y1 + ny * midSpread);
-    ctx.lineTo(m.x1 - nx * midSpread, m.y1 - ny * midSpread);
-    ctx.lineTo(m.x2 - nx * midSpread, m.y2 - ny * midSpread);
-    ctx.lineTo(m.x2 + nx * midSpread, m.y2 + ny * midSpread);
-    ctx.closePath();
-    ctx.fillStyle = bodyGrad;
-    ctx.fill();
-
-    // 5. Rock-texture hatching strokes on the shadow side
-    ctx.strokeStyle = 'rgba(28, 20, 10, 0.55)';
-    ctx.lineWidth = 0.7;
-    for (const h of m.hatches) {
-      ctx.beginPath();
-      ctx.moveTo(h.x1, h.y1);
-      ctx.lineTo(h.x2, h.y2);
-      ctx.stroke();
-    }
-
-    // 6. Topographic contour lines
-    for (const fr of [0.85, 0.6, 0.32]) {
-      const s = spread * fr;
-      ctx.beginPath();
-      ctx.moveTo(m.x1 + nx * s, m.y1 + ny * s);
-      ctx.lineTo(m.x1 - nx * s, m.y1 - ny * s);
-      ctx.lineTo(m.x2 - nx * s, m.y2 - ny * s);
-      ctx.lineTo(m.x2 + nx * s, m.y2 + ny * s);
-      ctx.closePath();
-      ctx.strokeStyle = `rgba(60, 42, 22, ${0.16 + (1 - fr) * 0.22})`;
-      ctx.lineWidth = 0.7;
-      ctx.stroke();
-    }
-
-    // 7. Snow patches on lit side near peaks
-    for (const s of m.snowPatches) {
-      ctx.beginPath();
-      ctx.ellipse(s.cx, s.cy, s.rx, s.ry, 0, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(248, 250, 255, 0.78)';
-      ctx.fill();
-      // Soft outer halo
-      ctx.beginPath();
-      ctx.ellipse(s.cx, s.cy, s.rx + 1.2, s.ry + 0.6, 0, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(248, 250, 255, 0.18)';
-      ctx.fill();
-    }
-
-    // 8. Jagged ridge silhouette (multi-peak crest)
-    ctx.beginPath();
-    ctx.moveTo(m.ridgePts[0][0], m.ridgePts[0][1]);
-    for (let i = 1; i < m.ridgePts.length; i++) ctx.lineTo(m.ridgePts[i][0], m.ridgePts[i][1]);
-    ctx.strokeStyle = 'rgba(238, 232, 220, 0.92)';
-    ctx.lineWidth = 1.7;
-    ctx.stroke();
-
-    // Subtle ridge shadow line just below the crest
-    ctx.beginPath();
-    ctx.moveTo(m.ridgePts[0][0] - nx * 1.2, m.ridgePts[0][1] - ny * 1.2);
-    for (let i = 1; i < m.ridgePts.length; i++) {
-      ctx.lineTo(m.ridgePts[i][0] - nx * 1.2, m.ridgePts[i][1] - ny * 1.2);
-    }
-    ctx.strokeStyle = 'rgba(20, 14, 8, 0.45)';
+    ctx.strokeStyle = 'rgba(255, 250, 238, 0.9)';
     ctx.lineWidth = 1;
     ctx.stroke();
-
-    // 9. Elevation label with shadow
-    const midX = (m.x1 + m.x2) / 2;
-    const midY = (m.y1 + m.y2) / 2;
-    ctx.font = 'bold 10px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillText(`▲ ${(m.peak * 1000).toFixed(0)}m`, midX + 1, midY - spread * 0.28 - 3);
+    // Elevation label (metres), with a soft shadow for readability
+    const txt = `${Math.round(p.alt * 1000)}m`;
+    ctx.font = 'bold 10px "Share Tech Mono", monospace';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+    ctx.fillText(txt, p.x + 1, p.y - 8);
     ctx.fillStyle = 'rgba(255, 250, 238, 0.95)';
-    ctx.fillText(`▲ ${(m.peak * 1000).toFixed(0)}m`, midX, midY - spread * 0.28 - 4);
+    ctx.fillText(txt, p.x, p.y - 9);
   }
 }
 
@@ -5229,6 +5115,7 @@ function startAttackChallenge(difficulty) {
   state.attackChallenge = true;
   state.challengeMode = 'attack-challenge';
   state.challengeDifficulty = difficulty;
+  regenerateMountains(difficulty);   // terrain complexity scales with difficulty
   state.threatBudget = { ...profile.threatBudget };
   state.objective = profile.objective;
   state.noIntel = !!profile.noIntel;
@@ -5343,6 +5230,7 @@ function startDefenseChallenge(difficulty = 'medium') {
   resetAll();
   state.challengeMode = 'defense-challenge';
   state.challengeDifficulty = difficulty;
+  regenerateMountains(difficulty);   // terrain complexity scales with difficulty
   const profile = DEFENSE_DIFFICULTY[difficulty];
   if (!profile) return;
   state.objective = profile.objective;
