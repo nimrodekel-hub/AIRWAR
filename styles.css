@@ -1394,7 +1394,8 @@ html, body {
 #profile-strip {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   background: rgba(8,12,22,0.85);
   border: 1px solid rgba(95,168,211,0.25);
   border-radius: 4px;
@@ -1463,6 +1464,24 @@ html, body {
   padding: 1px 3px;
 }
 .ps-edit:hover { color: #5fc8e8; }
+
+.ps-switch {
+  background: rgba(20,40,60,0.7);
+  border: 1px solid rgba(95,168,211,0.35);
+  border-radius: 3px;
+  color: rgba(143,180,201,0.85);
+  cursor: pointer;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+.ps-switch:hover {
+  background: rgba(30,55,80,0.9);
+  color: #5fc8e8;
+  border-color: rgba(95,168,211,0.6);
+}
 
 .ps-input {
   width: 96px;
