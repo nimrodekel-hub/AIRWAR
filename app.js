@@ -2002,7 +2002,7 @@ const TUTORIAL_STEPS = [
 
       <h4>⚡ פידבק רגעי בסימולציה</h4>
       <ul>
-        <li>✓ <b>SPLASH ירוק</b> — מופיע מעל כל יירוט מוצלח, עם שם הסוללה.</li>
+        <li>✓ <b>KILL ירוק</b> — מופיע מעל כל יירוט מוצלח, עם שם הסוללה.</li>
         <li>✗ <b>MISS אדום</b> — מופיע על כל פספוס, עם שם הסוללה שירתה.</li>
         <li>🔢 <b>מונה חי</b> במרכז העליון — "INTERCEPTED 12/18" בהגנה, "BREACHED 5/20" בהתקפה.</li>
         <li>⚠ <b>LEAKER</b> — הבזק אדום בקצוות המסך + התראה בכל חדירה ליעד.</li>
@@ -2816,7 +2816,7 @@ function drawKillLabels() {
     const alpha = p < 0.15 ? p / 0.15 : 1 - (p - 0.15) / 0.85;
     const rise = p * 26;
     const isMiss = k.kind === 'miss';
-    const txt = isMiss ? '✗ MISS' : '✓ SPLASH';
+    const txt = isMiss ? '✗ MISS' : '✓ KILL';
     const mainColor = isMiss ? '#fca5a5' : '#86efac';
     const subColor  = isMiss ? 'rgba(252, 165, 165, 0.75)' : 'rgba(134, 239, 172, 0.75)';
     ctx.save();
