@@ -1590,6 +1590,26 @@ html, body {
   color: #fff;
 }
 
+.lb-hint {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 10px;
+  color: rgba(95,200,232,0.55);
+  margin-bottom: 4px;
+  letter-spacing: 0.3px;
+}
+
+.lb-table tr.lb-row {
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.lb-table tr.lb-row:hover td {
+  background: rgba(95,200,232,0.14);
+  color: #fff;
+}
+.lb-table tr.lb-row.lb-me:hover td {
+  background: rgba(95,200,232,0.20);
+}
+
 .lb-empty {
   text-align: center;
   color: rgba(143,180,201,0.55);
