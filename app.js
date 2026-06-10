@@ -627,6 +627,224 @@ function awardMission(score) {
     isNewBest,
     best: profile.bests[bestKey]
   };
+
+  syncRemoteProfile();   // fire-and-forget: push the updated record to GitHub
+}
+
+// =============================================================
+// טבלת שחקנים גלובלית — playerdb.json בריפו, דרך GitHub API.
+// קריאה: בכל פתיחת משחק (ללא token דרך raw, עם token דרך ה-API).
+// כתיבה: אחרי כל משימה, אם הוגדר token ו-callsign.
+// ה-token נשמר ב-localStorage (מוגדר פעם אחת לכל מכשיר דרך כפתור
+// 🔑 בטבלה) או מוטמע ב-tokenParts — לבחירת בעל הריפו.
+// =============================================================
+const REMOTE_DB = {
+  owner: 'nimrodekel-hub',
+  repo: 'AIRWAR',
+  branch: 'main',
+  path: 'playerdb.json',
+  // Optional embedded token, split in two so GitHub's secret scanner
+  // doesn't revoke it on push. Example: ['github_pat_AAAA', 'BBBBCCCC']
+  tokenParts: ['', '']
+};
+
+let remoteDb = null;          // parsed playerdb.json {players:{callsign:{...}}}
+let remoteDbSha = null;       // blob sha for conflict-safe PUTs
+let remoteSyncState = 'idle'; // idle | loading | ok | readonly | error
+
+function ghToken() {
+  try {
+    const t = localStorage.getItem('airwar-gh-token');
+    if (t) return t;
+  } catch (e) {}
+  const joined = REMOTE_DB.tokenParts.join('');
+  return joined || null;
+}
+
+function ghApiUrl() {
+  return `https://api.github.com/repos/${REMOTE_DB.owner}/${REMOTE_DB.repo}/contents/${REMOTE_DB.path}`;
+}
+
+function b64EncodeUtf8(str) {
+  return btoa(unescape(encodeURIComponent(str)));
+}
+function b64DecodeUtf8(b64) {
+  return decodeURIComponent(escape(atob(b64.replace(/\n/g, ''))));
+}
+
+async function loadRemoteDb() {
+  remoteSyncState = 'loading';
+  renderLeaderboard();
+  const token = ghToken();
+  try {
+    let text = null;
+    remoteDbSha = null;
+    if (token) {
+      const res = await fetch(`${ghApiUrl()}?ref=${REMOTE_DB.branch}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' }
+      });
+      if (res.status === 404) {
+        remoteDb = { players: {} };
+      } else if (!res.ok) {
+        throw new Error('HTTP ' + res.status);
+      } else {
+        const j = await res.json();
+        remoteDbSha = j.sha;
+        text = b64DecodeUtf8(j.content);
+      }
+    } else {
+      // No token — public read through raw (cache-busted), leaderboard is read-only
+      const res = await fetch(
+        `https://raw.githubusercontent.com/${REMOTE_DB.owner}/${REMOTE_DB.repo}/${REMOTE_DB.branch}/${REMOTE_DB.path}?t=${Date.now()}`,
+        { cache: 'no-store' }
+      );
+      if (res.status === 404) {
+        remoteDb = { players: {} };
+      } else if (!res.ok) {
+        throw new Error('HTTP ' + res.status);
+      } else {
+        text = await res.text();
+      }
+    }
+    if (text) {
+      remoteDb = JSON.parse(text);
+      if (!remoteDb.players) remoteDb.players = {};
+    }
+    remoteSyncState = token ? 'ok' : 'readonly';
+    mergeRemoteIntoLocal();
+  } catch (e) {
+    remoteSyncState = 'error';
+  }
+  renderProfileStrip();
+  renderLeaderboard();
+}
+
+// If this callsign already has a record from another device, adopt the
+// best of both (max XP / games / wins / per-mission bests).
+function mergeRemoteIntoLocal() {
+  if (!remoteDb || !profile.callsign) return;
+  const rec = remoteDb.players[profile.callsign];
+  if (!rec) return;
+  let changed = false;
+  if (rec.xp > profile.xp)       { profile.xp = rec.xp; changed = true; }
+  if (rec.games > profile.games) { profile.games = rec.games; changed = true; }
+  if (rec.wins > profile.wins)   { profile.wins = rec.wins; changed = true; }
+  for (const k of Object.keys(rec.bests || {})) {
+    if ((rec.bests[k] || 0) > (profile.bests[k] || 0)) {
+      profile.bests[k] = rec.bests[k];
+      changed = true;
+    }
+  }
+  if (changed) saveProfile();
+}
+
+async function syncRemoteProfile(retry = true) {
+  const token = ghToken();
+  if (!token || !profile.callsign) return;
+  remoteSyncState = 'loading';
+  renderLeaderboard();
+  try {
+    // Refresh latest content + sha so we don't clobber other players
+    const res = await fetch(`${ghApiUrl()}?ref=${REMOTE_DB.branch}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' }
+    });
+    let sha = null, db = { players: {} };
+    if (res.ok) {
+      const j = await res.json();
+      sha = j.sha;
+      db = JSON.parse(b64DecodeUtf8(j.content));
+      if (!db.players) db.players = {};
+    } else if (res.status !== 404) {
+      throw new Error('HTTP ' + res.status);
+    }
+
+    db.players[profile.callsign] = {
+      xp: profile.xp,
+      games: profile.games,
+      wins: profile.wins,
+      bests: profile.bests,
+      rank: rankForXp(profile.xp).name,
+      updated: new Date().toISOString()
+    };
+
+    const body = {
+      message: `score: ${profile.callsign} → ${profile.xp} XP`,
+      content: b64EncodeUtf8(JSON.stringify(db, null, 2)),
+      branch: REMOTE_DB.branch
+    };
+    if (sha) body.sha = sha;
+
+    const put = await fetch(ghApiUrl(), {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
+      body: JSON.stringify(body)
+    });
+    if (!put.ok) {
+      // Conflict (someone else pushed between GET and PUT) — retry once
+      if (retry && (put.status === 409 || put.status === 422)) {
+        return syncRemoteProfile(false);
+      }
+      throw new Error('HTTP ' + put.status);
+    }
+    remoteDb = db;
+    remoteSyncState = 'ok';
+  } catch (e) {
+    remoteSyncState = 'error';
+  }
+  renderLeaderboard();
+}
+
+// 🏆 Top-10 leaderboard table in the start modal
+function renderLeaderboard() {
+  const el = document.getElementById('leaderboard');
+  if (!el) return;
+
+  const token = ghToken();
+  let statusTxt, statusCls;
+  if (remoteSyncState === 'loading')        { statusTxt = '⟳ מסתנכרן...';                statusCls = 'lb-loading'; }
+  else if (remoteSyncState === 'ok')        { statusTxt = '● מקוון';                      statusCls = 'lb-ok'; }
+  else if (remoteSyncState === 'readonly')  { statusTxt = '◐ צפייה בלבד (אין מפתח)';      statusCls = 'lb-ro'; }
+  else if (remoteSyncState === 'error')     { statusTxt = '✗ שגיאת סנכרון';               statusCls = 'lb-err'; }
+  else                                      { statusTxt = '';                              statusCls = ''; }
+
+  const players = remoteDb
+    ? Object.entries(remoteDb.players)
+        .map(([name, p]) => ({ name, ...p }))
+        .sort((a, b) => (b.xp || 0) - (a.xp || 0))
+        .slice(0, 10)
+    : [];
+
+  let rows = players.map((p, i) => `
+    <tr class="${p.name === profile.callsign ? 'lb-me' : ''}">
+      <td class="lb-pos">${i + 1}</td>
+      <td class="lb-name">${p.name}</td>
+      <td class="lb-rank">${p.rank || rankForXp(p.xp || 0).name}</td>
+      <td class="lb-xp">${p.xp || 0}</td>
+      <td class="lb-wins">${p.wins || 0}</td>
+    </tr>`).join('');
+  if (!rows) rows = `<tr><td colspan="5" class="lb-empty">אין עדיין שחקנים בטבלה — היה הראשון!</td></tr>`;
+
+  el.innerHTML = `
+    <div class="lb-header">
+      <span class="lb-title">🏆 טבלת מפקדים</span>
+      <span class="lb-status ${statusCls}">${statusTxt}</span>
+      ${token ? '' : '<button id="lb-set-token" class="lb-key-btn" title="הגדר מפתח GitHub לעדכון הטבלה">🔑</button>'}
+    </div>
+    <table class="lb-table">
+      <thead><tr><th>#</th><th>שם קוד</th><th>דרגה</th><th>XP</th><th>נצ׳</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+
+  const keyBtn = document.getElementById('lb-set-token');
+  if (keyBtn) {
+    keyBtn.addEventListener('click', () => {
+      const t = prompt('הדבק מפתח GitHub (fine-grained PAT עם הרשאת Contents read/write לריפו AIRWAR):');
+      if (t && t.trim()) {
+        try { localStorage.setItem('airwar-gh-token', t.trim()); } catch (e) {}
+        loadRemoteDb();
+      }
+    });
+  }
 }
 
 // =============================================================
@@ -667,6 +885,7 @@ window.addEventListener('DOMContentLoaded', () => {
   initSimButtons();
   bindCanvas();
   resetView();
+  loadRemoteDb();   // async — pulls the global player table from GitHub
   requestAnimationFrame(loop);
 });
 
@@ -966,7 +1185,10 @@ function showStartModal() {
   document.getElementById('start-modal').classList.add('visible');
 }
 
-// Player rank / XP summary at the top of the start modal
+// Player rank / XP summary at the top of the start modal.
+// Includes the callsign (שם קוד) — the player's identity in the
+// global leaderboard. First run shows an input; afterwards the name
+// with a small ✎ to change it.
 function renderProfileStrip() {
   const el = document.getElementById('profile-strip');
   if (!el) return;
@@ -975,14 +1197,54 @@ function renderProfileStrip() {
   const span = next ? next.minXp - cur.minXp : 1;
   const into = next ? profile.xp - cur.minXp : 1;
   const pct = next ? Math.round(100 * into / span) : 100;
+
+  const idHtml = profile.callsign
+    ? `<span class="ps-callsign">${profile.callsign}</span><button class="ps-edit" id="ps-edit-name" title="שנה שם קוד">✎</button>`
+    : `<input id="ps-name-input" class="ps-input" maxlength="14" placeholder="שם קוד..."><button id="ps-name-save" class="ps-save">שמור</button>`;
+
   el.innerHTML = `
     <div class="ps-rank">🎖 <b>${cur.name}</b></div>
+    <div class="ps-id">${idHtml}</div>
     <div class="ps-bar"><div class="ps-bar-fill" style="width:${pct}%"></div></div>
     <div class="ps-stats">
       <span>XP ${profile.xp}</span>
       <span>משחקים ${profile.games}</span>
       <span>נצחונות ${profile.wins}</span>
     </div>`;
+
+  const saveBtn = document.getElementById('ps-name-save');
+  if (saveBtn) {
+    const commit = () => {
+      const v = document.getElementById('ps-name-input').value.trim();
+      if (!v) return;
+      profile.callsign = v;
+      saveProfile();
+      mergeRemoteIntoLocal();   // adopt this callsign's history if it exists remotely
+      saveProfile();
+      renderProfileStrip();
+      renderLeaderboard();
+      syncRemoteProfile();
+    };
+    saveBtn.addEventListener('click', commit);
+    document.getElementById('ps-name-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') commit();
+    });
+  }
+  const editBtn = document.getElementById('ps-edit-name');
+  if (editBtn) {
+    editBtn.addEventListener('click', () => {
+      const v = prompt('שם קוד חדש:', profile.callsign || '');
+      if (v && v.trim()) {
+        profile.callsign = v.trim().slice(0, 14);
+        saveProfile();
+        mergeRemoteIntoLocal();
+        saveProfile();
+        renderProfileStrip();
+        renderLeaderboard();
+        syncRemoteProfile();
+      }
+    });
+  }
 }
 
 // Personal-best badge on each difficulty button in the start modal

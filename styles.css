@@ -1439,6 +1439,144 @@ html, body {
   white-space: nowrap;
 }
 
+/* Callsign UI inside profile strip */
+.ps-id {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.ps-callsign {
+  font-family: 'Share Tech Mono', 'Courier New', monospace;
+  font-size: 13px;
+  color: #5fc8e8;
+  font-weight: 700;
+}
+
+.ps-edit {
+  background: none;
+  border: none;
+  color: rgba(143,180,201,0.6);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 1px 3px;
+}
+.ps-edit:hover { color: #5fc8e8; }
+
+.ps-input {
+  width: 96px;
+  background: rgba(8,12,22,0.9);
+  border: 1px solid rgba(95,168,211,0.4);
+  border-radius: 3px;
+  color: #c6d6e6;
+  font-family: 'Share Tech Mono', 'Courier New', monospace;
+  font-size: 11px;
+  padding: 4px 7px;
+  direction: rtl;
+}
+
+.ps-save {
+  background: rgba(30,107,62,0.6);
+  border: 1px solid rgba(134,239,172,0.4);
+  border-radius: 3px;
+  color: #86efac;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 9px;
+  cursor: pointer;
+}
+.ps-save:hover { background: rgba(30,107,62,0.85); }
+
+/* ─── Global leaderboard (start modal) ────────────────────── */
+#leaderboard {
+  background: rgba(8,12,22,0.85);
+  border: 1px solid rgba(95,168,211,0.22);
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  direction: rtl;
+  clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 7px 100%, 0 calc(100% - 7px));
+}
+
+#leaderboard:empty { display: none; }
+
+.lb-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.lb-title {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fbbf24;
+  letter-spacing: 0.5px;
+}
+
+.lb-status {
+  font-family: 'Share Tech Mono', 'Courier New', monospace;
+  font-size: 9px;
+  margin-inline-start: auto;
+}
+.lb-status.lb-ok      { color: #86efac; }
+.lb-status.lb-ro      { color: rgba(143,180,201,0.6); }
+.lb-status.lb-err     { color: #fca5a5; }
+.lb-status.lb-loading { color: #5fc8e8; }
+
+.lb-key-btn {
+  background: none;
+  border: 1px solid rgba(95,168,211,0.35);
+  border-radius: 3px;
+  font-size: 11px;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.lb-key-btn:hover { background: rgba(20,40,60,0.6); }
+
+.lb-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  font-family: 'Share Tech Mono', 'Courier New', monospace;
+}
+
+.lb-table th {
+  text-align: right;
+  font-size: 9px;
+  color: rgba(95,168,211,0.55);
+  font-weight: 400;
+  padding: 2px 6px;
+  border-bottom: 1px solid rgba(31,42,61,0.8);
+}
+
+.lb-table td {
+  padding: 3px 6px;
+  color: rgba(198,214,230,0.85);
+  border-bottom: 1px solid rgba(31,42,61,0.45);
+}
+
+.lb-table tr:last-child td { border-bottom: none; }
+
+.lb-pos  { color: rgba(143,180,201,0.6); width: 22px; }
+.lb-rank { color: #fbbf24; }
+.lb-xp   { color: #5fc8e8; }
+.lb-wins { color: #86efac; }
+
+.lb-table tr.lb-me td {
+  background: rgba(95,200,232,0.08);
+  color: #fff;
+}
+
+.lb-empty {
+  text-align: center;
+  color: rgba(143,180,201,0.55);
+  padding: 8px !important;
+}
+
 /* Personal-best badge on difficulty buttons */
 .diff-btn { position: relative; }
 .best-badge {

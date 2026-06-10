@@ -637,3 +637,11 @@ body.mobile .award-block {
 }
 body.mobile .award-score-num { font-size: 30px; }
 body.mobile .award-rank-name { font-size: 14px; }
+body.mobile #leaderboard {
+  padding: 6px 9px;
+  margin-bottom: 7px;
+}
+body.mobile .lb-title  { font-size: 11px; }
+body.mobile .lb-table  { font-size: 9.5px; }
+body.mobile .lb-table th { font-size: 8px; }
+body.mobile .lb-table td { padding: 2px 4px; }
