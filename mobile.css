@@ -1,0 +1,647 @@
+/* ============================================================
+   AIR DEFENSE COMMAND — Mobile Layout  v20260514h
+   Loaded AFTER styles.css.
+   Uses body.mobile selector for higher specificity so these
+   rules win over the @media (max-width:768px) block in
+   styles.css without needing !important.
+   ============================================================ */
+
+/* ─── Layout reset ──────────────────────────────────────── */
+body.mobile #app {
+  display: block;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+/* ─── Map: full screen minus bottom bar (60px) ──────────── */
+body.mobile #map-container {
+  position: fixed;
+  inset: 0 0 60px 0;
+  z-index: 1;
+}
+
+/* ─── Bottom action bar ─────────────────────────────────── */
+#mobile-bottom-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  direction: ltr;
+  background:
+    repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.05) 3px, rgba(0,0,0,0.05) 4px),
+    linear-gradient(180deg, #0c1422 0%, #080d18 100%);
+  border-top: 1px solid rgba(95,168,211,0.22);
+  box-shadow: 0 -4px 18px rgba(0,0,0,0.55);
+}
+
+#mobile-bottom-bar button {
+  height: 44px;
+  min-width: 44px;
+  border-radius: 6px;
+  font-size: 16px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+/* Menu toggle in the bar */
+body.mobile #mobile-menu-toggle {
+  /* override the absolute positioning from styles.css media query */
+  position: static;
+  top: auto;
+  right: auto;
+  width: 44px;
+  height: 44px;
+  background: rgba(8,12,22,0.92);
+  border: 1px solid rgba(95,168,211,0.4);
+  border-radius: 6px;
+  color: #5fc8e8;
+  font-size: 20px;
+  box-shadow: none;
+}
+
+body.mobile #mobile-menu-toggle:active {
+  background: rgba(20,40,60,0.95);
+}
+
+/* Attention pulse — draws the eye to the hamburger when the player
+   needs to open the sheet to pick a defense / threat. Removed on
+   first tap; resets on each new challenge. */
+@keyframes menuAttentionPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(95,200,232,0.0);
+    border-color: rgba(95,168,211,0.4);
+  }
+  50% {
+    box-shadow: 0 0 16px 4px rgba(95,200,232,0.55);
+    border-color: rgba(95,200,232,0.95);
+  }
+}
+body.mobile #mobile-menu-toggle.attention {
+  animation: menuAttentionPulse 1.1s ease-in-out infinite;
+  color: #aee9ff;
+}
+
+/* Mode status: fills the available space, wraps to 2 lines */
+.mobile-mode-status {
+  flex: 1;
+  font-size: 10px;
+  line-height: 1.2;
+  color: rgba(143,180,201,0.85);
+  font-family: 'Rajdhani', sans-serif;
+  text-align: center;
+  direction: rtl;
+  padding: 0 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Sim control buttons on the right */
+.mobile-sim-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1px;
+}
+
+.sim-group-label {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 8px;
+  font-weight: 700;
+  color: rgba(95,200,232,0.78);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  text-align: center;
+  line-height: 1;
+  text-shadow: 0 0 6px rgba(95,200,232,0.25);
+}
+
+.sim-controls-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+/* Stack icon + small label inside each sim-control button. Use a
+   selector that wins specificity over `#mobile-bottom-bar button`
+   so we can override min-width/height. */
+#mobile-bottom-bar .sim-controls-row button {
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 4px;
+  line-height: 1;
+  height: 40px;
+  min-width: 36px;
+  font-size: 12px;
+}
+#mobile-bottom-bar .sim-controls-row button .icn {
+  font-size: 13px;
+  line-height: 1;
+}
+#mobile-bottom-bar .sim-controls-row button .lbl {
+  font-size: 7.5px;
+  line-height: 1;
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  opacity: 0.88;
+}
+
+/* ─── Sidebar → slide-up bottom sheet ───────────────────── */
+body.mobile #sidebar {
+  position: fixed;
+  top: auto;
+  bottom: 0;
+  right: 0;
+  left: 0;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  height: auto;
+  max-height: 84vh;
+  z-index: 100;
+  visibility: hidden;
+  transform: translateY(110%);
+  transition: transform 0.3s cubic-bezier(0.4,0,0.2,1), visibility 0s linear 0.3s;
+  border-radius: 18px 18px 0 0;
+  border-top: 1px solid rgba(95,168,211,0.3);
+  border-left: none;
+  box-shadow: 0 -8px 32px rgba(0,0,0,0.8);
+  padding: 0;
+  padding-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  gap: 0;
+}
+
+body.mobile #sidebar.open {
+  visibility: visible;
+  transform: translateY(0);
+  transition: transform 0.3s cubic-bezier(0.4,0,0.2,1), visibility 0s linear 0s;
+}
+
+/* ─── Sheet drag handle ──────────────────────────────────── */
+.sheet-handle-bar {
+  width: 44px;
+  height: 4px;
+  background: rgba(95,168,211,0.35);
+  border-radius: 2px;
+  margin: 10px auto 0;
+  flex-shrink: 0;
+}
+
+/* ─── Sheet header ───────────────────────────────────────── */
+.sheet-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 8px 8px;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(31,42,61,0.8);
+  direction: rtl;
+}
+
+.sheet-header h1 {
+  flex: 1;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: #5fc8e8;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-shadow: 0 0 12px rgba(95,200,232,0.3);
+}
+
+.sheet-header-btns {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  direction: ltr;
+}
+
+.sheet-header-btns button {
+  height: 34px;
+  padding: 0 8px;
+  font-size: 11px;
+  border-radius: 4px;
+}
+
+.sheet-close-btn {
+  width: 34px;
+  height: 34px;
+  background: rgba(20,30,48,0.8);
+  border: 1px solid rgba(42,58,85,0.7);
+  border-radius: 4px;
+  color: rgba(143,180,201,0.7);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sheet-close-btn:hover {
+  background: rgba(42,58,85,0.8);
+  color: #fbbf24;
+}
+
+/* ─── Side toggle row inside sheet ──────────────────────── */
+.sheet-side-toggle {
+  padding: 8px 12px;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(31,42,61,0.6);
+}
+
+/* ─── Scrollable sheet content ───────────────────────────── */
+body.mobile #sidebar-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+/* ─── Sheet footer: reset button ────────────────────────── */
+.sheet-footer {
+  padding: 8px 12px;
+  flex-shrink: 0;
+  border-top: 1px solid rgba(31,42,61,0.8);
+}
+
+.sheet-footer button.full-width {
+  width: 100%;
+  justify-content: center;
+  min-height: 44px;
+}
+
+/* ─── Touch-friendly tap targets ────────────────────────── */
+body.mobile .btn-grid button,
+body.mobile .control-buttons > button,
+body.mobile .diff-btn,
+body.mobile .side-btn {
+  min-height: 44px;
+  font-size: 13px;
+}
+
+/* ─── Mission banner overlay ──────────────────────────────
+   Pin to top-LEFT so it doesn't fight with the HUD that the
+   canvas draws on the top-RIGHT corner. */
+body.mobile #banner-group {
+  top: 8px;
+  left: 8px;
+  right: auto;
+  transform: none;
+  flex-direction: column;
+  gap: 3px;
+  max-width: calc(100vw - 150px);
+  align-items: flex-start;
+  direction: rtl;
+}
+
+body.mobile #banner {
+  font-size: 12px;
+  padding: 6px 12px;
+  letter-spacing: 0.3px;
+  max-height: 2em;
+  overflow: hidden;
+  direction: rtl;
+  text-align: right;
+}
+
+body.mobile #step-guide-overlay {
+  display: none;
+  direction: rtl;
+  text-align: right;
+}
+
+body.mobile #mission-expand-btn {
+  display: block;
+  background: rgba(8,12,22,0.88);
+  border: 1px solid rgba(95,168,211,0.28);
+  border-radius: 0 0 4px 4px;
+  color: rgba(95,168,211,0.8);
+  font-size: 10px;
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 600;
+  padding: 3px 10px;
+  cursor: pointer;
+  text-align: center;
+  letter-spacing: 0.5px;
+  width: 100%;
+}
+
+body.mobile #banner-group.expanded #banner      { max-height: none; }
+body.mobile #banner-group.expanded #step-guide-overlay { display: block; }
+body.mobile #banner-group.expanded #mission-expand-btn {
+  border-radius: 4px;
+  border-top: none;
+}
+
+/* ─── Scrubber: floating overlay on map ─────────────────── */
+body.mobile #map-container > #scrubber-row {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 50;
+  margin-top: 0;
+  background: rgba(8,12,22,0.94);
+  border: 1px solid rgba(95,168,211,0.35);
+  border-radius: 8px;
+  padding: 8px 12px;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* ─── Battery legend: compact, pinned bottom-left ────────── */
+body.mobile #battery-legend {
+  left: 8px;
+  right: auto;
+  bottom: 8px;
+  padding: 5px 8px;
+  min-width: 0;
+  max-width: calc(100vw - 70px);
+  font-size: 9px;
+}
+
+body.mobile #battery-legend .battery-legend-title {
+  font-size: 10px;
+  padding-bottom: 2px;
+  margin-bottom: 3px;
+}
+
+body.mobile #battery-legend .battery-legend-row {
+  font-size: 9px;
+  margin: 1px 0;
+  gap: 4px;
+}
+
+body.mobile #battery-legend .battery-legend-swatch {
+  width: 8px;
+  height: 8px;
+}
+
+body.mobile #battery-legend .battery-legend-name {
+  min-width: 60px;
+  font-size: 10px;
+}
+
+body.mobile #battery-legend .battery-legend-stats {
+  font-size: 8.5px;
+}
+
+/* Push battery legend above scrubber when replay is active */
+body.mobile #map-container.scrubber-active #battery-legend {
+  bottom: 86px;
+}
+
+/* ─── Floating budget pill (bottom strip, hugs the action bar) ──
+   Tuned to fit all chips on a single row on a typical phone width. */
+#mobile-budget-pill {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  right: 6px;
+  z-index: 25;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 2px;
+  direction: ltr;
+  pointer-events: none;
+}
+
+.budget-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 3px 1px 2px;
+  background: rgba(8,12,22,0.9);
+  border: 1px solid;
+  border-radius: 3px;
+  font-family: 'Share Tech Mono', 'Courier New', monospace;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  font-size: 8px;
+  line-height: 1.2;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.55);
+}
+
+.budget-chip-count {
+  color: #fff;
+  background: rgba(0,0,0,0.55);
+  padding: 0 3px;
+  border-radius: 2px;
+  font-size: 8px;
+  min-width: 18px;
+  text-align: center;
+}
+
+.budget-chip.depleted    { opacity: 0.32; }
+.budget-chip.active      { box-shadow: 0 0 0 1px currentColor, 0 0 8px rgba(95,200,232,0.45); }
+
+/* When the budget pill is on screen, free the bottom-left corner of
+   the map so it doesn't fight with the chips. The static legend can
+   be re-read from the tutorial; the live budget is more important. */
+body.mobile #map-container.challenge-active #legend-overlay {
+  display: none;
+}
+
+/* In attack mode the bottom-left already shows the system's battery
+   legend, so float the pill above it. */
+body.mobile #map-container.attack-challenge #mobile-budget-pill {
+  bottom: 108px;
+}
+
+/* Replay scrubber takes priority — hide the pill during scrub. */
+body.mobile #map-container.scrubber-active #mobile-budget-pill {
+  display: none;
+}
+
+/* ─── Floating "Start new game" CTA after sim ends ──────── */
+#mobile-new-game-cta {
+  position: absolute;
+  top: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 35;
+  background: linear-gradient(180deg, rgba(95,168,107,0.95) 0%, rgba(60,120,75,0.95) 100%);
+  border: 1px solid rgba(134,239,172,0.7);
+  border-radius: 6px;
+  padding: 9px 16px;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.4), 0 0 22px rgba(95,168,107,0.35);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.45);
+  animation: newGameCtaPop 0.35s ease-out;
+}
+#mobile-new-game-cta:active {
+  transform: translateX(-50%) scale(0.97);
+}
+@keyframes newGameCtaPop {
+  0%   { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+  100% { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ─── Legend overlay: compact ────────────────────────────── */
+body.mobile #legend-overlay {
+  font-size: 9px;
+  padding: 5px 8px;
+}
+
+/* ─── Backdrop ───────────────────────────────────────────── */
+body.mobile #mobile-backdrop {
+  display: block;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 90;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.28s ease;
+}
+
+body.mobile #mobile-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ─── Map controls: hidden (touch replaces them) ─────────── */
+body.mobile #map-controls {
+  display: none;
+}
+
+/* ─── Step guide text alignment ──────────────────────────── */
+body.mobile .step-guide-title,
+body.mobile #step-guide .step {
+  direction: rtl;
+  text-align: right;
+}
+
+/* ─── Modals: tighter on small screens ──────────────────── */
+@media (max-width: 480px) {
+  .modal-content          { max-width: calc(100vw - 16px); margin: 8px; }
+  .start-grid             { grid-template-columns: 1fr; }
+  .start-footer-row       { grid-template-columns: 1fr; }
+  .modal-summary          { grid-template-columns: 1fr 1fr; }
+  .results-table          { font-size: 11px; }
+  .results-table th,
+  .results-table td       { padding: 5px 4px; }
+  .tutorial-content       { max-height: 90vh; }
+}
+
+/* ─── Start modal: compact + scrollable on mobile ─────────
+   Goal: everything visible at once on a typical phone screen,
+   and if it overflows the body scrolls (not the modal). */
+body.mobile .modal                       { padding: 6px; }
+body.mobile .modal-content.start-content {
+  max-width: calc(100vw - 12px);
+  max-height: 94vh;
+  margin: 0;
+}
+body.mobile .modal-content.start-content .modal-header { padding: 7px 12px; }
+body.mobile .modal-content.start-content .modal-header h2 {
+  font-size: 12.5px;
+  line-height: 1.25;
+  letter-spacing: 0.5px;
+}
+body.mobile #start-body {
+  padding: 8px 12px 10px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+body.mobile .start-intro {
+  font-size: 10.5px;
+  line-height: 1.4;
+  margin-bottom: 7px;
+}
+body.mobile .start-grid {
+  grid-template-columns: 1fr;
+  gap: 7px;
+  margin-bottom: 7px;
+}
+body.mobile .start-section { padding: 7px 9px; }
+body.mobile .start-section-title {
+  font-size: 13px;
+  margin-bottom: 1px;
+}
+body.mobile .start-section-sub {
+  font-size: 9.5px;
+  line-height: 1.3;
+  margin-bottom: 5px;
+  min-height: 0;
+}
+body.mobile .start-section .start-buttons { gap: 4px; }
+body.mobile .start-section .start-buttons .diff-btn {
+  padding: 6px 4px;
+  font-size: 10.5px;
+  min-height: 34px;
+}
+body.mobile .start-section-extreme {
+  margin-top: 4px;
+  padding: 4px 6px;
+  font-size: 9px;
+  line-height: 1.3;
+}
+body.mobile .start-footer-row {
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 6px;
+}
+body.mobile #start-tutorial-btn,
+body.mobile #start-free-btn {
+  font-size: 10.5px;
+  padding: 7px 8px;
+  min-height: 34px;
+}
+body.mobile #profile-strip {
+  padding: 6px 10px;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+body.mobile .ps-rank  { font-size: 12px; }
+body.mobile .ps-stats { font-size: 8px; gap: 6px; }
+body.mobile .award-block {
+  padding: 9px 12px;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+body.mobile .award-score-num { font-size: 30px; }
+body.mobile .award-rank-name { font-size: 14px; }
+body.mobile #leaderboard {
+  padding: 6px 9px;
+  margin-bottom: 7px;
+}
+body.mobile .lb-title  { font-size: 11px; }
+body.mobile .lb-table  { font-size: 9.5px; }
+body.mobile .lb-table th { font-size: 8px; }
+body.mobile .lb-table td { padding: 2px 4px; }

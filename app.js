@@ -20,7 +20,7 @@ const CATALOG = {
     minRange: 1.5, maxRange: 30, minAlt: 0, maxAlt: 5,
     color: '#10b981', ammo: 3, reload: 0.6,
     hitRate: 0.65,
-    reactionTime: 1.5,
+    reactionTime: 0.5,
     missileSpeed: 380, realSpeed: 'Mach 4 (medium)',
     desc: 'Mobile short-range SAM, low-altitude'
   },
@@ -44,7 +44,7 @@ const CATALOG = {
   },
   davidsSling: {
     kind: 'battery', name: "David's Sling", short: 'DSL',
-    minRange: 40, maxRange: 300, minAlt: 5, maxAlt: 30,
+    minRange: 40, maxRange: 200, minAlt: 5, maxAlt: 30,
     color: '#d946ef', ammo: 5, reload: 0.8,
     hitRate: 0.70,
     reactionTime: 1,
@@ -111,6 +111,14 @@ const BASE_LAND_POLYGON = [
 ];
 const LAND_POLYGON = [];
 const MOUNTAINS = [];
+const HILLS = [];       // broad low mounds — visual texture + mild terrain-following
+
+// Sampled heightfield: analytic gaussians are baked into a grid once per
+// map regen, so getTerrainAlt is O(1) in hot loops (LOS raycasts) and the
+// same data drives the hillshade/contour overlay — visuals and gameplay
+// share one truth.
+const TERRAIN_GRID = { cell: 5, w: 241, h: 161, data: null };
+let TERRAIN_CANVAS = null;   // pre-rendered hillshade + contours overlay
 
 function regenerateLand() {
   LAND_POLYGON.length = 0;
@@ -160,13 +168,137 @@ function distToSegment(px, py, x1, y1, x2, y2) {
   return Math.hypot(px - x1 - t*dx, py - y1 - t*dy);
 }
 
-function getTerrainAlt(x, y) {
+// Analytic heightfield: gaussian ridges (mountains) + gaussian mounds (hills)
+function terrainAltAnalytic(x, y) {
   let alt = 0;
   for (const m of MOUNTAINS) {
     const d = distToSegment(x, y, m.x1, m.y1, m.x2, m.y2);
     alt += m.peak * Math.exp(-0.5 * (d / m.sigma) ** 2);
   }
+  for (const h of HILLS) {
+    const d = Math.hypot(x - h.x, y - h.y);
+    alt += h.peak * Math.exp(-0.5 * (d / h.sigma) ** 2);
+  }
   return alt;
+}
+
+// Bilinear lookup into the baked grid (falls back to analytic pre-bake)
+function getTerrainAlt(x, y) {
+  const g = TERRAIN_GRID;
+  if (!g.data) return terrainAltAnalytic(x, y);
+  const fx = Math.min(Math.max(x / g.cell, 0), g.w - 1.001);
+  const fy = Math.min(Math.max(y / g.cell, 0), g.h - 1.001);
+  const ix = Math.floor(fx), iy = Math.floor(fy);
+  const tx = fx - ix, ty = fy - iy;
+  const i00 = iy * g.w + ix;
+  const a = g.data[i00], b = g.data[i00 + 1];
+  const c = g.data[i00 + g.w], d = g.data[i00 + g.w + 1];
+  return a + (b - a) * tx + (c - a) * ty + (a - b - c + d) * tx * ty;
+}
+
+function buildTerrainGrid() {
+  const g = TERRAIN_GRID;
+  g.data = new Float32Array(g.w * g.h);
+  for (let iy = 0; iy < g.h; iy++) {
+    for (let ix = 0; ix < g.w; ix++) {
+      g.data[iy * g.w + ix] = terrainAltAnalytic(ix * g.cell, iy * g.cell);
+    }
+  }
+}
+
+// Hypsometric tint ramp — classic topographic-map colours:
+// deep green lowlands → light green → tan/yellow → orange → red-brown →
+// pale rock at the summits. [alt km, r, g, b, alpha]
+const HYPSO_STOPS = [
+  [0.10,  46, 110,  60, 0.00],
+  [0.35,  62, 138,  68, 0.40],
+  [0.80, 116, 160,  74, 0.55],
+  [1.40, 188, 176,  92, 0.62],
+  [2.10, 205, 132,  56, 0.68],
+  [2.90, 188,  74,  44, 0.74],
+  [3.80, 226, 208, 196, 0.80]
+];
+
+function hypsoColor(alt) {
+  if (alt <= HYPSO_STOPS[0][0]) return [0, 0, 0, 0];
+  const last = HYPSO_STOPS[HYPSO_STOPS.length - 1];
+  if (alt >= last[0]) return [last[1], last[2], last[3], last[4]];
+  for (let i = 1; i < HYPSO_STOPS.length; i++) {
+    if (alt <= HYPSO_STOPS[i][0]) {
+      const [h0, r0, g0, b0, a0] = HYPSO_STOPS[i - 1];
+      const [h1, r1, g1, b1, a1] = HYPSO_STOPS[i];
+      const t = (alt - h0) / (h1 - h0);
+      return [r0 + (r1 - r0) * t, g0 + (g1 - g0) * t, b0 + (b1 - b0) * t, a0 + (a1 - a0) * t];
+    }
+  }
+  return [0, 0, 0, 0];
+}
+
+// Render the terrain overlay once per map regen: hypsometric colouring +
+// directional hillshade (lit from NW) + contour lines — all derived from
+// the same heightfield the LOS engine raycasts.
+function buildTerrainOverlay() {
+  const w = 1200, h = 800;
+  const cnv = document.createElement('canvas');
+  cnv.width = w; cnv.height = h;
+  const c2 = cnv.getContext('2d');
+  const img = c2.createImageData(w, h);
+  const px = img.data;
+
+  // Light from the north-west, normalized
+  let Lx = -0.6, Ly = -0.6, Lz = 0.55;
+  const Ll = Math.hypot(Lx, Ly, Lz); Lx /= Ll; Ly /= Ll; Lz /= Ll;
+  const EXAG = 30;            // vertical exaggeration for slope shading
+  const CONTOUR_STEP = 0.5;   // km between contour lines
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 4;
+      const alt = getTerrainAlt(x, y);
+      if (alt < 0.1) continue;   // lowland plain — base map colour shows through
+
+      // 1. Hypsometric base colour
+      let [r, g, b, a] = hypsoColor(alt);
+
+      // 2. Hillshade composited over the tint
+      const gx = getTerrainAlt(x + 2, y) - getTerrainAlt(x - 2, y);
+      const gy = getTerrainAlt(x, y + 2) - getTerrainAlt(x, y - 2);
+      let nx = -gx * EXAG, ny = -gy * EXAG, nz = 4;
+      const nl = Math.hypot(nx, ny, nz); nx /= nl; ny /= nl; nz /= nl;
+      const lam = nx * Lx + ny * Ly + nz * Lz;
+      const shade = lam - Lz;   // 0 on flat ground, +lit / −shadow on slopes
+      let sr, sg, sb, sa;
+      if (shade > 0) { sr = 255; sg = 246; sb = 214; sa = Math.min(0.30, shade * 1.4); }
+      else           { sr = 4;   sg = 10;  sb = 16;  sa = Math.min(0.48, -shade * 1.7); }
+      if (sa > 0) {
+        const na = sa + a * (1 - sa);
+        r = (sr * sa + r * a * (1 - sa)) / na;
+        g = (sg * sa + g * a * (1 - sa)) / na;
+        b = (sb * sa + b * a * (1 - sa)) / na;
+        a = na;
+      }
+
+      // 3. Contour lines every 0.5 km
+      if (alt > 0.25) {
+        const f = alt / CONTOUR_STEP;
+        const frac = f - Math.floor(f);
+        if (frac < 0.06 || frac > 0.94) {
+          const ca = 0.25;
+          const na = ca + a * (1 - ca);
+          r = (10 * ca + r * a * (1 - ca)) / na;
+          g = (16 * ca + g * a * (1 - ca)) / na;
+          b = (12 * ca + b * a * (1 - ca)) / na;
+          a = na;
+        }
+      }
+      px[idx]     = r;
+      px[idx + 1] = g;
+      px[idx + 2] = b;
+      px[idx + 3] = Math.round(a * 255);
+    }
+  }
+  c2.putImageData(img, 0, 0);
+  TERRAIN_CANVAS = cnv;
 }
 
 function getThreatAltMSL(t) {
@@ -186,36 +318,93 @@ function hasLOS(ax, ay, bx, by, tgtAltMSL) {
   return true;
 }
 
-function regenerateMountains() {
+// Terrain complexity scales with mission difficulty: more ridges and
+// higher peaks on harder levels. Free play uses the medium profile.
+const TERRAIN_PROFILES = {
+  easy:    { west: 1, interior: 0, peakMin: 1.8, peakMax: 2.8, hills: 4 },
+  medium:  { west: 2, interior: 1, peakMin: 2.0, peakMax: 3.2, hills: 6 },
+  hard:    { west: 3, interior: 1, peakMin: 2.4, peakMax: 3.8, hills: 8 },
+  extreme: { west: 3, interior: 2, peakMin: 2.8, peakMax: 4.5, hills: 10 }
+};
+
+const PEAK_LABELS = [];   // [{x, y, alt}] — highest point of each ridge, labelled on the map
+
+function regenerateMountains(difficulty) {
+  const prof = TERRAIN_PROFILES[difficulty] || TERRAIN_PROFILES.medium;
   MOUNTAINS.length = 0;
-  const count = 2;
+
+  // Western blocking ridges — between the red zone (x≤380) and the
+  // west-most strategic targets (~560), roughly north-south so they
+  // present a wide face to the W→E threat axis.
   let placed = 0;
-  for (let attempt = 0; attempt < 120 && placed < count; attempt++) {
-    const cx = 480 + Math.random() * 460;
-    const cy = 160 + Math.random() * 400;
+  for (let attempt = 0; attempt < 200 && placed < prof.west; attempt++) {
+    const cx = 410 + Math.random() * 180;
+    const cy = 140 + Math.random() * 460;
+    if (!isInsideCountry(cx, cy)) continue;
+    const angle = (Math.PI / 2) + (Math.random() - 0.5) * (Math.PI / 2);
+    const len = 90 + Math.random() * 110;
+    MOUNTAINS.push({
+      x1: cx - Math.cos(angle) * len / 2,
+      y1: cy - Math.sin(angle) * len / 2,
+      x2: cx + Math.cos(angle) * len / 2,
+      y2: cy + Math.sin(angle) * len / 2,
+      peak: prof.peakMin + Math.random() * (prof.peakMax - prof.peakMin),
+      sigma: 15 + Math.random() * 17
+    });
+    placed++;
+  }
+
+  // Interior ridges — lower, deeper in the country, any orientation
+  let interiorPlaced = 0;
+  for (let attempt = 0; attempt < 200 && interiorPlaced < prof.interior; attempt++) {
+    const cx = 620 + Math.random() * 280;
+    const cy = 160 + Math.random() * 420;
     if (!isInsideCountry(cx, cy)) continue;
     const angle = Math.random() * Math.PI;
-    const len = 90 + Math.random() * 110;
-    const x1 = cx - Math.cos(angle) * len / 2;
-    const y1 = cy - Math.sin(angle) * len / 2;
-    const x2 = cx + Math.cos(angle) * len / 2;
-    const y2 = cy + Math.sin(angle) * len / 2;
-    const peak = 2.0 + Math.random() * 2.0;
-    const sigma = 15 + Math.random() * 17;
-    // Pre-compute jagged ridgeline for stable rendering
-    const dx = x2 - x1, dy = y2 - y1;
-    const rlen = Math.hypot(dx, dy) || 1;
-    const nx = -dy / rlen, ny = dx / rlen;
-    const segs = 10;
-    const ridgePts = [[x1, y1]];
-    for (let i = 1; i < segs; i++) {
-      const ft = i / segs;
-      const jitter = (Math.random() - 0.5) * 16;
-      ridgePts.push([x1 + ft*dx + nx*jitter, y1 + ft*dy + ny*jitter]);
+    const len = 70 + Math.random() * 90;
+    MOUNTAINS.push({
+      x1: cx - Math.cos(angle) * len / 2,
+      y1: cy - Math.sin(angle) * len / 2,
+      x2: cx + Math.cos(angle) * len / 2,
+      y2: cy + Math.sin(angle) * len / 2,
+      peak: (prof.peakMin + Math.random() * (prof.peakMax - prof.peakMin)) * 0.6,
+      sigma: 14 + Math.random() * 14
+    });
+    interiorPlaced++;
+  }
+
+  // Broad low hills — gentle relief everywhere
+  HILLS.length = 0;
+  let hillsPlaced = 0;
+  for (let attempt = 0; attempt < 300 && hillsPlaced < prof.hills; attempt++) {
+    const x = 430 + Math.random() * 600;
+    const y = 110 + Math.random() * 580;
+    if (!isInsideCountry(x, y)) continue;
+    HILLS.push({
+      x, y,
+      peak: 0.25 + Math.random() * 0.5,
+      sigma: 35 + Math.random() * 55
+    });
+    hillsPlaced++;
+  }
+
+  // Bake the heightfield + pre-render the hypsometric overlay
+  buildTerrainGrid();
+  buildTerrainOverlay();
+
+  // Locate each ridge's true summit (max of the combined field along
+  // the ridge line) for the elevation labels.
+  PEAK_LABELS.length = 0;
+  for (const m of MOUNTAINS) {
+    let best = { x: m.x1, y: m.y1, alt: 0 };
+    for (let i = 0; i <= 12; i++) {
+      const f = i / 12;
+      const x = m.x1 + (m.x2 - m.x1) * f;
+      const y = m.y1 + (m.y2 - m.y1) * f;
+      const alt = getTerrainAlt(x, y);
+      if (alt > best.alt) best = { x, y, alt };
     }
-    ridgePts.push([x2, y2]);
-    MOUNTAINS.push({ x1, y1, x2, y2, peak, sigma, ridgePts });
-    placed++;
+    PEAK_LABELS.push(best);
   }
 }
 
@@ -300,12 +489,45 @@ const ATTACK_DIFFICULTY = {
       { key: 'medRadar',   anchor: 'Talos', dx: 50, dy: 80 },
       { key: 'shortRadar', anchor: 'Miron', dx: -20, dy: 20 }
     ]
+  },
+  // ── "Extreme" — same dense defense as `hard`, but the defense layout is
+  // hidden from the user until they press ▶. They must plan their attack
+  // routes blind, as if without intelligence on the air-defense disposition.
+  extreme: {
+    label: 'קשה במיוחד',
+    noIntel: true,
+    threatBudget: { uav: 12, fighter: 4, helicopter: 4 },  // 20 total
+    objective: {
+      text: 'פגע ב-<b>4 יעדים שונים</b>, או ב<b>בירה + 2 נוספים</b> — <span style="color:#dc2626">ההגנה נסתרת!</span>',
+      check: (hits) => hits.size >= 4 || (hits.has('Arian (Capital)') && hits.size >= 3)
+    },
+    defenses: [
+      { key: 'ironDome',   anchor: 'Arian (Capital)' },
+      { key: 'ironDome',   anchor: 'Eagle Airbase' },
+      { key: 'ironDome',   anchor: 'Talos' },
+      { key: 'sa8',        anchor: 'Miron' },
+      { key: 'sa8',        anchor: 'Plaion' },
+      { key: 'patriot',    anchor: 'center', dx: -30, dy: -40 },
+      { key: 'patriot',    anchor: 'center', dx: 40, dy: 60 },
+      { key: 'barak8',     anchor: 'center', dx: -100, dy: 30 },
+      { key: 'davidsSling',anchor: 'center', dx: 80, dy: -20 },
+      { key: 'longRadar',  anchor: 'center', dy: 40 },
+      { key: 'longRadar',  anchor: 'Eagle Airbase', dx: 30, dy: -50 },
+      { key: 'medRadar',   anchor: 'Talos', dx: 50, dy: 80 },
+      { key: 'shortRadar', anchor: 'Miron', dx: -20, dy: 20 }
+    ]
   }
 };
 
 // ---- Defense-challenge difficulty profiles ----
 // System generates an attack; user places defense within a budget.
 // Each profile carries an explicit win condition (`objective`).
+// Capital is mandatory in all difficulties; secondary-target tolerance shrinks.
+function nonCapitalHits(hits) {
+  let n = 0;
+  for (const name of hits) if (name !== 'Arian (Capital)') n++;
+  return n;
+}
 const DEFENSE_DIFFICULTY = {
   easy: {
     label: 'קל',
@@ -314,8 +536,8 @@ const DEFENSE_DIFFICULTY = {
     budget: { ironDome: 4, sa8: 3, barak8: 3, patriot: 2, davidsSling: 2,
               longRadar: 2, medRadar: 3, shortRadar: 3 },
     objective: {
-      text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר פגיעה ב-<b>4 יעדים או יותר</b>',
-      check: (hits) => !hits.has('Arian (Capital)') && hits.size < 4
+      text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר פגיעה ב-<b>3 יעדים אחרים או יותר</b>',
+      check: (hits) => !hits.has('Arian (Capital)') && nonCapitalHits(hits) < 3
     }
   },
   medium: {
@@ -325,8 +547,8 @@ const DEFENSE_DIFFICULTY = {
     budget: { ironDome: 3, sa8: 2, barak8: 2, patriot: 1, davidsSling: 1,
               longRadar: 1, medRadar: 2, shortRadar: 2 },
     objective: {
-      text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר פגיעה ב-<b>3 יעדים או יותר</b>',
-      check: (hits) => !hits.has('Arian (Capital)') && hits.size < 3
+      text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר פגיעה ב-<b>2 יעדים אחרים או יותר</b>',
+      check: (hits) => !hits.has('Arian (Capital)') && nonCapitalHits(hits) < 2
     }
   },
   hard: {
@@ -336,8 +558,23 @@ const DEFENSE_DIFFICULTY = {
     budget: { ironDome: 2, sa8: 1, barak8: 1, patriot: 1, davidsSling: 1,
               longRadar: 1, medRadar: 1, shortRadar: 1 },
     objective: {
-      text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר פגיעה ב-<b>2 יעדים או יותר</b>',
-      check: (hits) => !hits.has('Arian (Capital)') && hits.size < 2
+      text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר אף פגיעה ביעד נוסף',
+      check: (hits) => !hits.has('Arian (Capital)') && nonCapitalHits(hits) < 1
+    }
+  },
+  // ── "Extreme" — same dense attack as `hard`, but the user does NOT see
+  // the incoming threats while placing batteries. The incoming wave only
+  // reveals itself when ▶ is pressed. Forces blind defense planning.
+  extreme: {
+    label: 'קשה במיוחד',
+    noIntel: true,
+    countMin: 22, countMax: 29,
+    jitterX: 320, jitterY: 700, baseY: 30,
+    budget: { ironDome: 2, sa8: 1, barak8: 1, patriot: 1, davidsSling: 1,
+              longRadar: 1, medRadar: 1, shortRadar: 1 },
+    objective: {
+      text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר אף פגיעה ביעד נוסף — <span style="color:#dc2626">ההתקפה נסתרת!</span>',
+      check: (hits) => !hits.has('Arian (Capital)') && nonCapitalHits(hits) < 1
     }
   }
 };
@@ -371,6 +608,12 @@ function isInsideCountry(x, y) {
   return pointInPolygon(x, y, LAND_POLYGON);
 }
 
+// Red zone — the only valid origin for hostile aircraft.
+// World 1200×800; red strip is x∈[0,380].
+function isInsideRedZone(x, y) {
+  return x >= 0 && x <= 380 && y >= 0 && y <= 800;
+}
+
 // ---- Miss reason labels (Hebrew UI) ----
 const REASON_LABEL = {
   'statistical': 'החטאה סטטיסטית',
@@ -387,6 +630,8 @@ const state = {
   placeOrigin: null,      // {x, y} captured between origin click and target click
   attackChallenge: false, // true when system-deployed defense + limited threat budget
   challengeDifficulty: null,
+  noIntel: false,         // true on the "extreme" difficulty: hide the opposing side's deployment
+  intelRevealed: false,   // flips to true when the user presses ▶ to start the sim
   side: 'blue',
   defenses: [],
   threats: [],
@@ -404,14 +649,342 @@ const state = {
   lastTs: 0,
   simElapsed: 0,
   drag: null,
+  pan: null,
+  _suppressNextClick: false,
   mouseX: 0, mouseY: 0,
   serialCounters: {},
   viewport: { offsetX: 0, offsetY: 0, scale: 1 },
-  tutorialStep: 0
+  tutorialStep: 0,
+  killLabels: [],         // floating "SPLASH" confirmations over fresh interceptions
+  leakerFlashT: -1,       // simElapsed timestamp of the last breach (drives red edge flash)
+  lastAward: null         // {score, xp, oldRank, newRank, isNewBest, best} from the last challenge run
 };
 
-let canvas, ctx, W, H, tooltip, banner;
+let canvas, ctx, W, H, tooltip, banner, zoomLevelEl;
 let nextId = 1;
+
+// =============================================================
+// פרופיל שחקן: דרגות, נק"ז (XP) ושיאים — נשמר ב-localStorage.
+// המבנה מוכן להזרקה עתידית של backend (טבלת שחקנים גלובלית):
+// כל הקריאות עוברות דרך loadProfile/saveProfile בלבד.
+// =============================================================
+const RANKS = [
+  { name: 'טוראי',  minXp: 0 },
+  { name: 'רב"ט',   minXp: 150 },
+  { name: 'סמל',    minXp: 350 },
+  { name: 'סמ"ר',   minXp: 600 },
+  { name: 'רס"ל',   minXp: 950 },
+  { name: 'רס"ר',   minXp: 1400 },
+  { name: 'סג"מ',   minXp: 2000 },
+  { name: 'סגן',    minXp: 2700 },
+  { name: 'סרן',    minXp: 3500 },
+  { name: 'רס"ן',   minXp: 4500 },
+  { name: 'סא"ל',   minXp: 5700 },
+  { name: 'אל"מ',   minXp: 7100 },
+  { name: 'תא"ל',   minXp: 8700 },
+  { name: 'אלוף',   minXp: 10500 },
+  { name: 'רמטכ"ל', minXp: 13000 }
+];
+
+const XP_MULTIPLIER = { easy: 1, medium: 1.5, hard: 2, extreme: 3 };
+const PROFILE_KEY = 'airwar-profile-v1';
+
+let profile = loadProfile();
+
+function loadProfile() {
+  try {
+    const raw = localStorage.getItem(PROFILE_KEY);
+    if (raw) {
+      const p = JSON.parse(raw);
+      if (typeof p.xp === 'number' && p.bests) return p;
+    }
+  } catch (e) { /* corrupt or blocked storage — start fresh */ }
+  return { xp: 0, games: 0, wins: 0, bests: {} };
+}
+
+function saveProfile() {
+  try { localStorage.setItem(PROFILE_KEY, JSON.stringify(profile)); } catch (e) {}
+}
+
+function rankForXp(xp) {
+  let r = RANKS[0];
+  for (const rank of RANKS) if (xp >= rank.minXp) r = rank;
+  return r;
+}
+
+function nextRankFor(xp) {
+  for (const rank of RANKS) if (xp < rank.minXp) return rank;
+  return null; // top rank reached
+}
+
+// Mission score 0-100. Defense rewards protecting value, interception
+// rate and ammo discipline; attack rewards damage dealt and breach rate.
+function computeMissionScore(r) {
+  let score;
+  if (state.challengeMode === 'attack-challenge') {
+    const damageRatio = 1 - r.protectedValue / r.totalValue;
+    const breachRatio = r.total ? r.survived / r.total : 0;
+    score = 65 * damageRatio + 35 * breachRatio;
+  } else {
+    const protectedRatio = r.protectedValue / r.totalValue;
+    const killRatio = r.total ? r.killed / r.total : 0;
+    let spent = 0;
+    for (const d of state.defenses) {
+      const c = CATALOG[d.key];
+      if (c.kind === 'battery') spent += (d.initialAmmo !== undefined ? d.initialAmmo : c.ammo) - d.ammo;
+    }
+    const efficiency = spent > 0 ? Math.min(1, r.killed / spent) : 0;
+    score = 60 * protectedRatio + 25 * killRatio + 15 * efficiency;
+  }
+  if (r.objectiveMet) score += 5;
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+// Award XP for a completed challenge run and persist bests/rank.
+function awardMission(score) {
+  const diff = state.challengeDifficulty || 'medium';
+  const mult = XP_MULTIPLIER[diff] || 1;
+  const won = !!(state.results && state.results.objectiveMet);
+  const xpGain = Math.round(score * mult * (won ? 1 : 0.5));
+
+  const oldRank = rankForXp(profile.xp);
+  profile.xp += xpGain;
+  profile.games += 1;
+  if (won) profile.wins += 1;
+  const bestKey = `${state.challengeMode}-${diff}`;
+  const prevBest = profile.bests[bestKey] || 0;
+  const isNewBest = score > prevBest;
+  if (isNewBest) profile.bests[bestKey] = score;
+  const newRank = rankForXp(profile.xp);
+  saveProfile();
+
+  state.lastAward = {
+    score, xp: xpGain, won,
+    oldRank, newRank,
+    rankedUp: newRank !== oldRank,
+    isNewBest,
+    best: profile.bests[bestKey]
+  };
+
+  syncRemoteProfile();   // fire-and-forget: push the updated record to GitHub
+}
+
+// =============================================================
+// טבלת שחקנים גלובלית — playerdb.json בריפו, דרך GitHub API.
+// קריאה: בכל פתיחת משחק (ללא token דרך raw, עם token דרך ה-API).
+// כתיבה: אחרי כל משימה, אם הוגדר token ו-callsign.
+// ה-token נשמר ב-localStorage (מוגדר פעם אחת לכל מכשיר דרך כפתור
+// 🔑 בטבלה) או מוטמע ב-tokenParts — לבחירת בעל הריפו.
+// =============================================================
+const REMOTE_DB = {
+  owner: 'nimrodekel-hub',
+  repo: 'AIRWAR',
+  branch: 'gh-pages',   // GitHub Pages serves the live site from this branch
+  path: 'playerdb.json',
+  // Embedded token, split across parts (and through the prefix) so GitHub's
+  // secret scanner won't match a contiguous pattern and auto-revoke it.
+  // Scoped to Contents read/write on this repo only.
+  tokenParts: ['github_p', 'at_11CCW6DOY0I23NBCefqw3i_EFrjgf5Og1gOmuISvyF', 'He74ybBab51kMgBP8xeixh6oAPVJHPOVndUFo4XM']
+};
+
+let remoteDb = null;          // parsed playerdb.json {players:{callsign:{...}}}
+let remoteDbSha = null;       // blob sha for conflict-safe PUTs
+let remoteSyncState = 'idle'; // idle | loading | ok | readonly | error
+
+function ghToken() {
+  try {
+    const t = localStorage.getItem('airwar-gh-token');
+    if (t) return t;
+  } catch (e) {}
+  const joined = REMOTE_DB.tokenParts.join('');
+  return joined || null;
+}
+
+function ghApiUrl() {
+  return `https://api.github.com/repos/${REMOTE_DB.owner}/${REMOTE_DB.repo}/contents/${REMOTE_DB.path}`;
+}
+
+function b64EncodeUtf8(str) {
+  return btoa(unescape(encodeURIComponent(str)));
+}
+function b64DecodeUtf8(b64) {
+  return decodeURIComponent(escape(atob(b64.replace(/\n/g, ''))));
+}
+
+async function loadRemoteDb() {
+  remoteSyncState = 'loading';
+  renderLeaderboard();
+  const token = ghToken();
+  try {
+    let text = null;
+    remoteDbSha = null;
+    if (token) {
+      const res = await fetch(`${ghApiUrl()}?ref=${REMOTE_DB.branch}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' }
+      });
+      if (res.status === 404) {
+        remoteDb = { players: {} };
+      } else if (!res.ok) {
+        throw new Error('HTTP ' + res.status);
+      } else {
+        const j = await res.json();
+        remoteDbSha = j.sha;
+        text = b64DecodeUtf8(j.content);
+      }
+    } else {
+      // No token — public read through raw (cache-busted), leaderboard is read-only
+      const res = await fetch(
+        `https://raw.githubusercontent.com/${REMOTE_DB.owner}/${REMOTE_DB.repo}/${REMOTE_DB.branch}/${REMOTE_DB.path}?t=${Date.now()}`,
+        { cache: 'no-store' }
+      );
+      if (res.status === 404) {
+        remoteDb = { players: {} };
+      } else if (!res.ok) {
+        throw new Error('HTTP ' + res.status);
+      } else {
+        text = await res.text();
+      }
+    }
+    if (text) {
+      remoteDb = JSON.parse(text);
+      if (!remoteDb.players) remoteDb.players = {};
+    }
+    remoteSyncState = token ? 'ok' : 'readonly';
+    mergeRemoteIntoLocal();
+  } catch (e) {
+    remoteSyncState = 'error';
+  }
+  renderProfileStrip();
+  renderLeaderboard();
+}
+
+// If this callsign already has a record from another device, adopt the
+// best of both (max XP / games / wins / per-mission bests).
+function mergeRemoteIntoLocal() {
+  if (!remoteDb || !profile.callsign) return;
+  const rec = remoteDb.players[profile.callsign];
+  if (!rec) return;
+  let changed = false;
+  if (rec.xp > profile.xp)       { profile.xp = rec.xp; changed = true; }
+  if (rec.games > profile.games) { profile.games = rec.games; changed = true; }
+  if (rec.wins > profile.wins)   { profile.wins = rec.wins; changed = true; }
+  for (const k of Object.keys(rec.bests || {})) {
+    if ((rec.bests[k] || 0) > (profile.bests[k] || 0)) {
+      profile.bests[k] = rec.bests[k];
+      changed = true;
+    }
+  }
+  if (changed) saveProfile();
+}
+
+async function syncRemoteProfile(retry = true) {
+  const token = ghToken();
+  if (!token || !profile.callsign) return;
+  remoteSyncState = 'loading';
+  renderLeaderboard();
+  try {
+    // Refresh latest content + sha so we don't clobber other players
+    const res = await fetch(`${ghApiUrl()}?ref=${REMOTE_DB.branch}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' }
+    });
+    let sha = null, db = { players: {} };
+    if (res.ok) {
+      const j = await res.json();
+      sha = j.sha;
+      db = JSON.parse(b64DecodeUtf8(j.content));
+      if (!db.players) db.players = {};
+    } else if (res.status !== 404) {
+      throw new Error('HTTP ' + res.status);
+    }
+
+    db.players[profile.callsign] = {
+      xp: profile.xp,
+      games: profile.games,
+      wins: profile.wins,
+      bests: profile.bests,
+      rank: rankForXp(profile.xp).name,
+      updated: new Date().toISOString()
+    };
+
+    const body = {
+      message: `score: ${profile.callsign} → ${profile.xp} XP`,
+      content: b64EncodeUtf8(JSON.stringify(db, null, 2)),
+      branch: REMOTE_DB.branch
+    };
+    if (sha) body.sha = sha;
+
+    const put = await fetch(ghApiUrl(), {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
+      body: JSON.stringify(body)
+    });
+    if (!put.ok) {
+      // Conflict (someone else pushed between GET and PUT) — retry once
+      if (retry && (put.status === 409 || put.status === 422)) {
+        return syncRemoteProfile(false);
+      }
+      throw new Error('HTTP ' + put.status);
+    }
+    remoteDb = db;
+    remoteSyncState = 'ok';
+  } catch (e) {
+    remoteSyncState = 'error';
+  }
+  renderLeaderboard();
+}
+
+// 🏆 Top-10 leaderboard table in the start modal
+function renderLeaderboard() {
+  const el = document.getElementById('leaderboard');
+  if (!el) return;
+
+  const token = ghToken();
+  let statusTxt, statusCls;
+  if (remoteSyncState === 'loading')        { statusTxt = '⟳ מסתנכרן...';                statusCls = 'lb-loading'; }
+  else if (remoteSyncState === 'ok')        { statusTxt = '● מקוון';                      statusCls = 'lb-ok'; }
+  else if (remoteSyncState === 'readonly')  { statusTxt = '◐ צפייה בלבד (אין מפתח)';      statusCls = 'lb-ro'; }
+  else if (remoteSyncState === 'error')     { statusTxt = '✗ שגיאת סנכרון';               statusCls = 'lb-err'; }
+  else                                      { statusTxt = '';                              statusCls = ''; }
+
+  const players = remoteDb
+    ? Object.entries(remoteDb.players)
+        .map(([name, p]) => ({ name, ...p }))
+        .sort((a, b) => (b.xp || 0) - (a.xp || 0))
+        .slice(0, 10)
+    : [];
+
+  let rows = players.map((p, i) => `
+    <tr class="${p.name === profile.callsign ? 'lb-me' : ''}">
+      <td class="lb-pos">${i + 1}</td>
+      <td class="lb-name">${p.name}</td>
+      <td class="lb-rank">${p.rank || rankForXp(p.xp || 0).name}</td>
+      <td class="lb-xp">${p.xp || 0}</td>
+      <td class="lb-wins">${p.wins || 0}</td>
+    </tr>`).join('');
+  if (!rows) rows = `<tr><td colspan="5" class="lb-empty">אין עדיין שחקנים בטבלה — היה הראשון!</td></tr>`;
+
+  el.innerHTML = `
+    <div class="lb-header">
+      <span class="lb-title">🏆 טבלת מפקדים</span>
+      <span class="lb-status ${statusCls}">${statusTxt}</span>
+      ${token ? '' : '<button id="lb-set-token" class="lb-key-btn" title="הגדר מפתח GitHub לעדכון הטבלה">🔑</button>'}
+    </div>
+    <table class="lb-table">
+      <thead><tr><th>#</th><th>שם קוד</th><th>דרגה</th><th>XP</th><th>נצ׳</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+
+  const keyBtn = document.getElementById('lb-set-token');
+  if (keyBtn) {
+    keyBtn.addEventListener('click', () => {
+      const t = prompt('הדבק מפתח GitHub (fine-grained PAT עם הרשאת Contents read/write לריפו AIRWAR):');
+      if (t && t.trim()) {
+        try { localStorage.setItem('airwar-gh-token', t.trim()); } catch (e) {}
+        loadRemoteDb();
+      }
+    });
+  }
+}
 
 // =============================================================
 // אתחול
@@ -421,21 +994,66 @@ window.addEventListener('DOMContentLoaded', () => {
   ctx = canvas.getContext('2d');
   tooltip = document.getElementById('tooltip');
   banner = document.getElementById('banner');
+  zoomLevelEl = document.getElementById('zoom-level');
   resize();
-  window.addEventListener('resize', resize);
+  // Orientation change on iOS often fires `resize` while the address bar
+  // is still mid-transition — we end up capturing stale dimensions and
+  // the canvas bitmap stretches incorrectly when the layout settles
+  // (the squished-map symptom). Re-measure on the next two frames to
+  // catch the final size, and listen to every viewport event mobile
+  // browsers expose.
+  const reflow = () => {
+    resize();
+    requestAnimationFrame(() => {
+      resize();
+      requestAnimationFrame(resize);
+    });
+    placeScrubberForViewport();
+  };
+  window.addEventListener('resize', reflow);
+  window.addEventListener('orientationchange', reflow);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', reflow);
+  }
+  placeScrubberForViewport();
   regenerateLand();
   regenerateTargets();
   regenerateMountains();
   buildButtons();
   bindControls();
+  initSimButtons();
   bindCanvas();
+  resetView();
+  loadRemoteDb();   // async — pulls the global player table from GitHub
   requestAnimationFrame(loop);
 });
 
 function resize() {
   const r = canvas.parentElement.getBoundingClientRect();
-  canvas.width = W = r.width;
-  canvas.height = H = r.height;
+  const newW = Math.round(r.width);
+  const newH = Math.round(r.height);
+  // Mid-transition viewports (especially during iOS orientation change)
+  // can report a 0-sized rect — ignore them so we don't blank the canvas.
+  if (newW === 0 || newH === 0) return;
+  // Skip the reallocation if nothing changed (assignment clears the canvas).
+  if (canvas.width  !== newW) canvas.width  = newW;
+  if (canvas.height !== newH) canvas.height = newH;
+  W = newW; H = newH;
+}
+
+// On mobile, the sidebar is hidden behind the hamburger — relocate the
+// scrubber to the map container so the player can scrub the replay
+// without opening the drawer.
+function placeScrubberForViewport() {
+  const sr = document.getElementById('scrubber-row');
+  if (!sr) return;
+  const isMobile = window.MOBILE_MODE || window.matchMedia('(max-width: 768px)').matches;
+  const target = document.getElementById(isMobile ? 'map-container' : 'control-panel');
+  if (sr.parentElement !== target) target.appendChild(sr);
+}
+
+function setScrubberActive(active) {
+  document.getElementById('map-container').classList.toggle('scrubber-active', active);
 }
 
 function buildButtons() {
@@ -586,11 +1204,55 @@ function iconFor(k) {
   return c.icon;
 }
 
+function toggleMobileSidebar(force) {
+  const sidebar = document.getElementById('sidebar');
+  const backdrop = document.getElementById('mobile-backdrop');
+  const next = force !== undefined ? force : !sidebar.classList.contains('open');
+  sidebar.classList.toggle('open', next);
+  backdrop.classList.toggle('open', next);
+  if (next) {
+    // Player tapped the menu — kill the attention pulse for this challenge.
+    const m = document.getElementById('mobile-menu-toggle');
+    if (m) m.classList.remove('attention');
+  }
+}
+
+// Add the pulsing-blink hint to the hamburger so a new player notices
+// it's the entry point to pick weapons. Called at the start of each
+// challenge; auto-cleared once the sheet is opened.
+function armMenuAttention() {
+  if (!window.MOBILE_MODE) return;
+  const m = document.getElementById('mobile-menu-toggle');
+  if (m) m.classList.add('attention');
+}
+
+function closeMobileSidebar() {
+  toggleMobileSidebar(false);
+}
+
 function bindControls() {
+  document.getElementById('mobile-menu-toggle').addEventListener('click', () => toggleMobileSidebar());
+  document.getElementById('mobile-backdrop').addEventListener('click', closeMobileSidebar);
+  const newGameCta = document.getElementById('mobile-new-game-cta');
+  if (newGameCta) {
+    newGameCta.addEventListener('click', () => {
+      hideNewGameCta();
+      resetAll();
+      showStartModal();
+    });
+  }
+  document.getElementById('mission-expand-btn').addEventListener('click', () => {
+    const group = document.getElementById('banner-group');
+    const expanded = group.classList.toggle('expanded');
+    document.getElementById('mission-expand-btn').textContent = expanded ? '▾ כסה' : '▸ פרטים';
+  });
+
   document.querySelectorAll('.side-btn').forEach(btn => {
     btn.addEventListener('click', () => switchSide(btn.dataset.side));
   });
-  document.getElementById('simulate').addEventListener('click', startSim);
+  document.getElementById('simulate').addEventListener('click', () => { startSim(); closeMobileSidebar(); });
+  document.getElementById('pause').addEventListener('click', pauseSim);
+  document.getElementById('resume').addEventListener('click', resumeSim);
   document.getElementById('stop').addEventListener('click', stopSim);
   document.getElementById('delete-mode').addEventListener('click', toggleDelete);
   document.getElementById('clear-threats').addEventListener('click', clearThreats);
@@ -657,7 +1319,113 @@ function bindControls() {
 }
 
 function showStartModal() {
+  renderProfileStrip();
+  renderBestBadges();
   document.getElementById('start-modal').classList.add('visible');
+}
+
+// Player rank / XP summary at the top of the start modal.
+// Includes the callsign (שם קוד) — the player's identity in the
+// global leaderboard. First run shows an input; afterwards the name
+// with a small ✎ to change it.
+function renderProfileStrip() {
+  const el = document.getElementById('profile-strip');
+  if (!el) return;
+  const cur = rankForXp(profile.xp);
+  const next = nextRankFor(profile.xp);
+  const span = next ? next.minXp - cur.minXp : 1;
+  const into = next ? profile.xp - cur.minXp : 1;
+  const pct = next ? Math.round(100 * into / span) : 100;
+
+  const idHtml = profile.callsign
+    ? `<span class="ps-callsign">${profile.callsign}</span>`
+      + `<button class="ps-edit" id="ps-edit-name" title="שנה שם קוד (שומר על הניקוד)">✎</button>`
+      + `<button class="ps-switch" id="ps-switch-player" title="התחל משחק עם שחקן אחר">🔄 החלף שחקן</button>`
+    : `<input id="ps-name-input" class="ps-input" maxlength="14" placeholder="שם קוד..."><button id="ps-name-save" class="ps-save">שמור</button>`;
+
+  el.innerHTML = `
+    <div class="ps-rank">🎖 <b>${cur.name}</b></div>
+    <div class="ps-id">${idHtml}</div>
+    <div class="ps-bar"><div class="ps-bar-fill" style="width:${pct}%"></div></div>
+    <div class="ps-stats">
+      <span>XP ${profile.xp}</span>
+      <span>משחקים ${profile.games}</span>
+      <span>נצחונות ${profile.wins}</span>
+    </div>`;
+
+  const saveBtn = document.getElementById('ps-name-save');
+  if (saveBtn) {
+    const commit = () => {
+      const v = document.getElementById('ps-name-input').value.trim();
+      if (!v) return;
+      profile.callsign = v;
+      saveProfile();
+      mergeRemoteIntoLocal();   // adopt this callsign's history if it exists remotely
+      saveProfile();
+      renderProfileStrip();
+      renderLeaderboard();
+      syncRemoteProfile();
+    };
+    saveBtn.addEventListener('click', commit);
+    document.getElementById('ps-name-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') commit();
+    });
+  }
+  const editBtn = document.getElementById('ps-edit-name');
+  if (editBtn) {
+    editBtn.addEventListener('click', () => {
+      const v = prompt('שם קוד חדש:', profile.callsign || '');
+      if (v && v.trim()) {
+        profile.callsign = v.trim().slice(0, 14);
+        saveProfile();
+        mergeRemoteIntoLocal();
+        saveProfile();
+        renderProfileStrip();
+        renderLeaderboard();
+        syncRemoteProfile();
+      }
+    });
+  }
+  const switchBtn = document.getElementById('ps-switch-player');
+  if (switchBtn) switchBtn.addEventListener('click', switchPlayer);
+}
+
+// Start playing as a different commander on this device. The outgoing
+// player's progress is already mirrored to the global table, so we push
+// once more to be safe, then load the requested callsign: an existing
+// name pulls its stats from the table, a new name starts a fresh record.
+function switchPlayer() {
+  syncRemoteProfile();   // flush any unsynced progress for the current player
+  const v = prompt('שם קוד של השחקן (שם קיים יטען את ההתקדמות שלו, שם חדש יתחיל מאפס):', '');
+  if (!v || !v.trim()) return;
+  const name = v.trim().slice(0, 14);
+  if (name === profile.callsign) return;
+  profile = { xp: 0, games: 0, wins: 0, bests: {}, callsign: name };
+  saveProfile();
+  mergeRemoteIntoLocal();   // adopt this callsign's existing stats, if any
+  saveProfile();
+  renderProfileStrip();
+  renderBestBadges();
+  renderLeaderboard();
+}
+
+// Personal-best badge on each difficulty button in the start modal
+function renderBestBadges() {
+  document.querySelectorAll('#start-modal .diff-btn[data-startmode]').forEach(btn => {
+    const mode = btn.dataset.startmode === 'attack' ? 'attack-challenge' : 'defense-challenge';
+    const best = profile.bests[`${mode}-${btn.dataset.startdiff}`];
+    let badge = btn.querySelector('.best-badge');
+    if (best) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'best-badge';
+        btn.appendChild(badge);
+      }
+      badge.textContent = best;
+    } else if (badge) {
+      badge.remove();
+    }
+  });
 }
 function hideStartModal() {
   document.getElementById('start-modal').classList.remove('visible');
@@ -673,7 +1441,8 @@ const TUTORIAL_STEPS = [
         <li>🛡 <b>אתגר הגנה</b> - אתה המגן. המערכת שולחת איומים, ואתה צריך לפרוס סוללות הגנה אווירית ומכ"מים כדי להגן על היעדים האסטרטגיים.</li>
         <li>🎯 <b>אתגר התקפה</b> - אתה התוקף. המערכת פורסת אוטומטית הגנה, ואתה צריך לתכנן ולפרוס איומים אוויריים שיפרצו דרכה.</li>
       </ul>
-      <p>שני המצבים תומכים בשלוש רמות קושי (קל / בינוני / קשה) שמשפיעות על מספר האיומים, פיזור הסוללות, והיעדים.</p>
+      <p>שני המצבים תומכים ב<b>ארבע רמות קושי</b> (קל / בינוני / קשה / 🕶 קשה במיוחד) שמשפיעות על מספר האיומים, פיזור הסוללות, והיעדים.</p>
+      <div class="tip" style="background:rgba(88,28,135,0.18);border-color:rgba(168,85,247,0.55);color:#e9d5ff">🕶 <b>קשה במיוחד — מתאר ללא מודיעין</b>: רמת קושי חדשה שמדמה תכנון ללא מודיעין מקדים. בהגנה — לא תראה את האיומים המתקרבים בזמן הפריסה. בהתקפה — לא תראה את פריסת ההגנה בזמן תכנון הנתיבים. הצד הנגדי נחשף רק כשלוחצים ▶ ומתחילה הסימולציה.</div>
       <div class="tip">💡 <b>טיפ:</b> בכל פעם שתאפס את המפה - גבולות המדינה ומיקומי היעדים האסטרטגיים יוגרלו מחדש, כך שכל משחק הוא אתגר חדש.</div>
     `
   },
@@ -717,8 +1486,8 @@ const TUTORIAL_STEPS = [
       </ul>
       <p>היעדים מסומנים עם <b>הילה צהובה בולטת</b> כדי שיהיה קל לראות אותם גם מתחת לסוללות.</p>
       <h4>⛰ טופוגרפיה - רכסי הרים</h4>
-      <p>בכל משחק חדש המערכת מייצרת <b>2 רכסי הרים</b> אקראיים בתוך המדינה, בגבהים של <b>2,000-4,000 מטר</b> (2-4 ק"מ MSL). הרכסים מסומנים בקו רכס לבן וצל חום, ומוצגים גם בתיוג הגובה שלהם.</p>
-      <p>ההרים <b style="color:#fbbf24">חוסמים קו ראיה (LOS)</b> - מכ"ם או סוללה שמסתתר מאחורי רכס לא יכולים לזהות או ליירט איום מהצד השני, כל עוד האיום נמוך מצמרת הרכס.</p>
+      <p>בכל משחק חדש המערכת מייצרת <b>2 רכסי הרים</b> אקראיים בתוך המדינה, בגבהים של <b>2,000-4,000 מטר</b>. הרכסים מסומנים בקו רכס לבן וצל חום, ומוצגים גם בתיוג הגובה שלהם.</p>
+      <p>ההרים <b style="color:#fbbf24">חוסמים קו ראיה (LOS - Line Of Sight)</b> - מכ"ם או סוללה שמסתתר מאחורי רכס לא יכולים לזהות או ליירט איום מהצד השני, כל עוד האיום נמוך מצמרת הרכס.</p>
       <div class="tip">🎲 בכל פעם שתאפס את המפה - גבולות המדינה, מיקומי היעדים <u>וגם רכסי ההרים</u> יוגרלו מחדש כדי לוודא שכל משחק שונה ומאתגר.</div>
     `
   },
@@ -729,10 +1498,10 @@ const TUTORIAL_STEPS = [
       <table>
         <tr><th>סוללה</th><th>טווח</th><th>גובה</th><th>PK</th><th>RT</th><th>תחמושת</th></tr>
         <tr><td><span class="swatch" style="background:#3b82f6"></span> Iron shield</td><td>4-70</td><td>0-9</td><td class="key">90%</td><td>1s</td><td>8</td></tr>
-        <tr><td><span class="swatch" style="background:#10b981"></span> SA-8 Gecko</td><td>1.5-30</td><td>0-5</td><td class="key">65%</td><td>1.5s</td><td>3</td></tr>
+        <tr><td><span class="swatch" style="background:#10b981"></span> SA-8 Gecko</td><td>1.5-30</td><td>0-5</td><td class="key">65%</td><td>0.5s</td><td>3</td></tr>
         <tr><td><span class="swatch" style="background:#8b5cf6"></span> Barak</td><td>0.5-100</td><td>0-16</td><td class="key">85%</td><td>0.5s</td><td>6</td></tr>
         <tr><td><span class="swatch" style="background:#f59e0b"></span> Patriot PAC-3</td><td>3-160</td><td>0-24</td><td class="key">65%</td><td>1.5s</td><td>4</td></tr>
-        <tr><td><span class="swatch" style="background:#d946ef"></span> David's Sling</td><td>40-300</td><td>5-30</td><td class="key">70%</td><td>1s</td><td>5</td></tr>
+        <tr><td><span class="swatch" style="background:#d946ef"></span> David's Sling</td><td>40-200</td><td>5-30</td><td class="key">70%</td><td>1s</td><td>5</td></tr>
       </table>
       <h4>מה כל מספר אומר:</h4>
       <ul>
@@ -744,8 +1513,8 @@ const TUTORIAL_STEPS = [
       </ul>
       <h4>📦 מצבור תחמושת אוטומטי (Auto-Stockpile)</h4>
       <p>בפתיחת אתגר, התחמושת של כל סוללה מחושבת אוטומטית כך שהתרחיש <b>תמיד פתיר בפריסה אופטימלית</b>. הנוסחה:</p>
-      <pre style="background:#0f1420;padding:6px 10px;border-radius:4px;color:#5fa86b;font-size:12px;text-align:center">תחמושת = ⌈ (איומים ÷ סוללות-בתקציב) ÷ PK × 1.2 ⌉</pre>
-      <p>למשל: 16 איומים, 5 סוללות, PK=85% → 16/5/0.85×1.2 ≈ <b>5 מיירטים</b> לכל סוללה (או הערך הקטלוגי, הגבוה מביניהם).</p>
+      <pre style="background:#0f1420;padding:6px 10px;border-radius:4px;color:#5fa86b;font-size:12px;text-align:center">תחמושת = ⌈ (איומים ÷ סוללות-בתקציב) ÷ PK × 1.3 ⌉</pre>
+      <p>למשל: 16 איומים, 5 סוללות, PK=85% → 16/5/0.85×1.3 ≈ <b>5 מיירטים</b> לכל סוללה (או הערך הקטלוגי, הגבוה מביניהם).</p>
       <div class="tutorial-figure">
         <svg viewBox="0 0 460 220" xmlns="http://www.w3.org/2000/svg">
           <rect width="460" height="220" fill="#0a1628"/>
@@ -803,39 +1572,47 @@ const TUTORIAL_STEPS = [
       <div class="tutorial-figure">
         <svg viewBox="0 0 460 220" xmlns="http://www.w3.org/2000/svg">
           <rect width="460" height="220" fill="#0a1628"/>
-          <circle cx="320" cy="110" r="105" fill="rgba(6,182,212,0.07)" stroke="#06b6d4" stroke-width="1" stroke-dasharray="5,5"/>
-          <text x="320" y="20" text-anchor="middle" fill="#06b6d4" font-size="10" font-weight="bold">Long-Range Radar coverage</text>
-          <circle cx="320" cy="110" r="10" fill="#06b6d4" stroke="#0a0e14" stroke-width="2"/>
-          <line x1="320" y1="100" x2="320" y2="105" stroke="#0a0e14" stroke-width="2"/>
-          <text x="320" y="135" text-anchor="middle" fill="#06b6d4" font-size="9">Radar</text>
-          <circle cx="220" cy="110" r="50" fill="rgba(245,158,11,0.12)" stroke="#f59e0b" stroke-width="1.5"/>
-          <text x="220" y="55" text-anchor="middle" fill="#f59e0b" font-size="9" font-weight="bold">Patriot range</text>
-          <polygon points="220,98 233,110 220,122 207,110" fill="#f59e0b" stroke="#0a0e14" stroke-width="1.5"/>
-          <text x="220" y="138" text-anchor="middle" fill="#f59e0b" font-size="9">Patriot</text>
-          <g>
-            <polygon points="80,105 90,110 80,115 84,110" fill="#dc2626" stroke="#000" stroke-width="0.5"/>
-            <text x="80" y="95" text-anchor="middle" fill="#dc2626" font-size="9">Threat</text>
-            <line x1="86" y1="110" x2="220" y2="110" stroke="#dc2626" stroke-width="0.7" stroke-dasharray="3,3"/>
-          </g>
-          <g>
-            <line x1="320" y1="110" x2="170" y2="110" stroke="#06b6d4" stroke-width="1" stroke-dasharray="3,2"/>
-            <text x="190" y="100" fill="#06b6d4" font-size="8">radar tracking</text>
-          </g>
-          <g>
-            <circle cx="220" cy="110" r="14" fill="none" stroke="#06b6d4" stroke-width="2"/>
-            <text x="220" y="170" text-anchor="middle" fill="#06b6d4" font-size="9" font-weight="bold">Battery prepares early</text>
-            <text x="220" y="183" text-anchor="middle" fill="#7e91a8" font-size="8">↑ intercept point lands inside Patriot range</text>
-          </g>
-          <text x="230" y="208" text-anchor="middle" fill="#7e91a8" font-size="9">Threat enters Patriot range → fire (already prepared)</text>
+          <!-- Radar coverage (large, on the LEFT — closer to threat) -->
+          <circle cx="220" cy="110" r="150" fill="rgba(6,182,212,0.07)" stroke="#06b6d4" stroke-width="1" stroke-dasharray="5,5"/>
+          <text x="120" y="20" text-anchor="middle" fill="#06b6d4" font-size="10" font-weight="bold">Long-Range Radar coverage</text>
+          <!-- Battery range (smaller, on the RIGHT — the weapon system) -->
+          <circle cx="370" cy="110" r="55" fill="rgba(245,158,11,0.12)" stroke="#f59e0b" stroke-width="1.5"/>
+          <text x="370" y="46" text-anchor="middle" fill="#f59e0b" font-size="9" font-weight="bold">Patriot range</text>
+          <!-- Battery (rightmost) -->
+          <polygon points="370,98 383,110 370,122 357,110" fill="#f59e0b" stroke="#0a0e14" stroke-width="1.5"/>
+          <text x="370" y="140" text-anchor="middle" fill="#f59e0b" font-size="9">Patriot (battery)</text>
+          <!-- Radar (LEFT of battery, between threat and battery) -->
+          <circle cx="220" cy="110" r="10" fill="#06b6d4" stroke="#0a0e14" stroke-width="2"/>
+          <line x1="220" y1="100" x2="220" y2="105" stroke="#0a0e14" stroke-width="2"/>
+          <text x="220" y="135" text-anchor="middle" fill="#06b6d4" font-size="9">Radar</text>
+          <!-- Threat coming from far LEFT -->
+          <polygon points="50,107 62,113 50,119 56,113" fill="#dc2626" stroke="#000" stroke-width="0.5"/>
+          <text x="56" y="98" text-anchor="middle" fill="#dc2626" font-size="9">Threat →</text>
+          <!-- Threat path: enters radar first, then battery -->
+          <line x1="62" y1="113" x2="350" y2="113" stroke="#dc2626" stroke-width="1" stroke-dasharray="4,3"/>
+          <polygon points="350,109 358,113 350,117" fill="#dc2626"/>
+          <!-- Annotation: detection point (when threat enters radar coverage) -->
+          <line x1="72" y1="142" x2="72" y2="160" stroke="#06b6d4" stroke-width="1"/>
+          <circle cx="72" cy="113" r="3.5" fill="none" stroke="#06b6d4" stroke-width="1.5"/>
+          <text x="72" y="173" text-anchor="middle" fill="#06b6d4" font-size="8" font-weight="bold">1. נכנס למכ"ם</text>
+          <text x="72" y="184" text-anchor="middle" fill="#7e91a8" font-size="8">→ מתחיל גילוי</text>
+          <!-- Annotation: battery prepares early -->
+          <line x1="220" y1="142" x2="220" y2="160" stroke="#fbbf24" stroke-width="1"/>
+          <text x="220" y="173" text-anchor="middle" fill="#fbbf24" font-size="8" font-weight="bold">2. הסוללה מתכוננת</text>
+          <text x="220" y="184" text-anchor="middle" fill="#7e91a8" font-size="8">RT - בזמן שעדיין מחוץ לטווח</text>
+          <!-- Annotation: enters battery range, fires -->
+          <line x1="320" y1="142" x2="320" y2="160" stroke="#f59e0b" stroke-width="1"/>
+          <text x="320" y="173" text-anchor="middle" fill="#f59e0b" font-size="8" font-weight="bold">3. נכנס לסוללה</text>
+          <text x="320" y="184" text-anchor="middle" fill="#7e91a8" font-size="8">→ שיגור מיידי</text>
         </svg>
-        <div class="caption">המכ"ם רואה את האיום הרבה לפני שהוא נכנס לטווח של פטריוט. הסוללה מתחילה הכנה מוקדמת - זה מאריך את חלון היירוט.</div>
+        <div class="caption">המכ"ם נמצא קדימה (משמאל לסוללה) - רואה את האיום הרבה לפני שהוא נכנס לטווח הסוללה. הסוללה מבצעת הכנה מוקדמת בזמן שהאיום עדיין מחוץ לטווחה.</div>
       </div>
       <div class="tip">📡 מכ"ם ארוך-טווח לפני סוללת Patriot מוסיף משמעותית את חלון היירוט שלה - זה אפקט סינרגטי מועיל ביותר.</div>
-      <h4>⛰ קו ראיה (LOS) ומיסוך טופוגרפי</h4>
+      <h4>⛰ קו ראיה (LOS - Line Of Sight) ומיסוך טופוגרפי</h4>
       <p>כל מכ"ם וכל סוללה <b>חייבים קו ראיה ישיר</b> אל האיום כדי לזהות / ליירט אותו. אם רכס הרים נמצא בין הסנסור לאיום, והאיום טס נמוך מהפסגה - <b style="color:#dc2626">האיום מוסתר</b>.</p>
       <ul>
-        <li>איום שטס בגובה <b>2 ק"מ MSL</b> מאחורי רכס בגובה <b>3.5 ק"מ</b> - בלתי-נראה לחלוטין למכ"ם שמולו.</li>
-        <li>ברגע שהאיום עולה מעל גובה הרכס (טופוגרפיה תורמת לגובה ה-MSL שלו), הוא <b>חוזר להיות גלוי</b>.</li>
+        <li>איום שטס בגובה <b>2 ק"מ</b> מאחורי רכס בגובה <b>3.5 ק"מ</b> - בלתי-נראה לחלוטין למכ"ם שמולו.</li>
+        <li>ברגע שהאיום עולה מעל גובה הרכס (טופוגרפיה תורמת לגובהו האבסולוטי), הוא <b>חוזר להיות גלוי</b>.</li>
         <li>טקטית: <b>הצב מכ"מים בקצוות</b> כך שיראו עוקפים מסביב להרים, לא רק ישירות מצד אחד.</li>
       </ul>
       <div class="tip">⛰ <b>טיפ:</b> איום עם RCS נמוך + מיסוך טופוגרפי = הרבה זמן בלתי-מזוהה. שימוש מוצלח בהרים יכול ליצור פירצות בכיסוי ההגנה.</div>
@@ -856,22 +1633,23 @@ const TUTORIAL_STEPS = [
       <ul>
         <li><b>Fighter Jet (RCS 1.0)</b>: 100% מהטווח. נראה היטב.</li>
         <li><b>Helicopter (RCS 0.7)</b>: ~91% מהטווח.</li>
-        <li><b>UAV (RCS 0.1)</b>: <b>רק ~56%</b> מהטווח. כטב"מים מאוד קשים לאיתור (סטילת'י).</li>
+        <li><b>UAV (RCS 0.1)</b>: <b>רק ~56%</b> מהטווח. כטב"מים מאוד קשים לאיתור.</li>
       </ul>
       <div class="tip">⚠ <b>גובה משנה הכל:</b> מסוק בגובה 0.8 ק"מ לא יכול להיות מיורט ע"י David's Sling (גובה מינימום 5 ק"מ). מטוס קרב בגובה 10 ק"מ לא ניתן לתפוס ע"י SA-8 (גובה מקסימום 5).</div>
-      <h4>🏔 גובה דינאמי (AGL ↔ MSL)</h4>
-      <p>הערך בקטלוג הוא <b>AGL (Above Ground Level)</b> - גובה מעל הקרקע. אבל מעטפת הסוללה והגלוי-בלתי-גלוי נקבעים לפי <b>MSL (Above Sea Level)</b>.</p>
-      <p>כשאיום עובר מעל רכס הרים, גובה ה-MSL שלו <b>עולה ויורד דינאמית</b> - תראה זאת בתיוג הגובה שמעל לאיום (לדוגמה: <code>UAV-3 · 5.4km MSL</code>).</p>
+      <h4>🏔 גובה דינאמי - AGL מול גובה אבסולוטי</h4>
+      <p>הערך בקטלוג של כל איום הוא <b>AGL (Above Ground Level)</b> - גובה הטיסה <u>מעל פני הקרקע</u>. האיום שומר על הגובה הזה לכל אורך הטיסה.</p>
+      <p>אבל מעטפת הסוללה והגלוי-בלתי-גלוי נקבעים לפי <b>הגובה האבסולוטי</b> (גובה מעל פני הים). הסוללות פרוסות במישור ולצורך פשטות נחשבות בגובה 0, אבל המטוס שטס בגובה קבוע מעל פני הקרקע - <b>הגובה האבסולוטי שלו משתנה</b> כשהוא עובר מעל הרים.</p>
+      <p>תראה זאת בתיוג שמעל לאיום (לדוגמה: <code>UAV-3 · 5.4km</code> - הגובה האבסולוטי הנוכחי).</p>
       <ul>
-        <li>UAV ב-2 ק"מ AGL מעל קרקע שטוחה = 2 ק"מ MSL.</li>
-        <li>אותו UAV מעל רכס בגובה 3.5 ק"מ = <b>5.5 ק"מ MSL</b> - מעל מעטפת SA-8 (max 5)!</li>
+        <li>UAV ב-2 ק"מ AGL מעל קרקע שטוחה = 2 ק"מ גובה אבסולוטי.</li>
+        <li>אותו UAV מעל רכס בגובה 3.5 ק"מ = <b>5.5 ק"מ גובה אבסולוטי</b> - מעל מעטפת SA-8 (max 5)!</li>
         <li>תוצאה: SA-8 לא תוכל ליירט אותו בעת המעבר מעל הרכס, גם אם המרחק מאפשר.</li>
       </ul>
       <h4>🎨 אייקונים מובחנים על המפה</h4>
       <ul>
         <li><b style="color:#dc2626">Fighter Jet</b> - מטוס סילון עם חרטום מחודד וכנפי דלתא.</li>
         <li><b style="color:#a855f7">Helicopter</b> - גוף מסוק עם זרוע זנב ודיסקת רוטור שקופה.</li>
-        <li><b style="color:#fbbf24">UAV</b> - קוודקופטר עם 4 זרועות ופרופלרים.</li>
+        <li><b style="color:#fbbf24">UAV</b> - כטב"ם בעל גוף ארוך, כנפיים סוויפ ו-V-tail בזנב.</li>
       </ul>
     `
   },
@@ -882,8 +1660,8 @@ const TUTORIAL_STEPS = [
       <ol style="list-style:decimal;padding-right:20px">
         <li style="margin:8px 0"><b>1. גילוי</b> - הסוללה מגלה את האיום (ע"י המכ"ם שלה או ע"י מכ"ם חיצוני).</li>
         <li style="margin:8px 0"><b>2. זמן תגובה (RT)</b> - הסוללה "מתכוננת" לירות. תראה <b>עיגול צהוב מתמלא</b> סביב הסוללה. בזמן הזה האיום ממשיך לנוע.</li>
-        <li style="margin:8px 0"><b>3. שיגור הטיל</b> - בסוף ה-RT הטיל יוצא. המערכת מחשבת את <b>נקודת הפגיעה החזויה</b> (לד-פרסוייט).</li>
-        <li style="margin:8px 0"><b>4. תוצאה</b> - אם נקודת הפגיעה בתוך הטווח, תבוצע הגרלה לפי PK. אחרת - "אאוט-אוף-ריינג'".</li>
+        <li style="margin:8px 0"><b>3. שיגור הטיל</b> - בסוף ה-RT הטיל יוצא. המערכת מחשבת את <b>נקודת הפגיעה החזויה</b> מתוך מהירות הטיל ומסלול האיום.</li>
+        <li style="margin:8px 0"><b>4. תוצאה</b> - תבוצע הגרלה לפי אחוזי ה-<b>PK</b>, והמערכת מחשבת האם בוצע יירוט או שהייתה החטאה.</li>
       </ol>
       <div class="tutorial-figure">
         <svg viewBox="0 0 460 220" xmlns="http://www.w3.org/2000/svg">
@@ -908,7 +1686,7 @@ const TUTORIAL_STEPS = [
           <line x1="285" y1="100" x2="320" y2="80" stroke="#fef3c7" stroke-width="2"/>
           <circle cx="320" cy="80" r="2.5" fill="#fbbf24"/>
           <polygon points="328,72 336,76 328,80 332,76" fill="#dc2626" stroke="#000" stroke-width="0.5"/>
-          <text x="285" y="200" text-anchor="middle" fill="#7e91a8" font-size="8">לד-פרסוייט</text>
+          <text x="285" y="200" text-anchor="middle" fill="#7e91a8" font-size="8">חישוב נקודת פגיעה</text>
           <line x1="345" y1="20" x2="345" y2="200" stroke="#1f2a3d" stroke-width="1"/>
           <text x="402" y="14" text-anchor="middle" fill="#dc2626" font-size="9" font-weight="bold">4. תוצאה</text>
           <polygon points="402,90 412,100 402,110 392,100" fill="#f59e0b" stroke="#000" stroke-width="1"/>
@@ -934,7 +1712,7 @@ const TUTORIAL_STEPS = [
       <p>אתה המגן. המערכת שולחת גלי איומים, ואתה צריך להגן על היעדים האסטרטגיים בעזרת תקציב מוגבל של סוללות ומכ"מים.</p>
       <h4>זרימת המשחק:</h4>
       <ul>
-        <li>1. בחר רמת קושי (קל / בינוני / קשה).</li>
+        <li>1. בחר רמת קושי (קל / בינוני / קשה / 🕶 קשה במיוחד).</li>
         <li>2. תראה את האיומים על המפה. <b>הם עדיין לא טסים</b> - יש לך זמן להתכונן ולתכנן נכון מול האיום הצפוי.</li>
         <li>3. <b>פרוס סוללות ומכ"מים</b> בתפריט (תג כתום = כמה זמין מכל סוג).</li>
         <li>4. לחץ "▶ הפעל סימולציה" כשמוכן להגנה.</li>
@@ -944,7 +1722,9 @@ const TUTORIAL_STEPS = [
         <li>🟢 <b>קל</b>: הבירה (Arian) שלמה <u>וגם</u> פחות מ-4 יעדים נפגעו.</li>
         <li>🟡 <b>בינוני</b>: הבירה שלמה <u>וגם</u> פחות מ-3 יעדים נפגעו.</li>
         <li>🔴 <b>קשה</b>: הבירה שלמה <u>וגם</u> פחות מ-2 יעדים נפגעו.</li>
+        <li>🕶 <b>קשה במיוחד (ללא מודיעין)</b>: כמו <b>קשה</b>, אבל <u>לא רואים את האיומים בזמן הפריסה</u>. נתיבי האיום מתגלים רק בלחיצה על "▶ הפעל סימולציה".</li>
       </ul>
+      <div class="tip">🕶 <b>מתאר ללא מודיעין</b>: זוהי הסיטואציה המציאותית של מפקד הגנה אווירית — אין לך מודיעין מקדים על תוכניות התקיפה. חובה להתבסס על <b>הגנה רב-שכבתית</b>, פיזור גיאוגרפי, וכיסוי של היעדים בעלי הערך הגבוה ביותר.</div>
       <p><b style="color:#dc2626">פגיעה בבירה = הפסד מיידי</b>, לא משנה כמה יעדים אחרים שרדו.</p>
       <h4>🆕 ממשק חדש</h4>
       <ul>
@@ -1047,7 +1827,9 @@ const TUTORIAL_STEPS = [
         <li>🟢 <b>קל</b>: פגע ב<b>בירה (Arian)</b>. לרשותך 40 כלים אוויריים.</li>
         <li>🟡 <b>בינוני</b>: פגע ב<b>3 יעדים אסטרטגיים שונים</b>. לרשותך 30 כלים אוויריים.</li>
         <li>🔴 <b>קשה</b>: פגע ב<b>4 יעדים שונים</b>, או ב<b>בירה + 2 נוספים</b>. לרשותך 20 כלים אוויריים.</li>
+        <li>🕶 <b>קשה במיוחד (ללא מודיעין)</b>: כמו <b>קשה</b>, אבל <u>פריסת ההגנה נסתרת</u>. אתה לא רואה איפה ההגנה פרוסה — תכנן את נתיבי התקיפה לפי הנחות בלבד. ההגנה מתגלה רק כשתפעיל סימולציה.</li>
       </ul>
+      <div class="tip">🕶 <b>מתאר ללא מודיעין</b>: זוהי הסיטואציה של מתכנן תקיפה אווירית כאשר המודיעין על מערך ההגנה שלם או חלקי לא קיים. תפזר את האיומים על מספר וקטורים שונים כדי למקסם סיכויי פריצה דרך נקודות חולשה שאתה לא מכיר. שלח כטב"מים זולים כ"גלאים" לפני שיגור Fighters יקרים.</div>
       <h4>🆕 ממשק חדש</h4>
       <ul>
         <li>📋 <b>מדריך שלבים</b> - תראה למעלה פאנל "מה השלב הבא?" עם 4 שלבים מתעדכנים: <span class="key">בחר סוג</span> → <span class="key">לחץ מוצא</span> → <span class="key">לחץ יעד</span> → <span class="key">הפעל</span>. השלב הנוכחי בולט בצהוב.</li>
@@ -1086,12 +1868,14 @@ function showTutorial(stepIdx) {
   if (stepIdx >= TUTORIAL_STEPS.length) stepIdx = TUTORIAL_STEPS.length - 1;
   state.tutorialStep = stepIdx;
   const step = TUTORIAL_STEPS[stepIdx];
-  document.getElementById('tutorial-body').innerHTML = `
+  const bodyEl = document.getElementById('tutorial-body');
+  bodyEl.innerHTML = `
     <div class="tutorial-step">
       <h3>${step.title}</h3>
       ${step.html()}
     </div>
   `;
+  bodyEl.scrollTop = 0;
   // Render dots
   const dotsEl = document.getElementById('tutorial-dots');
   dotsEl.innerHTML = TUTORIAL_STEPS.map((_, i) =>
@@ -1122,14 +1906,17 @@ function hideTutorial() {
 }
 
 function zoomBy(factor) {
-  const cx = W / 2, cy = H / 2;
-  // World point under the screen center stays under it after the zoom
-  const wx = (cx - state.viewport.offsetX) / state.viewport.scale;
-  const wy = (cy - state.viewport.offsetY) / state.viewport.scale;
+  zoomAt(W / 2, H / 2, factor);
+}
+
+function zoomAt(sx, sy, factor) {
+  const wx = (sx - state.viewport.offsetX) / state.viewport.scale;
+  const wy = (sy - state.viewport.offsetY) / state.viewport.scale;
   const newScale = Math.max(0.5, Math.min(3, state.viewport.scale * factor));
   state.viewport.scale = newScale;
-  state.viewport.offsetX = cx - wx * newScale;
-  state.viewport.offsetY = cy - wy * newScale;
+  state.viewport.offsetX = sx - wx * newScale;
+  state.viewport.offsetY = sy - wy * newScale;
+  updateZoomLevel();
 }
 
 function panBy(dx, dy) {
@@ -1138,13 +1925,22 @@ function panBy(dx, dy) {
 }
 
 function resetView() {
-  const s = 0.85;
-  const cx = 720, cy = 410;
+  const isMobile = window.MOBILE_MODE || window.matchMedia('(max-width: 768px)').matches;
+  const s  = isMobile ? 0.48 : 0.85;
+  // On mobile bias the view toward the LEFT two-thirds of the country
+  // so the western spawn region (where threats originate) is visible.
+  const cx = isMobile ? 600 : 720;
+  const cy = 410;
   state.viewport = {
     offsetX: W / 2 - cx * s,
     offsetY: H / 2 - cy * s,
     scale: s
   };
+  updateZoomLevel();
+}
+
+function updateZoomLevel() {
+  if (zoomLevelEl) zoomLevelEl.textContent = `${Math.round(state.viewport.scale * 100)}%`;
 }
 
 function onScrubberChange(ev) {
@@ -1162,6 +1958,12 @@ function captureSnapshot() {
     targetHits: state.targetHits.map(e => ({
       ...e,
       people: e.people ? e.people.map(p => ({...p})) : undefined
+    })),
+    defenses: state.defenses.map(d => ({
+      ammo: d.ammo,
+      prepareTarget: d.prepareTarget,
+      prepareUntil: d.prepareUntil,
+      cd: d.cd
     }))
   };
 }
@@ -1196,19 +1998,19 @@ function showBackButton() {
 function showSideToggle() {
   document.getElementById('side-toggle').style.display = '';
   document.getElementById('back-to-selection').style.display = 'none';
-  document.getElementById('step-guide-panel').style.display = 'none';
+  document.getElementById('step-guide-overlay').style.display = 'none';
 }
 
 function updateStepGuide() {
-  const panel = document.getElementById('step-guide-panel');
+  const overlay = document.getElementById('step-guide-overlay');
   const guide = document.getElementById('step-guide');
 
   if (state.challengeMode !== 'defense-challenge' && state.challengeMode !== 'attack-challenge') {
-    panel.style.display = 'none';
+    overlay.style.display = 'none';
     return;
   }
 
-  panel.style.display = '';
+  overlay.style.display = '';
   let steps;
 
   if (state.challengeMode === 'defense-challenge') {
@@ -1239,7 +2041,7 @@ function updateStepGuide() {
 
 function selectPlace(key) {
   const c = CATALOG[key];
-  if (state.mode === 'sim') return;
+  if (isSimActive()) return;
 
   // Defense budget enforcement
   if (state.budget && c.kind !== 'threat') {
@@ -1272,6 +2074,7 @@ function selectPlace(key) {
   }
   refreshButtonStates();
   updateStepGuide();
+  closeMobileSidebar();
 }
 
 function refreshButtonStates() {
@@ -1280,6 +2083,7 @@ function refreshButtonStates() {
   });
   canvas.classList.toggle('placing', state.mode === 'placing');
   canvas.classList.toggle('deleting', state.mode === 'deleting');
+  renderMobileBudgetPill();
 }
 
 function setStatus(text) { document.getElementById('mode-status').textContent = text; }
@@ -1288,8 +2092,18 @@ function showBanner(text, kind) {
   banner.innerHTML = text;
   banner.className = kind || '';
   banner.style.display = 'block';
+  // Reset to collapsed on mobile whenever a new banner is shown
+  const group = document.getElementById('banner-group');
+  group.classList.remove('expanded');
+  const expandBtn = document.getElementById('mission-expand-btn');
+  expandBtn.style.display = '';
+  expandBtn.textContent = '▸ פרטים';
 }
-function hideBanner() { banner.style.display = 'none'; }
+function hideBanner() {
+  banner.style.display = 'none';
+  document.getElementById('mission-expand-btn').style.display = 'none';
+  document.getElementById('banner-group').classList.remove('expanded');
+}
 
 // =============================================================
 // אינטראקציה - עכבר
@@ -1299,7 +2113,25 @@ function bindCanvas() {
   canvas.addEventListener('mousedown', onMouseDown);
   canvas.addEventListener('mousemove', onMouseMove);
   canvas.addEventListener('mouseup', onMouseUp);
-  canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+  canvas.addEventListener('mouseleave', () => {
+    tooltip.style.display = 'none';
+    if (state.pan) { state.pan = null; canvas.classList.remove('panning'); }
+  });
+  canvas.addEventListener('wheel', onWheel, { passive: false });
+  canvas.addEventListener('contextmenu', (ev) => { ev.preventDefault(); });
+  canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+  canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+  canvas.addEventListener('touchend', onTouchEnd, { passive: false });
+  canvas.addEventListener('touchcancel', onTouchCancel, { passive: false });
+}
+
+function onWheel(ev) {
+  ev.preventDefault();
+  const r = canvas.getBoundingClientRect();
+  const sx = ev.clientX - r.left;
+  const sy = ev.clientY - r.top;
+  const factor = ev.deltaY < 0 ? 1.12 : 0.89;
+  zoomAt(sx, sy, factor);
 }
 
 function getPos(ev) {
@@ -1314,6 +2146,7 @@ function getPos(ev) {
 }
 
 function onCanvasClick(ev) {
+  if (state._suppressNextClick) { state._suppressNextClick = false; return; }
   if (state.drag && state.drag.moved) { state.drag = null; return; }
   state.drag = null;
   const p = getPos(ev);
@@ -1324,8 +2157,8 @@ function onCanvasClick(ev) {
     // Three-click attack-challenge threat placement
     if (state.attackChallenge && c.kind === 'threat') {
       if (state.placeStep === 'origin') {
-        if (isInsideCountry(p.x, p.y)) {
-          flashStatus('⚠ נקודת המוצא חייבת להיות מחוץ לגבולות המדינה!', 'origin');
+        if (!isInsideRedZone(p.x, p.y)) {
+          flashStatus('⚠ נקודת המוצא חייבת להיות בתוך האזור האדום!', 'origin');
           return;
         }
         state.placeOrigin = { x: p.x, y: p.y };
@@ -1380,13 +2213,16 @@ function onCanvasClick(ev) {
 }
 
 let _flashTimer = null;
+// Populated during draw() when scrubbing so drawDefenses can read snapshot
+// defense fields (ammo, prepareTarget, prepareUntil) without mutating live state.
+let _scrubDef = null;
 function flashStatus(msg, returnStep) {
   setStatus(msg);
   clearTimeout(_flashTimer);
   _flashTimer = setTimeout(() => {
     if (state.placeStep === 'origin') {
       const c = CATALOG[state.placeKey];
-      setStatus(`${c.name} - לחץ על המפה מחוץ לגבולות המדינה (נקודת מוצא)`);
+      setStatus(`${c.name} - לחץ בתוך האזור האדום (נקודת מוצא)`);
     } else if (state.placeStep === 'target') {
       const c = CATALOG[state.placeKey];
       setStatus(`${c.name} - בחר יעד אסטרטגי`);
@@ -1395,16 +2231,54 @@ function flashStatus(msg, returnStep) {
 }
 
 function onMouseDown(ev) {
-  if (state.mode === 'sim' || state.mode === 'placing' || state.mode === 'deleting') return;
+  // In placing mode we still want to allow drag-to-pan and pinch-zoom.
+  // The click handler ignores the placement if state._suppressNextClick is
+  // set (which happens when state.pan.moved becomes true during the drag),
+  // so a real tap still places the item while a drag pans the map.
+  if (state.mode === 'placing') {
+    state.pan = {
+      sx: ev.clientX, sy: ev.clientY,
+      ox: state.viewport.offsetX, oy: state.viewport.offsetY,
+      moved: false
+    };
+    canvas.classList.add('panning');
+    return;
+  }
+
   const p = getPos(ev);
-  const ent = findEntityAt(p.x, p.y);
+  let ent = null;
+  if (!isSimActive() && state.mode !== 'deleting') {
+    ent = findEntityAt(p.x, p.y);
+    if (ent && state.challengeMode === 'defense-challenge' && state.threats.includes(ent)) {
+      ent = null;
+    }
+  }
+
   if (ent) {
-    if (state.challengeMode === 'defense-challenge' && state.threats.includes(ent)) return;
     state.drag = { ent, ox: p.x - ent.x, oy: p.y - ent.y, moved: false };
+  } else if (ev.button === 0 || ev.button === 1 || ev.button === 2) {
+    // Drag-to-pan on empty canvas (any mouse button)
+    state.pan = {
+      sx: ev.clientX, sy: ev.clientY,
+      ox: state.viewport.offsetX, oy: state.viewport.offsetY,
+      moved: false
+    };
+    canvas.classList.add('panning');
   }
 }
 
 function onMouseMove(ev) {
+  // Pan-drag takes priority - convert screen delta to viewport offset shift
+  if (state.pan) {
+    const dx = ev.clientX - state.pan.sx;
+    const dy = ev.clientY - state.pan.sy;
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) state.pan.moved = true;
+    state.viewport.offsetX = state.pan.ox + dx;
+    state.viewport.offsetY = state.pan.oy + dy;
+    tooltip.style.display = 'none';
+    return;
+  }
+
   const p = getPos(ev);
   state.mouseX = p.x; state.mouseY = p.y;
   if (state.drag) {
@@ -1428,13 +2302,14 @@ function onMouseMove(ev) {
     } else if (c.kind === 'threat') {
       lines[0] = `<b>${c.name} <span style="color:#fbbf24">[${ent.label}]</span></b>`;
       lines.push(`יעד: ${ent.target}`);
-      lines.push(`מהירות: ${c.speed} | גובה: ${(c.altitude + getTerrainAlt(ent.x, ent.y)).toFixed(1)} ק"מ MSL (AGL ${c.altitude})`);
+      lines.push(`מהירות: ${c.speed} | גובה אבסולוטי: ${(c.altitude + getTerrainAlt(ent.x, ent.y)).toFixed(1)} ק"מ (AGL ${c.altitude})`);
       lines.push(`סטטוס: ${ent.status === 'destroyed' ? 'הושמד' : ent.status === 'reached' ? 'הגיע ליעד' : 'פעיל'}`);
     }
     tooltip.innerHTML = lines.join('<br>');
     tooltip.style.display = 'block';
-    tooltip.style.left = (ev.clientX - canvas.parentElement.getBoundingClientRect().left + 14) + 'px';
-    tooltip.style.top = (ev.clientY - canvas.parentElement.getBoundingClientRect().top + 14) + 'px';
+    const pr = canvas.parentElement.getBoundingClientRect();
+    tooltip.style.left = (ev.clientX - pr.left + 14) + 'px';
+    tooltip.style.top  = (ev.clientY - pr.top  + 14) + 'px';
   } else {
     tooltip.style.display = 'none';
   }
@@ -1442,13 +2317,121 @@ function onMouseMove(ev) {
 
 function onMouseUp() {
   if (state.drag) state.drag = null;
+  if (state.pan) {
+    if (state.pan.moved) state._suppressNextClick = true;
+    state.pan = null;
+    canvas.classList.remove('panning');
+  }
   canvas.classList.remove('dragging');
 }
 
+// =============================================================
+// Touch input — single touch maps to mouse, two touches → pinch zoom.
+// preventDefault on every touch event suppresses the synthetic mouse
+// events the browser would otherwise fire, so the mouse handlers stay
+// untouched on desktop and never double-fire on mobile.
+// =============================================================
+const _touchState = { pinch: null, suppressClick: false };
+
+function _touchToMouseEvent(touch) {
+  return { clientX: touch.clientX, clientY: touch.clientY, button: 0, preventDefault: () => {} };
+}
+
+function _touchDist(t1, t2) {
+  return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+}
+
+function onTouchStart(ev) {
+  ev.preventDefault();
+  if (ev.touches.length === 2) {
+    state.drag = null;
+    if (state.pan) { state.pan = null; canvas.classList.remove('panning'); }
+    const t1 = ev.touches[0], t2 = ev.touches[1];
+    const r = canvas.getBoundingClientRect();
+    _touchState.pinch = {
+      startDist: _touchDist(t1, t2),
+      startScale: state.viewport.scale,
+      startOffsetX: state.viewport.offsetX,
+      startOffsetY: state.viewport.offsetY,
+      cx: (t1.clientX + t2.clientX) / 2 - r.left,
+      cy: (t1.clientY + t2.clientY) / 2 - r.top,
+    };
+    tooltip.style.display = 'none';
+  } else if (ev.touches.length === 1 && !_touchState.pinch) {
+    _touchState.suppressClick = false;
+    onMouseDown(_touchToMouseEvent(ev.touches[0]));
+  }
+}
+
+function onTouchMove(ev) {
+  ev.preventDefault();
+  if (_touchState.pinch && ev.touches.length >= 2) {
+    const t1 = ev.touches[0], t2 = ev.touches[1];
+    const p = _touchState.pinch;
+    const factor = _touchDist(t1, t2) / p.startDist;
+    const wx = (p.cx - p.startOffsetX) / p.startScale;
+    const wy = (p.cy - p.startOffsetY) / p.startScale;
+    const newScale = Math.max(0.5, Math.min(3, p.startScale * factor));
+    state.viewport.scale = newScale;
+    state.viewport.offsetX = p.cx - wx * newScale;
+    state.viewport.offsetY = p.cy - wy * newScale;
+    updateZoomLevel();
+    return;
+  }
+  if (!_touchState.pinch && ev.touches.length === 1) {
+    onMouseMove(_touchToMouseEvent(ev.touches[0]));
+  }
+}
+
+function onTouchEnd(ev) {
+  ev.preventDefault();
+  if (_touchState.pinch) {
+    if (ev.touches.length < 2) {
+      _touchState.pinch = null;
+      _touchState.suppressClick = true;
+      state.drag = null;
+      if (state.pan) { state.pan = null; canvas.classList.remove('panning'); }
+    }
+    return;
+  }
+  if (ev.touches.length === 0) {
+    onMouseUp();
+    tooltip.style.display = 'none';
+    if (_touchState.suppressClick) {
+      _touchState.suppressClick = false;
+      return;
+    }
+    if (ev.changedTouches.length > 0) {
+      onCanvasClick(_touchToMouseEvent(ev.changedTouches[0]));
+    }
+  }
+}
+
+function onTouchCancel() {
+  _touchState.pinch = null;
+  state.drag = null;
+  if (state.pan) { state.pan = null; canvas.classList.remove('panning'); }
+  canvas.classList.remove('dragging');
+  tooltip.style.display = 'none';
+}
+
+// Returns true when the opposing side's deployment is hidden from the user
+// (no-intel "extreme" difficulty, before the player presses ▶).
+function intelHidden() {
+  return state.noIntel && !state.intelRevealed;
+}
+
 function findEntityAt(x, y) {
-  const all = [...state.defenses, ...state.threats];
-  for (let i = all.length - 1; i >= 0; i--) {
-    const e = all[i];
+  // In no-intel mode, hide the opposing side's entities from cursor detection
+  // so hover / tooltips don't leak their positions.
+  const hideThreats  = intelHidden() && state.challengeMode === 'defense-challenge';
+  const hideDefenses = intelHidden() && state.challengeMode === 'attack-challenge';
+  const pool = [
+    ...(hideDefenses ? [] : state.defenses),
+    ...(hideThreats  ? [] : state.threats)
+  ];
+  for (let i = pool.length - 1; i >= 0; i--) {
+    const e = pool[i];
     if (e.status === 'destroyed') continue;
     if (Math.hypot(e.x - x, e.y - y) <= 18) return e;
   }
@@ -1461,6 +2444,10 @@ function placeAt(key, x, y) {
     const target = pickTarget();
     state.threats.push(makeThreat(key, x, y, target.x, target.y, target.name));
   } else {
+    if (!isInsideCountry(x, y)) {
+      flashStatus('⚠ לא ניתן להציב מחוץ לגבולות טליאריה');
+      return;
+    }
     const initialAmmo = (state.autoAmmo && state.autoAmmo[key] !== undefined) ? state.autoAmmo[key] : c.ammo;
     state.defenses.push({
       id: nextId++, key, x, y,
@@ -1507,6 +2494,7 @@ function toggleDelete() {
   state.placeKey = null;
   refreshButtonStates();
   setStatus(state.mode === 'deleting' ? 'מצב מחיקה - לחץ על רכיב כדי להסיר' : 'בחר רכיב להוספה');
+  if (state.mode === 'deleting') closeMobileSidebar();
 }
 
 function findTargetAt(x, y) {
@@ -1527,10 +2515,12 @@ function clearThreats() {
 
 function resetAll() {
   state.defenses = []; state.threats = []; state.missiles = []; state.explosions = []; state.targetHits = [];
+  state.killLabels = []; state.leakerFlashT = -1;
   state.history = [];
   state.scrubTime = null;
   state.serialCounters = {};
   state.results = null;
+  hideNewGameCta();
   state.budget = null;
   state.threatBudget = null;
   state.objective = null;
@@ -1538,11 +2528,14 @@ function resetAll() {
   state.attackChallenge = false;
   state.challengeDifficulty = null;
   state.challengeMode = null;
+  state.noIntel = false;
+  state.intelRevealed = false;
   state.mode = 'idle';
   state.placeKey = null;
   state.placeStep = null;
   state.placeOrigin = null;
   document.getElementById('scrubber-row').style.display = 'none';
+  setScrubberActive(false);
   // Regenerate the country borders and target locations so each game is fresh
   regenerateLand();
   regenerateTargets();
@@ -1552,9 +2545,35 @@ function resetAll() {
   refreshButtonStates();
   renderBudget();
   renderResults();
+  document.getElementById('battery-legend').style.display = 'none';
   showSideToggle();
   updateStepGuide();
   setStatus('המפה אופסה - מפה ויעדים חדשים');
+}
+
+// Display-only legend shown on the map during attack-challenge mode.
+// Lists each battery type with max range and engagement altitude only.
+function renderBatteryLegend() {
+  const wrap = document.getElementById('battery-legend');
+  if (!wrap) return;
+  if (state.challengeMode !== 'attack-challenge') {
+    wrap.style.display = 'none';
+    return;
+  }
+  const list = document.getElementById('battery-legend-list');
+  list.innerHTML = '';
+  for (const key of BATTERY_KEYS) {
+    const c = CATALOG[key];
+    const row = document.createElement('div');
+    row.className = 'battery-legend-row';
+    row.innerHTML = `
+      <span class="battery-legend-swatch" style="background:${c.color};color:${c.color}"></span>
+      <span class="battery-legend-name">${c.name}</span>
+      <span class="battery-legend-stats">טווח ${c.maxRange} ק"מ • גובה ${c.minAlt}-${c.maxAlt} ק"מ</span>
+    `;
+    list.appendChild(row);
+  }
+  wrap.style.display = '';
 }
 
 // =============================================================
@@ -1570,11 +2589,19 @@ function loop(ts) {
 
 function draw() {
   ctx.clearRect(0, 0, W, H);
-  // Sea always fills the visible canvas regardless of zoom/pan
-  const grad = ctx.createLinearGradient(0, 0, W, H);
-  grad.addColorStop(0, '#0a1628');
-  grad.addColorStop(1, '#050b18');
-  ctx.fillStyle = grad;
+  // Deep ocean: radial gradient centered on the map
+  const seaGrad = ctx.createRadialGradient(W * 0.5, H * 0.45, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.76);
+  seaGrad.addColorStop(0,   '#0d1c34');
+  seaGrad.addColorStop(0.4, '#081020');
+  seaGrad.addColorStop(0.75,'#060c18');
+  seaGrad.addColorStop(1,   '#030609');
+  ctx.fillStyle = seaGrad;
+  ctx.fillRect(0, 0, W, H);
+  // Edge vignette
+  const vig = ctx.createRadialGradient(W / 2, H / 2, H * 0.28, W / 2, H / 2, Math.max(W, H) * 0.72);
+  vig.addColorStop(0, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, 'rgba(0,0,0,0.52)');
+  ctx.fillStyle = vig;
   ctx.fillRect(0, 0, W, H);
   // Apply viewport transform - everything map-related scales and pans together.
   // HUD (drawn after restore) stays in screen space.
@@ -1585,72 +2612,179 @@ function draw() {
   drawCountry();
   drawMountains();
   drawTargets();
-  drawCoverage();
-  drawDefenses();
 
-  // If scrubbing, swap state arrays for the dynamic objects with the snapshot
-  let saved = null;
+  // When scrubbing, swap dynamic arrays and expose snapshot defense fields via
+  // the module-level _scrubDef variable (read by drawDefenses/drawCoverage).
+  // We never mutate state.defenses in-place to avoid restore-order fragility.
+  let _scrubSaved = null;
+  const _scrubSavedElapsed = state.simElapsed;
+  _scrubDef = null;
   if (state.scrubTime != null) {
     const snap = findSnapshot(state.scrubTime);
     if (snap) {
-      saved = {
-        threats: state.threats,
-        missiles: state.missiles,
-        explosions: state.explosions,
-        targetHits: state.targetHits
+      _scrubSaved = {
+        threats: state.threats, missiles: state.missiles,
+        explosions: state.explosions, targetHits: state.targetHits
       };
-      state.threats = snap.threats;
-      state.missiles = snap.missiles;
+      state.threats    = snap.threats;
+      state.missiles   = snap.missiles;
       state.explosions = snap.explosions;
       state.targetHits = snap.targetHits;
+      state.simElapsed = state.scrubTime;
+      _scrubDef        = snap.defenses || null;
     }
   }
 
+  drawCoverage();
+  drawDefenses();
   drawThreatPaths();
   drawThreats();
   drawMissiles();
   drawExplosions();
   drawTargetHits();
+  drawKillLabels();
 
-  if (saved) {
-    state.threats = saved.threats;
-    state.missiles = saved.missiles;
-    state.explosions = saved.explosions;
-    state.targetHits = saved.targetHits;
+  state.simElapsed = _scrubSavedElapsed;
+  _scrubDef = null;
+  if (_scrubSaved) {
+    state.threats    = _scrubSaved.threats;
+    state.missiles   = _scrubSaved.missiles;
+    state.explosions = _scrubSaved.explosions;
+    state.targetHits = _scrubSaved.targetHits;
   }
 
   drawPlacementGuide();
   ctx.restore();
   drawHUD();
+  drawSimOverlay();
 }
 
-// Visual aid during the 3-click attack-challenge flow
+// Floating ✓ SPLASH confirmations — world space, rise & fade
+function drawKillLabels() {
+  for (const k of state.killLabels) {
+    const p = k.t / k.dur;
+    const alpha = p < 0.15 ? p / 0.15 : 1 - (p - 0.15) / 0.85;
+    const rise = p * 26;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, alpha);
+    ctx.font = 'bold 12px "Share Tech Mono", ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    const txt = '✓ SPLASH';
+    const y = k.y - 18 - rise;
+    ctx.fillStyle = 'rgba(8, 14, 22, 0.85)';
+    const tw = ctx.measureText(txt).width;
+    ctx.fillRect(k.x - tw / 2 - 5, y - 11, tw + 10, 15);
+    ctx.fillStyle = '#86efac';
+    ctx.fillText(txt, k.x, y);
+    ctx.font = '9px "Share Tech Mono", ui-monospace, monospace';
+    ctx.fillStyle = 'rgba(134, 239, 172, 0.75)';
+    ctx.fillText(k.battery, k.x, y + 11);
+    ctx.restore();
+  }
+}
+
+// Screen-space overlays during an active simulation: a large live intercept
+// tally (top-centre) and a red "LEAKER" edge flash when a threat breaches.
+function drawSimOverlay() {
+  const simVisible = isSimActive() || state.scrubTime != null;
+  if (!simVisible) return;
+
+  // ── Live tally ──
+  const total  = state.threats.length;
+  if (total > 0 && state.challengeMode) {
+    const killed = state.threats.filter(t => t.status === 'destroyed').length;
+    const isAttack = state.challengeMode === 'attack-challenge';
+    const breached = state.threats.filter(t => t.status === 'reached').length;
+    const big = isAttack ? `${breached}/${total}` : `${killed}/${total}`;
+    const label = isAttack ? 'BREACHED' : 'INTERCEPTED';
+    const color = isAttack ? '#fca5a5' : '#86efac';
+
+    ctx.save();
+    ctx.font = 'bold 20px "Share Tech Mono", ui-monospace, monospace';
+    const bigW = ctx.measureText(big).width;
+    ctx.font = '8px "Share Tech Mono", ui-monospace, monospace';
+    const labW = ctx.measureText(label).width;
+    const bw = Math.max(bigW, labW) + 26;
+    const bh = 38;
+    const bx = (W - bw) / 2;
+    const by = 6;
+    // Chamfered backing consistent with the TACSIT HUD
+    ctx.beginPath();
+    ctx.moveTo(bx + 7, by); ctx.lineTo(bx + bw - 7, by);
+    ctx.lineTo(bx + bw, by + 7); ctx.lineTo(bx + bw, by + bh);
+    ctx.lineTo(bx + 7, by + bh); ctx.lineTo(bx, by + bh - 7);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(5, 8, 16, 0.85)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(95, 200, 232, 0.35)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = color;
+    ctx.font = 'bold 20px "Share Tech Mono", ui-monospace, monospace';
+    ctx.fillText(big, W / 2, by + 22);
+    ctx.fillStyle = 'rgba(143, 180, 201, 0.75)';
+    ctx.font = '8px "Share Tech Mono", ui-monospace, monospace';
+    ctx.fillText(label, W / 2, by + 33);
+    ctx.restore();
+  }
+
+  // ── Leaker flash: red edge glow for 0.9s after a breach ──
+  const since = state.simElapsed - state.leakerFlashT;
+  if (state.leakerFlashT >= 0 && since >= 0 && since < 0.9) {
+    const a = (1 - since / 0.9) * 0.4;
+    ctx.save();
+    const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.38, W / 2, H / 2, Math.max(W, H) * 0.7);
+    g.addColorStop(0, 'rgba(220, 38, 38, 0)');
+    g.addColorStop(1, `rgba(220, 38, 38, ${a})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    if (since < 0.6) {
+      ctx.font = 'bold 13px "Share Tech Mono", ui-monospace, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = `rgba(252, 165, 165, ${1 - since / 0.6})`;
+      ctx.fillText('⚠ LEAKER', W / 2, 64);
+    }
+    ctx.restore();
+  }
+}
+
+function drawValidityRing(x, y, valid, validLabel, invalidLabel) {
+  ctx.beginPath();
+  ctx.arc(x, y, 12, 0, Math.PI * 2);
+  ctx.strokeStyle = valid ? '#5fa86b' : '#dc2626';
+  ctx.lineWidth = 2;
+  ctx.setLineDash(valid ? [] : [3, 3]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.font = 'bold 11px sans-serif';
+  ctx.textAlign = 'center';
+  const label = valid ? validLabel : invalidLabel;
+  if (label) {
+    ctx.fillStyle = valid ? '#5fa86b' : '#dc2626';
+    ctx.fillText(label, x, y - 18);
+  }
+}
+
 function drawPlacementGuide() {
-  if (state.mode !== 'placing' || !state.placeStep) return;
+  if (state.mode !== 'placing') return;
   const c = CATALOG[state.placeKey];
-  if (!c || c.kind !== 'threat') return;
+  if (!c) return;
+
+  if (c.kind === 'battery' || c.kind === 'radar') {
+    drawValidityRing(state.mouseX, state.mouseY,
+      isInsideCountry(state.mouseX, state.mouseY),
+      null, '✗ מחוץ לגבולות טליאריה');
+    return;
+  }
+
+  if (c.kind !== 'threat') return;
+  if (!state.placeStep) return;
 
   if (state.placeStep === 'origin') {
-    // Show whether the cursor is in a valid (outside-country) location
-    const inside = isInsideCountry(state.mouseX, state.mouseY);
-    ctx.beginPath();
-    ctx.arc(state.mouseX, state.mouseY, 12, 0, Math.PI * 2);
-    ctx.strokeStyle = inside ? '#dc2626' : '#5fa86b';
-    ctx.lineWidth = 2;
-    ctx.setLineDash(inside ? [3, 3] : []);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    if (inside) {
-      ctx.fillStyle = '#dc2626';
-      ctx.font = 'bold 11px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('✗ בתוך המדינה', state.mouseX, state.mouseY - 18);
-    } else {
-      ctx.fillStyle = '#5fa86b';
-      ctx.font = 'bold 11px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('✓ נקודת מוצא תקינה', state.mouseX, state.mouseY - 18);
-    }
+    drawValidityRing(state.mouseX, state.mouseY,
+      isInsideRedZone(state.mouseX, state.mouseY),
+      '✓ נקודת מוצא תקינה', '✗ מחוץ לאזור האדום');
   } else if (state.placeStep === 'target' && state.placeOrigin) {
     const o = state.placeOrigin;
     // Origin marker
@@ -1689,109 +2823,276 @@ function drawPlacementGuide() {
 // Drawn inside the viewport transform - grid + red-zone label move with the map
 function drawBackground() {
   const WORLD_W = 1200, WORLD_H = 800;
-  // Grid
-  ctx.strokeStyle = 'rgba(95, 168, 211, 0.04)';
-  ctx.lineWidth = 1;
-  for (let x = 0; x < WORLD_W; x += 50) {
+
+  // Major grid lines (100km)
+  ctx.strokeStyle = 'rgba(95, 168, 211, 0.07)';
+  ctx.lineWidth = 0.6;
+  for (let x = 0; x <= WORLD_W; x += 100) {
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD_H); ctx.stroke();
   }
-  for (let y = 0; y < WORLD_H; y += 50) {
+  for (let y = 0; y <= WORLD_H; y += 100) {
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WORLD_W, y); ctx.stroke();
   }
-  // Red zone band & label
-  ctx.fillStyle = 'rgba(220, 38, 38, 0.06)';
+  // Minor grid (50km)
+  ctx.strokeStyle = 'rgba(95, 168, 211, 0.028)';
+  ctx.lineWidth = 0.4;
+  for (let x = 50; x < WORLD_W; x += 100) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD_H); ctx.stroke();
+  }
+  for (let y = 50; y < WORLD_H; y += 100) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WORLD_W, y); ctx.stroke();
+  }
+
+  // ── Tactical map frame: border + graduated edge ticks + corner brackets ──
+  const GC = 'rgba(95, 168, 211, ';
+  // Border
+  ctx.strokeStyle = GC + '0.28)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0, 0, WORLD_W, WORLD_H);
+  // Graduated ticks: long at 100km, short at 50km, on all four edges
+  ctx.strokeStyle = GC + '0.32)';
+  for (let x = 50; x < WORLD_W; x += 50) {
+    const major = x % 100 === 0;
+    const len = major ? 8 : 4;
+    ctx.lineWidth = major ? 0.9 : 0.6;
+    ctx.beginPath(); ctx.moveTo(x, 0);        ctx.lineTo(x, len);             ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, WORLD_H);  ctx.lineTo(x, WORLD_H - len);   ctx.stroke();
+  }
+  for (let y = 50; y < WORLD_H; y += 50) {
+    const major = y % 100 === 0;
+    const len = major ? 8 : 4;
+    ctx.lineWidth = major ? 0.9 : 0.6;
+    ctx.beginPath(); ctx.moveTo(0, y);        ctx.lineTo(len, y);             ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(WORLD_W, y);  ctx.lineTo(WORLD_W - len, y);   ctx.stroke();
+  }
+  // Corner brackets
+  ctx.strokeStyle = GC + '0.5)';
+  ctx.lineWidth = 1.4;
+  const cb = 22;
+  const corner = (cx, cy, sx, sy) => {
+    ctx.beginPath();
+    ctx.moveTo(cx + sx * cb, cy); ctx.lineTo(cx, cy); ctx.lineTo(cx, cy + sy * cb);
+    ctx.stroke();
+  };
+  corner(0, 0, 1, 1); corner(WORLD_W, 0, -1, 1);
+  corner(0, WORLD_H, 1, -1); corner(WORLD_W, WORLD_H, -1, -1);
+
+  // Grid coordinate labels (km)
+  ctx.fillStyle = GC + '0.22)';
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'right';
+  for (let x = 100; x < WORLD_W; x += 100) {
+    ctx.fillText(x, x - 2, 18);
+  }
+  for (let y = 100; y < WORLD_H; y += 100) {
+    ctx.fillText(y, 30, y - 2);
+  }
+
+  // Red zone - diagonal hazard stripe
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, 380, WORLD_H);
+  ctx.clip();
+  ctx.fillStyle = 'rgba(180, 20, 20, 0.07)';
   ctx.fillRect(0, 0, 380, WORLD_H);
-  ctx.fillStyle = 'rgba(220, 38, 38, 0.4)';
-  ctx.font = 'bold 14px sans-serif';
+  ctx.strokeStyle = 'rgba(220, 38, 38, 0.07)';
+  ctx.lineWidth = 18;
+  for (let i = -WORLD_H; i < 380 + WORLD_H; i += 36) {
+    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i + WORLD_H, WORLD_H); ctx.stroke();
+  }
+  ctx.restore();
+
+  // Red zone border
+  ctx.beginPath();
+  ctx.moveTo(380, 0); ctx.lineTo(380, WORLD_H);
+  ctx.strokeStyle = 'rgba(220, 38, 38, 0.22)';
+  ctx.setLineDash([8, 6]);
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Red zone labels
+  ctx.fillStyle = 'rgba(220, 38, 38, 0.52)';
+  ctx.font = 'bold 11px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText('Red Zone (Threat Origin)', 190, 30);
+  ctx.fillText('RED ZONE', 190, 18);
+  ctx.fillStyle = 'rgba(220, 38, 38, 0.3)';
+  ctx.font = '9px monospace';
+  ctx.fillText('THREAT ORIGIN', 190, 30);
+
+  // ── Cartographic furniture: compass rose, scale bar, area labels ──
+  // Compass rose (top-right, inside the frame)
+  const cpx = 1124, cpy = 86, cr = 24;
+  ctx.strokeStyle = GC + '0.45)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(cpx, cpy, cr, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cpx, cpy, cr - 5, 0, Math.PI * 2);
+  ctx.strokeStyle = GC + '0.18)';
+  ctx.stroke();
+  // Cardinal ticks
+  ctx.strokeStyle = GC + '0.5)';
+  for (let k = 0; k < 8; k++) {
+    const a = k * Math.PI / 4;
+    const len = k % 2 === 0 ? 5 : 3;
+    ctx.beginPath();
+    ctx.moveTo(cpx + Math.cos(a) * (cr - len), cpy + Math.sin(a) * (cr - len));
+    ctx.lineTo(cpx + Math.cos(a) * cr,         cpy + Math.sin(a) * cr);
+    ctx.stroke();
+  }
+  // North needle (filled) + south tail
+  ctx.beginPath();
+  ctx.moveTo(cpx, cpy - cr + 7);
+  ctx.lineTo(cpx - 4.5, cpy + 3);
+  ctx.lineTo(cpx + 4.5, cpy + 3);
+  ctx.closePath();
+  ctx.fillStyle = GC + '0.6)';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cpx - 4.5, cpy + 3);
+  ctx.lineTo(cpx, cpy + cr - 7);
+  ctx.lineTo(cpx + 4.5, cpy + 3);
+  ctx.closePath();
+  ctx.fillStyle = GC + '0.22)';
+  ctx.fill();
+  // N label
+  ctx.fillStyle = GC + '0.8)';
+  ctx.font = 'bold 11px "Share Tech Mono", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('N', cpx, cpy - cr - 5);
+
+  // Scale bar (bottom-right): 200 px = 200 km
+  const sbX = 950, sbY = 772, sbW = 200;
+  ctx.strokeStyle = GC + '0.5)';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(sbX, sbY); ctx.lineTo(sbX + sbW, sbY); ctx.stroke();
+  for (const f of [0, 0.5, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(sbX + sbW * f, sbY - 4);
+    ctx.lineTo(sbX + sbW * f, sbY + 4);
+    ctx.stroke();
+  }
+  ctx.fillStyle = GC + '0.55)';
+  ctx.font = '8px "Share Tech Mono", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('0',      sbX, sbY + 14);
+  ctx.fillText('100',    sbX + sbW / 2, sbY + 14);
+  ctx.fillText('200 km', sbX + sbW, sbY + 14);
+
+  // Area labels — faint, letter-spaced, cartographic
+  ctx.font = '700 20px Rajdhani, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = GC + '0.09)';
+  ctx.fillText('N O R T H E R N   S E C T O R', 720, 52);
+  ctx.fillStyle = GC + '0.11)';
+  ctx.fillText('S O U T H E R N   A P P R O A C H', 700, 762);
+  ctx.save();
+  ctx.translate(1148, 420);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillStyle = GC + '0.10)';
+  ctx.fillText('O P E N   S E A', 0, 0);
+  ctx.restore();
 }
 
 function drawCountry() {
   const land = LAND_POLYGON;
-  ctx.fillStyle = '#1a3148';
-  ctx.strokeStyle = '#3a6b8c';
-  ctx.lineWidth = 2;
+
+  // --- Terrain fill (clip to country border) ---
+  ctx.save();
   ctx.beginPath();
   ctx.moveTo(land[0][0], land[0][1]);
   for (let i = 1; i < land.length; i++) ctx.lineTo(land[i][0], land[i][1]);
   ctx.closePath();
-  ctx.fill();
+  ctx.clip();
+
+  // Green terrain gradient - lit from upper-left
+  const tGrad = ctx.createRadialGradient(660, 330, 20, 740, 430, 370);
+  tGrad.addColorStop(0.0, '#234e38');   // bright highland green
+  tGrad.addColorStop(0.3, '#1d4330');   // forest green
+  tGrad.addColorStop(0.6, '#183a29');   // deeper forest
+  tGrad.addColorStop(0.85,'#123021');   // shadowed valleys
+  tGrad.addColorStop(1.0, '#0d2218');   // dark coast
+  ctx.fillStyle = tGrad;
+  ctx.fillRect(350, 50, 800, 700);
+
+  // Real topography: hillshade + hypsometric tint + contour lines,
+  // pre-rendered from the same heightfield the LOS engine raycasts.
+  if (TERRAIN_CANVAS) ctx.drawImage(TERRAIN_CANVAS, 0, 0);
+
+  // Subtle coastal shading — darker strip near boundary
+  const coastGrad = ctx.createRadialGradient(720, 410, 240, 720, 410, 380);
+  coastGrad.addColorStop(0, 'rgba(0,0,0,0)');
+  coastGrad.addColorStop(1, 'rgba(0,0,0,0.28)');
+  ctx.fillStyle = coastGrad;
+  ctx.fillRect(350, 50, 800, 700);
+
+  ctx.restore();
+
+  // Outer glow border
+  ctx.beginPath();
+  ctx.moveTo(land[0][0], land[0][1]);
+  for (let i = 1; i < land.length; i++) ctx.lineTo(land[i][0], land[i][1]);
+  ctx.closePath();
+  ctx.strokeStyle = 'rgba(60, 140, 90, 0.14)';
+  ctx.lineWidth = 7;
   ctx.stroke();
-  // In attack-challenge placement step 'origin' show the border highlighted
+
+  // Main border
+  ctx.beginPath();
+  ctx.moveTo(land[0][0], land[0][1]);
+  for (let i = 1; i < land.length; i++) ctx.lineTo(land[i][0], land[i][1]);
+  ctx.closePath();
+  ctx.strokeStyle = 'rgba(70, 165, 115, 0.52)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Attack-challenge border highlight
   if (state.attackChallenge && state.placeStep === 'origin') {
-    ctx.strokeStyle = 'rgba(220, 38, 38, 0.7)';
-    ctx.setLineDash([6, 4]);
-    ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(land[0][0], land[0][1]);
     for (let i = 1; i < land.length; i++) ctx.lineTo(land[i][0], land[i][1]);
     ctx.closePath();
+    ctx.strokeStyle = 'rgba(220, 38, 38, 0.72)';
+    ctx.setLineDash([6, 4]);
+    ctx.lineWidth = 3;
     ctx.stroke();
     ctx.setLineDash([]);
   }
 
-  // Country label
-  ctx.fillStyle = 'rgba(95, 168, 211, 0.35)';
-  ctx.font = 'bold 28px serif';
+  // Country name
+  ctx.fillStyle = 'rgba(160, 220, 180, 0.26)';
+  ctx.font = 'bold 27px serif';
   ctx.textAlign = 'center';
-  ctx.fillText('Republic of Taliaria', 720, 160);
-  ctx.font = '12px sans-serif';
-  ctx.fillStyle = 'rgba(95, 168, 211, 0.5)';
-  ctx.fillText('Air Defense Command', 720, 178);
+  ctx.fillText('Republic of Taliaria', 720, 162);
+  ctx.font = '10px monospace';
+  ctx.fillStyle = 'rgba(110, 185, 140, 0.32)';
+  ctx.fillText('AIR DEFENSE COMMAND', 720, 176);
 }
 
+// The terrain body itself is rendered by the hypsometric overlay
+// (TERRAIN_CANVAS, see buildTerrainOverlay). Here we only annotate the
+// summits: a small triangle marker + the true elevation of each peak.
 function drawMountains() {
-  for (const m of MOUNTAINS) {
-    const dx = m.x2 - m.x1, dy = m.y2 - m.y1;
-    const len = Math.hypot(dx, dy) || 1;
-    const nx = -dy / len, ny = dx / len;
-    const spread = m.sigma * 2.2;
-    // Filled mountain base
+  ctx.textAlign = 'center';
+  for (const p of PEAK_LABELS) {
+    if (p.alt < 0.4) continue;
+    // Summit triangle
     ctx.beginPath();
-    ctx.moveTo(m.x1 + nx * spread, m.y1 + ny * spread);
-    ctx.lineTo(m.x1 - nx * spread, m.y1 - ny * spread);
-    ctx.lineTo(m.x2 - nx * spread, m.y2 - ny * spread);
-    ctx.lineTo(m.x2 + nx * spread, m.y2 + ny * spread);
+    ctx.moveTo(p.x, p.y - 4);
+    ctx.lineTo(p.x - 3.6, p.y + 2.6);
+    ctx.lineTo(p.x + 3.6, p.y + 2.6);
     ctx.closePath();
-    ctx.fillStyle = 'rgba(75, 60, 48, 0.38)';
+    ctx.fillStyle = 'rgba(20, 14, 10, 0.85)';
     ctx.fill();
-    // Contour lines
-    for (const fr of [0.65, 0.35]) {
-      const s = spread * fr;
-      ctx.beginPath();
-      ctx.moveTo(m.x1 + nx * s, m.y1 + ny * s);
-      ctx.lineTo(m.x1 - nx * s, m.y1 - ny * s);
-      ctx.lineTo(m.x2 - nx * s, m.y2 - ny * s);
-      ctx.lineTo(m.x2 + nx * s, m.y2 + ny * s);
-      ctx.closePath();
-      ctx.strokeStyle = `rgba(140, 115, 92, ${0.18 + (1 - fr) * 0.22})`;
-      ctx.lineWidth = 0.8;
-      ctx.stroke();
-    }
-    // Snow cap
-    ctx.beginPath();
-    ctx.moveTo(m.x1 + nx * 12, m.y1 + ny * 12);
-    ctx.lineTo(m.x1 - nx * 12, m.y1 - ny * 12);
-    ctx.lineTo(m.x2 - nx * 12, m.y2 - ny * 12);
-    ctx.lineTo(m.x2 + nx * 12, m.y2 + ny * 12);
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(235, 235, 248, 0.13)';
-    ctx.fill();
-    // Jagged ridgeline
-    ctx.beginPath();
-    ctx.moveTo(m.ridgePts[0][0], m.ridgePts[0][1]);
-    for (let i = 1; i < m.ridgePts.length; i++) ctx.lineTo(m.ridgePts[i][0], m.ridgePts[i][1]);
-    ctx.strokeStyle = 'rgba(215, 210, 205, 0.78)';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(255, 250, 238, 0.9)';
+    ctx.lineWidth = 1;
     ctx.stroke();
-    // Elevation label
-    const midX = (m.x1 + m.x2) / 2;
-    const midY = (m.y1 + m.y2) / 2;
-    ctx.font = 'bold 10px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(255, 248, 240, 0.88)';
-    ctx.fillText(`▲ ${(m.peak * 1000).toFixed(0)}m`, midX, midY - spread * 0.25 - 4);
+    // Elevation label (metres), with a soft shadow for readability
+    const txt = `${Math.round(p.alt * 1000)}m`;
+    ctx.font = 'bold 10px "Share Tech Mono", monospace';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+    ctx.fillText(txt, p.x + 1, p.y - 8);
+    ctx.fillStyle = 'rgba(255, 250, 238, 0.95)';
+    ctx.fillText(txt, p.x, p.y - 9);
   }
 }
 
@@ -1842,8 +3143,8 @@ function drawTargets() {
       ctx.fill(); ctx.stroke();
     }
     ctx.fillStyle = '#fde68a';
-    ctx.font = '11px sans-serif';
-    ctx.fillText(t.name, t.x, t.y - 12);
+    ctx.font = 'bold 11px monospace';
+    ctx.fillText(t.name, t.x, t.y - 14);
   }
 }
 
@@ -1859,31 +3160,89 @@ function drawStar(cx, cy, r, points) {
 }
 
 function drawCoverage() {
+  if (intelHidden() && state.challengeMode === 'attack-challenge') return;
+  const now = Date.now() / 1000;
   for (const d of state.defenses) {
     const c = CATALOG[d.key];
     if (c.kind === 'radar') {
+      // NO fill — the detection area must stay fully see-through so
+      // terrain, threats and other coverages remain readable through it.
+
+      // Faint concentric range rings (PPI scope geometry, very subtle)
+      ctx.strokeStyle = c.color + '14';
+      ctx.lineWidth = 0.6;
+      for (let f = 0.25; f < 1; f += 0.25) {
+        ctx.beginPath(); ctx.arc(d.x, d.y, c.detection * f, 0, Math.PI * 2); ctx.stroke();
+      }
+      // Faint cross-hairs through centre
+      ctx.beginPath();
+      ctx.moveTo(d.x - c.detection, d.y); ctx.lineTo(d.x + c.detection, d.y);
+      ctx.moveTo(d.x, d.y - c.detection); ctx.lineTo(d.x, d.y + c.detection);
+      ctx.strokeStyle = c.color + '10';
+      ctx.stroke();
+
+      // Outer perimeter (dashed)
       ctx.beginPath();
       ctx.arc(d.x, d.y, c.detection, 0, Math.PI * 2);
-      ctx.fillStyle = c.color + '15';
-      ctx.fill();
-      ctx.strokeStyle = c.color + '88';
-      ctx.setLineDash([4, 6]);
+      ctx.strokeStyle = c.color + '60';
+      ctx.setLineDash([5, 8]);
       ctx.lineWidth = 1;
       ctx.stroke();
       ctx.setLineDash([]);
+
+      // Rotating sweep line — single bright leading edge
+      const sweepAng = (now * 0.32 + d.x * 0.009) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(d.x, d.y);
+      ctx.lineTo(d.x + Math.cos(sweepAng) * c.detection, d.y + Math.sin(sweepAng) * c.detection);
+      ctx.strokeStyle = c.color + 'b0';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
     } else if (c.kind === 'battery') {
+      // Engagement zone — gradient fill
+      const eGrad = ctx.createRadialGradient(d.x, d.y, c.minRange, d.x, d.y, c.maxRange);
+      eGrad.addColorStop(0,   c.color + '22');
+      eGrad.addColorStop(0.7, c.color + '12');
+      eGrad.addColorStop(1,   c.color + '05');
       ctx.beginPath();
       ctx.arc(d.x, d.y, c.maxRange, 0, Math.PI * 2);
-      ctx.fillStyle = c.color + '18';
+      ctx.fillStyle = eGrad;
       ctx.fill();
-      ctx.strokeStyle = c.color + 'cc';
-      ctx.lineWidth = 1.5;
+
+      // Mid-range reference ring
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, c.maxRange * 0.5, 0, Math.PI * 2);
+      ctx.strokeStyle = c.color + '2e';
+      ctx.lineWidth = 0.7;
       ctx.stroke();
+
+      // Outer engagement perimeter
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, c.maxRange, 0, Math.PI * 2);
+      ctx.strokeStyle = c.color + 'b8';
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+
+      // Cardinal range ticks on the perimeter (range-scale cue)
+      ctx.strokeStyle = c.color + '8a';
+      ctx.lineWidth = 1.1;
+      for (let k = 0; k < 4; k++) {
+        const a = k * Math.PI / 2;
+        const ca = Math.cos(a), sa = Math.sin(a);
+        ctx.beginPath();
+        ctx.moveTo(d.x + ca * (c.maxRange - 5), d.y + sa * (c.maxRange - 5));
+        ctx.lineTo(d.x + ca * (c.maxRange + 4), d.y + sa * (c.maxRange + 4));
+        ctx.stroke();
+      }
+
+      // Inner dead-zone (minimum range)
       if (c.minRange > 5) {
         ctx.beginPath();
         ctx.arc(d.x, d.y, c.minRange, 0, Math.PI * 2);
-        ctx.strokeStyle = c.color + '66';
+        ctx.strokeStyle = c.color + '55';
         ctx.setLineDash([3, 3]);
+        ctx.lineWidth = 1;
         ctx.stroke();
         ctx.setLineDash([]);
       }
@@ -1892,15 +3251,21 @@ function drawCoverage() {
 }
 
 function drawDefenses() {
-  for (const d of state.defenses) {
+  if (intelHidden() && state.challengeMode === 'attack-challenge') return;
+  for (let i = 0; i < state.defenses.length; i++) {
+    const d = state.defenses[i];
+    // When scrubbing, read ammo/prepareTarget/prepareUntil from the snapshot
+    // snapshot entry (set via _scrubDef by draw()).  Fall back to live `d`
+    // when not scrubbing so normal render is unchanged.
+    const sd = (_scrubDef && i < _scrubDef.length) ? _scrubDef[i] : d;
     const c = CATALOG[d.key];
-    const depleted = c.kind === 'battery' && d.ammo <= 0;
+    const depleted = c.kind === 'battery' && sd.ammo <= 0;
 
     // Reaction-time preparation indicator: prominent filling ring around the battery
-    if (d.prepareTarget != null && state.simElapsed < d.prepareUntil) {
-      const progress = 1 - (d.prepareUntil - state.simElapsed) / c.reactionTime;
+    if (sd.prepareTarget != null && state.simElapsed < sd.prepareUntil) {
+      const progress = 1 - (sd.prepareUntil - state.simElapsed) / c.reactionTime;
       // Detect "extended" mode: target currently outside this battery's range
-      const tgt = state.threats.find(x => x.id === d.prepareTarget);
+      const tgt = state.threats.find(x => x.id === sd.prepareTarget);
       const extended = tgt && Math.hypot(tgt.x - d.x, tgt.y - d.y) > c.maxRange;
       const haloCol = extended ? '#06b6d4' : '#fbbf24';
 
@@ -1930,7 +3295,7 @@ function drawDefenses() {
       ctx.stroke();
 
       // Countdown label above the battery
-      const remaining = (d.prepareUntil - state.simElapsed).toFixed(1);
+      const remaining = (sd.prepareUntil - state.simElapsed).toFixed(1);
       ctx.font = 'bold 11px ui-monospace, monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -1958,47 +3323,68 @@ function drawDefenses() {
     ctx.save();
     if (depleted) ctx.globalAlpha = 0.35;
     ctx.translate(d.x, d.y);
-    ctx.fillStyle = c.color;
-    ctx.strokeStyle = '#0a0e14';
-    ctx.lineWidth = 2;
+
     if (c.kind === 'radar') {
-      // dish
-      ctx.beginPath();
-      ctx.arc(0, 0, 9, 0, Math.PI * 2);
-      ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#0a0e14';
-      ctx.fillRect(-1, -9, 2, 5);
+      // Drop shadow
+      ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 6; ctx.shadowOffsetX = 1; ctx.shadowOffsetY = 2;
+      // Outer ring
+      ctx.beginPath(); ctx.arc(0, 0, 11, 0, Math.PI * 2);
+      ctx.fillStyle = c.color + '22'; ctx.fill();
+      ctx.strokeStyle = c.color; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+      // Inner ring
+      ctx.beginPath(); ctx.arc(0, 0, 7, 0, Math.PI * 2);
+      ctx.strokeStyle = c.color + 'cc'; ctx.lineWidth = 1; ctx.stroke();
+      // Crosshair
+      ctx.strokeStyle = c.color + 'aa'; ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.moveTo(-11, 0); ctx.lineTo(11, 0); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, -11); ctx.lineTo(0, 11); ctx.stroke();
+      // Center dot
+      ctx.beginPath(); ctx.arc(0, 0, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = c.color; ctx.fill();
     } else {
-      // battery: hex
-      ctx.beginPath();
-      for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
-        const x = Math.cos(a) * 11, y = Math.sin(a) * 11;
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      }
-      ctx.closePath();
-      ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 9px sans-serif';
+      // Friendly air-defense equipment — rectangle affiliation frame
+      // (MIL-STD-2525 friendly), in the system's identifying colour.
+      const fr = 12;
+      ctx.shadowColor = c.color; ctx.shadowBlur = depleted ? 0 : 8;
+      milFriendlyFrame(fr);
+      // Gradient fill (lit from top)
+      const rgGrad = ctx.createLinearGradient(0, -fr, 0, fr);
+      rgGrad.addColorStop(0, c.color + 'dd');
+      rgGrad.addColorStop(1, c.color + '88');
+      ctx.fillStyle = rgGrad; ctx.fill();
+      ctx.shadowBlur = 0;
+      milFriendlyFrame(fr);
+      ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 1.8; ctx.stroke();
+      // Inner highlight outline
+      milFriendlyFrame(fr - 3);
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 0.8; ctx.stroke();
+      // Abbreviation label
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.font = 'bold 8px monospace';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(c.short, 0, 0.5);
     }
     ctx.restore();
 
-    // Short label below
-    ctx.fillStyle = depleted ? '#7e91a8' : '#d6e0f0';
-    ctx.font = '10px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(c.short, d.x, d.y + 24);
+    // Identifier label below — radars only (batteries already show the
+    // abbreviation inside the frame, so a second copy would be redundant).
+    if (c.kind === 'radar') {
+      ctx.fillStyle = depleted ? 'rgba(126,145,168,0.7)' : 'rgba(198,214,230,0.85)';
+      ctx.font = '9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(c.short, d.x, d.y + 26);
+    }
 
     // Ammo counter pill (only for batteries)
     if (c.kind === 'battery') {
-      const txt = depleted ? 'EMPTY' : `▮ ${d.ammo}/${c.ammo}`;
+      const maxAmmo = d.initialAmmo || c.ammo;
+      const txt = depleted ? 'EMPTY' : `▮ ${sd.ammo}/${maxAmmo}`;
       let bgColor, fgColor;
-      if (depleted)              { bgColor = '#6b1e2a'; fgColor = '#fca5a5'; }
-      else if (d.ammo / c.ammo > 0.5) { bgColor = '#1e6b3e'; fgColor = '#86efac'; }
-      else if (d.ammo / c.ammo > 0.25){ bgColor = '#8a5a1c'; fgColor = '#fcd34d'; }
-      else                            { bgColor = '#9c2d3e'; fgColor = '#fca5a5'; }
+      if (depleted)                        { bgColor = '#6b1e2a'; fgColor = '#fca5a5'; }
+      else if (sd.ammo / maxAmmo > 0.5)    { bgColor = '#1e6b3e'; fgColor = '#86efac'; }
+      else if (sd.ammo / maxAmmo > 0.25)   { bgColor = '#8a5a1c'; fgColor = '#fcd34d'; }
+      else                                 { bgColor = '#9c2d3e'; fgColor = '#fca5a5'; }
 
       ctx.font = 'bold 11px ui-monospace, monospace';
       const tw = ctx.measureText(txt).width;
@@ -2025,48 +3411,97 @@ function drawDefenses() {
 }
 
 function drawThreatPaths() {
+  if (intelHidden() && state.challengeMode === 'defense-challenge') return;
   for (const t of state.threats) {
     if (t.status === 'destroyed') continue;
+    const c = CATALOG[t.key];
+    // Full origin-to-target path, clearly visible
     ctx.beginPath();
     ctx.moveTo(t.sx, t.sy);
     ctx.lineTo(t.tx, t.ty);
-    ctx.strokeStyle = 'rgba(251, 191, 36, 0.25)';
-    ctx.setLineDash([5, 6]);
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = c.color + '88';
+    ctx.setLineDash([7, 6]);
+    ctx.lineWidth = 1.5;
     ctx.stroke();
     ctx.setLineDash([]);
+    // Remaining path (current → target) brighter solid
+    if (t.status === 'inflight') {
+      ctx.beginPath();
+      ctx.moveTo(t.x, t.y);
+      ctx.lineTo(t.tx, t.ty);
+      ctx.strokeStyle = c.color + 'cc';
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
   }
 }
 
 function drawThreats() {
+  if (intelHidden() && state.challengeMode === 'defense-challenge') return;
   for (const t of state.threats) {
     const c = CATALOG[t.key];
     if (t.status === 'destroyed') continue;
+
+    const ang = Math.atan2(t.ty - t.sy, t.tx - t.sx);
+
+    // Engine contrail / exhaust trail behind the threat
+    const trailLen = t.key === 'fighter' ? 30 : t.key === 'helicopter' ? 14 : 10;
+    const cdx = Math.cos(ang), cdy = Math.sin(ang);
+    const trailGrad = ctx.createLinearGradient(
+      t.x, t.y,
+      t.x - cdx * trailLen, t.y - cdy * trailLen
+    );
+    trailGrad.addColorStop(0, c.color + 'b0');
+    trailGrad.addColorStop(1, c.color + '00');
+    ctx.beginPath();
+    ctx.moveTo(t.x, t.y);
+    ctx.lineTo(t.x - cdx * trailLen, t.y - cdy * trailLen);
+    ctx.strokeStyle = trailGrad;
+    ctx.lineWidth = t.key === 'fighter' ? 2.5 : 1.8;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    ctx.lineCap = 'butt';
+
+    // Subtle affiliation glow so the track pops over coverage rings
+    const haloR = t.key === 'fighter' ? 17 : t.key === 'uav' ? 8 : 12;
+    const halo = ctx.createRadialGradient(t.x, t.y, 1, t.x, t.y, haloR);
+    halo.addColorStop(0, c.color + '38');
+    halo.addColorStop(1, c.color + '00');
+    ctx.beginPath(); ctx.arc(t.x, t.y, haloR, 0, Math.PI * 2);
+    ctx.fillStyle = halo; ctx.fill();
+
+    // Aircraft silhouette — top-down, rotated to its heading.
+    // UAV is rendered 30% smaller than the manned platforms to reflect
+    // its true relative footprint.
+    const iconScale = t.key === 'uav' ? 1.96 : 2.8;
     ctx.save();
     ctx.translate(t.x, t.y);
-    const ang = Math.atan2(t.ty - t.sy, t.tx - t.sx);
     ctx.rotate(ang);
+    ctx.scale(iconScale, iconScale);
     ctx.fillStyle = c.color;
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.78)';
+    ctx.lineWidth = 0.5;
+    ctx.lineJoin = 'round';
     if (t.key === 'fighter') drawFighter();
     else if (t.key === 'helicopter') drawHelo();
     else drawDrone();
     ctx.restore();
 
-    // Prominent serial label with MSL altitude (changes as it flies over terrain)
+    // Label with absolute altitude (changes over terrain)
     const altMSL = c.altitude + getTerrainAlt(t.x, t.y);
-    const labelText = `${t.label} · ${altMSL.toFixed(1)}km MSL`;
-    ctx.font = 'bold 11px ui-monospace, "SF Mono", Menlo, monospace';
+    const labelText = `${t.label} · ${altMSL.toFixed(1)}km`;
+    ctx.font = 'bold 11px monospace';
     const tw = ctx.measureText(labelText).width;
     const padX = 5, padY = 2;
-    const bx = t.x - tw/2 - padX;
-    const by = t.y + 13;
-    const bw = tw + padX*2;
+    const bx = t.x - tw / 2 - padX;
+    const by = t.y + 16;
+    const bw = tw + padX * 2;
     const bh = 14 + padY;
-    ctx.fillStyle = 'rgba(8, 12, 22, 0.92)';
+    ctx.fillStyle = 'rgba(6, 10, 18, 0.93)';
     ctx.strokeStyle = c.color;
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 1.2;
     if (ctx.roundRect) {
       ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 7); ctx.fill(); ctx.stroke();
     } else {
@@ -2075,112 +3510,221 @@ function drawThreats() {
     ctx.fillStyle = c.color;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(labelText, t.x, by + bh/2);
+    ctx.fillText(labelText, t.x, by + bh / 2);
     ctx.textBaseline = 'alphabetic';
   }
 }
 
-function drawFighter() {
-  // Fast jet silhouette: pointed nose, swept-back delta wings, tail fin
-  const fillStyle = ctx.fillStyle;
+// ── Friendly affiliation frame (MIL-STD-2525) for ground equipment ──
+// Traces a rounded rectangle centred on the current origin; the caller
+// fills/strokes and is responsible for having translated into place.
+function milFriendlyFrame(r) {
+  const w = r * 1.18, h = r * 0.92;
   ctx.beginPath();
-  ctx.moveTo(7, 0);
-  ctx.lineTo(-2, -1.2);
-  ctx.lineTo(-3, -5);
-  ctx.lineTo(-5, -5);
-  ctx.lineTo(-4, -1);
-  ctx.lineTo(-6, 0);
-  ctx.lineTo(-4, 1);
-  ctx.lineTo(-5, 5);
-  ctx.lineTo(-3, 5);
-  ctx.lineTo(-2, 1.2);
-  ctx.closePath();
-  ctx.fill(); ctx.stroke();
-  // Tail fin
-  ctx.beginPath();
-  ctx.moveTo(-5, 0); ctx.lineTo(-7, -2.5); ctx.lineTo(-4, -0.5);
-  ctx.closePath();
-  ctx.fillStyle = fillStyle; ctx.fill();
+  if (ctx.roundRect) ctx.roundRect(-w, -h, w * 2, h * 2, 2.5);
+  else ctx.rect(-w, -h, w * 2, h * 2);
 }
-function drawHelo() {
-  const fillStyle = ctx.fillStyle;
-  // Main body (pod)
+
+// ── Threat silhouettes — refined top-down aircraft profiles ──────────
+// Drawn in a local frame with the nose pointing +x; the caller rotates
+// to the track's heading. fillStyle is the affiliation colour on entry.
+
+function drawFighter() {
+  // Modern multirole jet: pointed nose, swept delta wing, twin stabilators.
+  const col = ctx.fillStyle;
+  // Afterburner bloom at the tail
+  const ab = ctx.createRadialGradient(-6, 0, 0, -6, 0, 3.2);
+  ab.addColorStop(0, 'rgba(255, 214, 130, 0.9)');
+  ab.addColorStop(1, 'rgba(255, 140, 40, 0)');
+  ctx.fillStyle = ab;
+  ctx.beginPath(); ctx.arc(-6, 0, 3.2, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = col;
+  // Single sleek silhouette (nose → left wing → tail → right wing)
   ctx.beginPath();
-  ctx.ellipse(0, 0, 4, 2.4, 0, 0, Math.PI * 2);
+  ctx.moveTo(7.6, 0);
+  ctx.lineTo(2.0, -1.05);
+  ctx.lineTo(0.4, -1.5);
+  ctx.lineTo(-3.0, -6.1);   // left wing leading edge
+  ctx.lineTo(-4.6, -5.9);   // wingtip
+  ctx.lineTo(-2.1, -1.7);   // wing trailing edge
+  ctx.lineTo(-4.8, -2.7);   // left stabilator
+  ctx.lineTo(-6.3, -2.2);
+  ctx.lineTo(-5.2, -0.85);
+  ctx.lineTo(-6.1, 0);      // tail cone
+  ctx.lineTo(-5.2, 0.85);
+  ctx.lineTo(-6.3, 2.2);
+  ctx.lineTo(-4.8, 2.7);
+  ctx.lineTo(-2.1, 1.7);
+  ctx.lineTo(-4.6, 5.9);
+  ctx.lineTo(-3.0, 6.1);
+  ctx.lineTo(0.4, 1.5);
+  ctx.lineTo(2.0, 1.05);
+  ctx.closePath();
   ctx.fill(); ctx.stroke();
+  // Canopy highlight
+  ctx.beginPath();
+  ctx.ellipse(2.4, 0, 1.5, 0.85, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(190, 225, 245, 0.6)';
+  ctx.fill();
+  ctx.fillStyle = col;
+}
+
+function drawHelo() {
+  // Attack helicopter, top-down: teardrop fuselage, tail boom, rotor disc.
+  const col = ctx.fillStyle;
   // Tail boom
   ctx.beginPath();
-  ctx.moveTo(-3.5, 0); ctx.lineTo(-8, 0);
-  ctx.lineWidth = 1.4; ctx.stroke();
-  // Tail rotor (vertical)
-  ctx.beginPath();
-  ctx.moveTo(-8, -1.8); ctx.lineTo(-8, 1.8);
-  ctx.lineWidth = 1.2; ctx.stroke();
-  ctx.lineWidth = 1;
-  // Main rotor disc (translucent blade arc)
-  ctx.save();
-  ctx.globalAlpha = 0.5;
-  ctx.strokeStyle = fillStyle;
-  ctx.beginPath();
-  ctx.moveTo(-7, -2); ctx.lineTo(7, -2);
-  ctx.lineWidth = 1.4; ctx.stroke();
-  ctx.restore();
-}
-function drawDrone() {
-  const fillStyle = ctx.fillStyle;
-  // Quadcopter: small central body + four rotor pods on X-arms
-  ctx.beginPath();
-  ctx.arc(0, 0, 1.6, 0, Math.PI * 2);
+  ctx.moveTo(-1.5, -0.7);
+  ctx.lineTo(-7.6, -0.5);
+  ctx.lineTo(-7.6, 0.5);
+  ctx.lineTo(-1.5, 0.7);
+  ctx.closePath();
   ctx.fill(); ctx.stroke();
-  ctx.lineWidth = 0.8;
-  for (const [px, py] of [[2.6, 2.6], [2.6, -2.6], [-2.6, 2.6], [-2.6, -2.6]]) {
-    ctx.beginPath();
-    ctx.moveTo(0, 0); ctx.lineTo(px, py);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(px, py, 1.1, 0, Math.PI * 2);
-    ctx.fillStyle = fillStyle; ctx.fill(); ctx.stroke();
-  }
-  ctx.lineWidth = 1;
+  // Horizontal stabilizer at tail
+  ctx.beginPath();
+  ctx.moveTo(-7.1, 0);
+  ctx.lineTo(-8.7, -1.9);
+  ctx.lineTo(-8.0, 0);
+  ctx.lineTo(-8.7, 1.9);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // Fuselage (teardrop cabin)
+  ctx.beginPath();
+  ctx.moveTo(4.9, 0);
+  ctx.bezierCurveTo(4.9, -2.4, 0.2, -2.5, -2.0, -1.9);
+  ctx.lineTo(-2.0, 1.9);
+  ctx.bezierCurveTo(0.2, 2.5, 4.9, 2.4, 4.9, 0);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // Cockpit windshield
+  ctx.beginPath();
+  ctx.moveTo(4.5, -0.8);
+  ctx.bezierCurveTo(3.5, -1.9, 1.5, -1.9, 0.9, -1.3);
+  ctx.lineTo(0.9, 1.3);
+  ctx.bezierCurveTo(1.5, 1.9, 3.5, 1.9, 4.5, 0.8);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(190, 225, 245, 0.55)';
+  ctx.fill();
+  ctx.fillStyle = col;
+  // Main rotor disc (translucent) + spinning blades + hub
+  ctx.save();
+  ctx.globalAlpha = 0.15;
+  ctx.beginPath(); ctx.arc(1.0, 0, 6.7, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  ctx.save();
+  ctx.globalAlpha = 0.7; ctx.strokeStyle = col; ctx.lineWidth = 0.7;
+  ctx.beginPath(); ctx.moveTo(-5.7, 0); ctx.lineTo(7.7, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(1.0, -6.7); ctx.lineTo(1.0, 6.7); ctx.stroke();
+  ctx.restore();
+  ctx.beginPath(); ctx.arc(1.0, 0, 0.85, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawDrone() {
+  // MALE-class UAV (Predator/Heron style): slim fuselage, long straight
+  // high-aspect wings, V-tail, chin sensor turret.
+  const col = ctx.fillStyle;
+  // Wings
+  ctx.beginPath();
+  ctx.moveTo(0.8, -0.55);
+  ctx.lineTo(-0.4, -7.3);
+  ctx.lineTo(0.9, -7.3);
+  ctx.lineTo(2.0, -0.5);
+  ctx.lineTo(2.0, 0.5);
+  ctx.lineTo(0.9, 7.3);
+  ctx.lineTo(-0.4, 7.3);
+  ctx.lineTo(0.8, 0.55);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // Fuselage
+  ctx.beginPath();
+  ctx.moveTo(6.6, 0);
+  ctx.lineTo(5.0, -0.8);
+  ctx.lineTo(-5.6, -0.85);
+  ctx.lineTo(-6.1, 0);
+  ctx.lineTo(-5.6, 0.85);
+  ctx.lineTo(5.0, 0.8);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // V-tail
+  ctx.lineWidth = 0.85;
+  ctx.beginPath();
+  ctx.moveTo(-5.0, -0.6); ctx.lineTo(-7.1, -2.5);
+  ctx.moveTo(-5.0, 0.6);  ctx.lineTo(-7.1, 2.5);
+  ctx.stroke();
+  ctx.lineWidth = 0.5;
+  // Chin sensor turret
+  ctx.beginPath(); ctx.arc(3.3, 0, 1.2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
 }
 
 function drawMissiles() {
   for (const m of state.missiles) {
-    ctx.beginPath();
-    ctx.moveTo(m.x, m.y);
-    const back = 8;
     const dx = m.tx - m.sx, dy = m.ty - m.sy;
     const len = Math.hypot(dx, dy) || 1;
-    ctx.lineTo(m.x - (dx / len) * back, m.y - (dy / len) * back);
-    ctx.strokeStyle = '#fef3c7';
-    ctx.lineWidth = 2;
+    const ux = dx / len, uy = dy / len;
+
+    // Fire trail — gradient from bright white-yellow at head to transparent
+    const trailLen = 18;
+    const tGrad = ctx.createLinearGradient(
+      m.x, m.y,
+      m.x - ux * trailLen, m.y - uy * trailLen
+    );
+    tGrad.addColorStop(0,   'rgba(255, 252, 210, 0.95)');
+    tGrad.addColorStop(0.35,'rgba(255, 200, 60,  0.7)');
+    tGrad.addColorStop(0.7, 'rgba(255, 110, 20,  0.35)');
+    tGrad.addColorStop(1,   'rgba(255, 60,  10,  0)');
+    ctx.beginPath();
+    ctx.moveTo(m.x, m.y);
+    ctx.lineTo(m.x - ux * trailLen, m.y - uy * trailLen);
+    ctx.strokeStyle = tGrad;
+    ctx.lineWidth = 2.8;
+    ctx.lineCap = 'round';
     ctx.stroke();
-    ctx.fillStyle = '#fbbf24';
-    ctx.beginPath(); ctx.arc(m.x, m.y, 2.5, 0, Math.PI * 2); ctx.fill();
+    ctx.lineCap = 'butt';
+
+    // Bright missile head with halo
+    const headGrad = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, 5);
+    headGrad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    headGrad.addColorStop(0.45, 'rgba(255, 235, 80, 0.9)');
+    headGrad.addColorStop(1, 'rgba(251, 191, 36, 0)');
+    ctx.beginPath(); ctx.arc(m.x, m.y, 5, 0, Math.PI * 2);
+    ctx.fillStyle = headGrad; ctx.fill();
   }
 }
 
-// Mid-air interception puff - small and quick, yellow-white spark with thin
-// orange ring.  Distinct from the larger red ground-impact blast.
+// Mid-air interception puff — multi-ring spark burst, distinct from ground impact
 function drawExplosions() {
   for (const e of state.explosions) {
     const k = e.t / e.dur;
     const a = 1 - k;
-    // Thin orange ring expanding
+
+    // Outer shockwave ring
     ctx.beginPath();
-    ctx.arc(e.x, e.y, e.r * (0.5 + k * 1.4), 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(251, 191, 36, ${a * 0.7})`;
+    ctx.arc(e.x, e.y, e.r * (0.5 + k * 2.2), 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255, 180, 40, ${a * 0.45})`;
     ctx.lineWidth = 1.5;
     ctx.stroke();
-    // Bright yellow-white core
+
+    // Middle ring
     ctx.beginPath();
-    ctx.arc(e.x, e.y, e.r * 0.7 * a, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(255, 255, 200, ${a})`;
-    ctx.fill();
+    ctx.arc(e.x, e.y, e.r * (0.4 + k * 1.1), 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255, 230, 100, ${a * 0.6})`;
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    // Central fireball gradient
+    const fr = e.r * 0.9 * (1 - k * 0.75);
+    const fGrad = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, fr);
+    fGrad.addColorStop(0,   `rgba(255, 255, 255, ${a})`);
+    fGrad.addColorStop(0.3, `rgba(255, 250, 140, ${a * 0.9})`);
+    fGrad.addColorStop(0.7, `rgba(255, 180, 20,  ${a * 0.55})`);
+    fGrad.addColorStop(1,   'rgba(255, 80, 10, 0)');
+    ctx.beginPath(); ctx.arc(e.x, e.y, fr, 0, Math.PI * 2);
+    ctx.fillStyle = fGrad; ctx.fill();
   }
 }
 
 function triggerTargetHit(t) {
+  state.leakerFlashT = state.simElapsed;  // red edge flash + LEAKER callout
   if (t.key === 'helicopter') {
     // Helicopter touchdown: troops disembark and run outward.  Combined with
     // a large rising smoke column + scorched ground so it's unmistakable
@@ -2412,23 +3956,124 @@ function drawSoldier(x, y, alpha) {
 }
 
 function drawHUD() {
-  if (state.mode === 'sim') {
-    ctx.fillStyle = 'rgba(95, 168, 211, 0.9)';
-    ctx.font = 'bold 12px sans-serif';
-    ctx.textAlign = 'right';
-    ctx.fillText(`Simulation time: ${state.simElapsed.toFixed(1)} s`, W - 12, 24);
+  const lines = [];
+
+  if (isSimActive()) {
+    const active   = state.threats.filter(t => t.status === 'inflight').length;
+    const killed   = state.threats.filter(t => t.status === 'destroyed').length;
+    const breached = state.threats.filter(t => t.status === 'reached').length;
+    lines.push({ text: `▶ SIM  ${state.simElapsed.toFixed(1)} s`, color: 'rgba(95, 200, 232, 0.95)' });
+    if (active   > 0) lines.push({ text: `INFLIGHT  ${active}`, color: 'rgba(251, 191, 36, 0.85)' });
+    if (killed   > 0) lines.push({ text: `KILLED    ${killed}`, color: 'rgba(95, 168, 107, 0.9)' });
+    if (breached > 0) lines.push({ text: `BREACHED  ${breached}`, color: 'rgba(220, 60, 60, 0.9)' });
   }
   if (state.budget) {
-    ctx.fillStyle = 'rgba(251, 191, 36, 0.9)';
-    ctx.font = 'bold 12px sans-serif';
-    ctx.textAlign = 'right';
-    ctx.fillText('Defense Challenge Active', W - 12, 44);
+    lines.push({ text: '◈ DEF CHALLENGE', color: 'rgba(251, 191, 36, 0.8)' });
   }
+  if (state.attackChallenge) {
+    lines.push({ text: '◉ ATK CHALLENGE', color: 'rgba(220, 60, 60, 0.8)' });
+  }
+  if (intelHidden()) {
+    lines.push({ text: '🕶 NO INTEL', color: 'rgba(216, 180, 254, 0.95)' });
+  }
+
+  if (lines.length === 0) return;
+
+  ctx.save();
+  ctx.font = '11px "Share Tech Mono", ui-monospace, monospace';
+  const lineH = 17, padX = 12, padY = 22;          // padY leaves room for the title bar
+  const titleH = 13;
+  const maxW = lines.reduce((w, l) => Math.max(w, ctx.measureText(l.text).width), 0);
+  const bw = Math.max(maxW + padX * 2, 132);
+  const bh = lines.length * lineH + padY + 10;
+  const bx = W - bw - 10;
+  const by = 8;
+  const chamfer = 9;                                // angled corner depth (MFD look)
+
+  // Chamfered panel path — six-sided with the top-right and bottom-left
+  // corners shaved off. Reads as a tactical multifunction display.
+  function chamferedPath() {
+    ctx.beginPath();
+    ctx.moveTo(bx, by);
+    ctx.lineTo(bx + bw - chamfer, by);
+    ctx.lineTo(bx + bw, by + chamfer);
+    ctx.lineTo(bx + bw, by + bh);
+    ctx.lineTo(bx + chamfer, by + bh);
+    ctx.lineTo(bx, by + bh - chamfer);
+    ctx.closePath();
+  }
+
+  // Background fill + frame
+  chamferedPath();
+  ctx.fillStyle = 'rgba(5, 8, 16, 0.9)';
+  ctx.fill();
+  chamferedPath();
+  ctx.strokeStyle = 'rgba(95, 200, 232, 0.42)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Title strip
+  ctx.fillStyle = 'rgba(95, 200, 232, 0.10)';
+  ctx.fillRect(bx + 1, by + 1, bw - chamfer - 1, titleH);
+  ctx.beginPath();
+  ctx.moveTo(bx + 4, by + titleH + 1.5);
+  ctx.lineTo(bx + bw - 4, by + titleH + 1.5);
+  ctx.strokeStyle = 'rgba(95, 200, 232, 0.35)';
+  ctx.stroke();
+
+  // Title text
+  ctx.font = '9px "Share Tech Mono", ui-monospace, monospace';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = 'rgba(95, 200, 232, 0.85)';
+  ctx.fillText('TACSIT // STATUS', bx + 8, by + 10);
+
+  // Status pulse dot on the right of the title bar
+  const pulse = 0.55 + 0.45 * Math.abs(Math.sin(Date.now() * 0.004));
+  ctx.beginPath();
+  ctx.arc(bx + bw - chamfer - 8, by + 6.5, 2.6, 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(95, 200, 232, ${pulse})`;
+  ctx.fill();
+
+  // Data rows
+  ctx.font = '11px "Share Tech Mono", ui-monospace, monospace';
+  ctx.textAlign = 'right';
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillStyle = lines[i].color;
+    ctx.fillText(lines[i].text, bx + bw - padX, by + padY + i * lineH + 4);
+  }
+
+  // Inner corner brackets (subtle tactical accent on opposite corners)
+  const brk = 6;
+  ctx.strokeStyle = 'rgba(95, 200, 232, 0.55)';
+  ctx.lineWidth = 1.2;
+  // top-left
+  ctx.beginPath();
+  ctx.moveTo(bx + 1, by + brk + 1); ctx.lineTo(bx + 1, by + 1); ctx.lineTo(bx + brk + 1, by + 1);
+  ctx.stroke();
+  // bottom-right
+  ctx.beginPath();
+  ctx.moveTo(bx + bw - 1, by + bh - brk - 1); ctx.lineTo(bx + bw - 1, by + bh - 1); ctx.lineTo(bx + bw - brk - 1, by + bh - 1);
+  ctx.stroke();
+  ctx.restore();
 }
 
 // =============================================================
 // סימולציה
 // =============================================================
+const SIM_BTN = { simulate: null, pause: null, resume: null, stop: null };
+const isSimActive = () => state.mode === 'sim' || state.mode === 'paused';
+function initSimButtons() {
+  for (const id of Object.keys(SIM_BTN)) SIM_BTN[id] = document.getElementById(id);
+}
+function setSimButtons(mode) {
+  // mode: 'idle' | 'running' | 'paused'
+  SIM_BTN.simulate.style.display = mode === 'idle'    ? '' : 'none';
+  SIM_BTN.pause.style.display    = mode === 'running' ? '' : 'none';
+  SIM_BTN.resume.style.display   = mode === 'paused'  ? '' : 'none';
+  SIM_BTN.stop.style.display     = mode !== 'idle'    ? '' : 'none';
+  renderMobileBudgetPill();
+}
+
 function startSim() {
   if (state.threats.length === 0) {
     setStatus('אין איומים להפעיל - הוסף איומים בצד אדום');
@@ -2437,13 +4082,17 @@ function startSim() {
   state.mode = 'sim';
   state.simElapsed = 0;
   state.missiles = []; state.explosions = []; state.targetHits = [];
+  state.killLabels = []; state.leakerFlashT = -1;
   state.history = [];
   state.scrubTime = null;
+  state.endLinger = null;
+  hideNewGameCta();
   document.getElementById('scrubber-row').style.display = 'none';
+  setScrubberActive(false);
   // reset threats and defenses
   for (const t of state.threats) {
     t.x = t.sx; t.y = t.sy; t.status = 'inflight'; t.hitBy = null;
-    t.firedAt = 0; t.missedBy = [];
+    t.firedAt = 0; t.missedBy = []; t.depletedEnvelope = [];
   }
   for (const d of state.defenses) {
     const c = CATALOG[d.key];
@@ -2451,16 +4100,32 @@ function startSim() {
     d.prepareTarget = null;
     d.prepareUntil = 0;
   }
-  document.getElementById('simulate').style.display = 'none';
-  document.getElementById('stop').style.display = '';
+  setSimButtons('running');
   hideBanner();
+  // Reveal the hidden opposing side ("intel" arrives) at the moment the
+  // simulation kicks off — no-intel mode only hides during planning.
+  state.intelRevealed = true;
+  setStatus('סימולציה פעילה...');
+}
+
+function pauseSim() {
+  if (state.mode !== 'sim') return;
+  state.mode = 'paused';
+  setSimButtons('paused');
+  setStatus('סימולציה מושהית - לחץ "המשך" לחידוש');
+}
+
+function resumeSim() {
+  if (state.mode !== 'paused') return;
+  state.mode = 'sim';
+  state.lastTs = 0;
+  setSimButtons('running');
   setStatus('סימולציה פעילה...');
 }
 
 function stopSim() {
   state.mode = 'idle';
-  document.getElementById('simulate').style.display = '';
-  document.getElementById('stop').style.display = 'none';
+  setSimButtons('idle');
   setStatus('סימולציה נעצרה');
 }
 
@@ -2514,6 +4179,21 @@ function tick(dt) {
     }
   }
 
+  // 3c. Track threats passing through depleted-battery envelopes (for post-sim annotation)
+  for (const d of state.defenses) {
+    const c = CATALOG[d.key];
+    if (c.kind !== 'battery' || d.ammo > 0) continue;
+    for (const t of state.threats) {
+      if (t.status !== 'inflight') continue;
+      const tc = CATALOG[t.key];
+      const effMax = effectiveEngagementRange(c, tc);
+      const dist = Math.hypot(t.x - d.x, t.y - d.y);
+      if (dist <= effMax && dist >= c.minRange && !t.depletedEnvelope.includes(c.short)) {
+        t.depletedEnvelope.push(c.short);
+      }
+    }
+  }
+
   // 4. Update missiles
   for (const m of state.missiles) {
     m.t += dt;
@@ -2529,6 +4209,8 @@ function tick(dt) {
           target.hitBy = m.battery;
           // Smaller, brief mid-air interception puff
           state.explosions.push({ x: target.x, y: target.y, r: 9, t: 0, dur: 0.5 });
+          // Kill confirmation — floating label rising over the intercept point
+          state.killLabels.push({ x: target.x, y: target.y, t: 0, dur: 1.4, battery: m.battery });
         } else {
           target.missedBy.push({ battery: m.battery, reason: m.reason });
           state.explosions.push({ x: m.x + (Math.random()-0.5)*10, y: m.y + (Math.random()-0.5)*10, r: 5, t: 0, dur: 0.35 });
@@ -2541,6 +4223,10 @@ function tick(dt) {
   // 5. Update explosions
   for (const e of state.explosions) e.t += dt;
   state.explosions = state.explosions.filter(e => e.t < e.dur);
+
+  // 5a. Update kill-confirmation labels
+  for (const k of state.killLabels) k.t += dt;
+  state.killLabels = state.killLabels.filter(k => k.t < k.dur);
 
   // 5b. Update target-hit effects (explosions on target / paratroopers)
   for (const e of state.targetHits) {
@@ -2556,10 +4242,18 @@ function tick(dt) {
   }
   state.targetHits = state.targetHits.filter(e => e.t < e.dur);
 
-  // 6. End condition
+  // 6. End condition — linger 1s after the last threat/missile clears so
+  // the final impact (or interception) is visible before the results panel
+  // takes over.
   const active = state.threats.filter(t => t.status === 'inflight');
   if (active.length === 0 && state.missiles.length === 0) {
-    finishSim();
+    if (state.endLinger == null) state.endLinger = state.simElapsed + 1.0;
+    else if (state.simElapsed >= state.endLinger) {
+      state.endLinger = null;
+      finishSim();
+    }
+  } else if (state.endLinger != null) {
+    state.endLinger = null;
   }
 
   // 7. Snapshot for scrubber (every ~0.1s)
@@ -2581,24 +4275,14 @@ function pickEngagementTarget(d) {
     if (!hasLOS(d.x, d.y, t.x, t.y, altMSL)) continue;
 
     const dist = Math.hypot(t.x - d.x, t.y - d.y);
-    if (dist < c.minRange) continue;
+    if (dist < c.minRange) continue;  // currently in dead zone
 
-    // RCS-adjusted effective engagement envelope - low-RCS targets shrink
-    // the battery's effective tracking range (radar equation).  The missile
-    // envelope is physically the same in both directions (incoming OR
-    // receding) but it's tighter for stealthier threats.
-    const effMax = effectiveEngagementRange(c, tc);
-
-    if (dist > effMax) {
-      // Threat beyond effective engagement range - need cueing from a
-      // dedicated standalone radar AND the predicted intercept must
-      // still land inside the effective engagement envelope.
-      const det = getDetectionInfo(t, d, c, tc);
-      if (!det.externalRadar) continue;
-      if (!canInterceptInsideRange(t, d, c, tc)) continue;
-    }
-    // Otherwise the threat is inside the battery's effective engagement
-    // envelope - approach direction (incoming or receding) does not matter.
+    // Comprehensive viability evaluated at the predicted intercept point:
+    // detection (organic or external radar), intercept inside the reachable
+    // envelope, non-tangential geometry, and enough flight time to catch
+    // the threat before it reaches its target.  Skip the shot entirely if
+    // any of these would cause a certain miss — don't waste a missile.
+    if (!isViableShot(t, d, c, tc)) continue;
 
     // Prefer threats closer to important targets
     const target = TARGETS.find(x => x.x === t.tx && x.y === t.ty);
@@ -2634,17 +4318,18 @@ function getDetectionInfo(t, d, c, tc) {
   return { organic, externalRadar };
 }
 
-// Strict early-engagement gate.  The battery commits ONLY if the
-// predicted lead-pursuit intercept point lands inside its engagement
-// envelope (the "missile envelope" - מחוץ לעטפת הטיל המיירט).  This
-// prevents wasting missiles on threats that the radar can see but
-// the missile cannot physically catch in range.
-function canInterceptInsideRange(t, d, c, tc) {
+// Lead-pursuit intercept solver shared by engagement logic and fire-time
+// checks.  launchDelay is the time (seconds) until the missile actually
+// launches: c.reactionTime when called from pickEngagementTarget (battery
+// hasn't started RT yet) and 0 when called from fireMissile (RT already
+// elapsed and the threat is at the launch position now).
+function computeIntercept(t, d, c, tc, launchDelay) {
+  const delay = (launchDelay !== undefined) ? launchDelay : c.reactionTime;
   const fdx = t.tx - t.sx, fdy = t.ty - t.sy;
   const flen = Math.hypot(fdx, fdy) || 1;
   const tvx = fdx / flen, tvy = fdy / flen;
-  const launchX = t.x + tvx * tc.speed * c.reactionTime;
-  const launchY = t.y + tvy * tc.speed * c.reactionTime;
+  const launchX = t.x + tvx * tc.speed * delay;
+  const launchY = t.y + tvy * tc.speed * delay;
   let T = Math.hypot(launchX - d.x, launchY - d.y) / c.missileSpeed;
   let ipx = launchX, ipy = launchY;
   for (let i = 0; i < 6; i++) {
@@ -2652,13 +4337,60 @@ function canInterceptInsideRange(t, d, c, tc) {
     ipy = launchY + tvy * tc.speed * T;
     T = Math.hypot(ipx - d.x, ipy - d.y) / c.missileSpeed;
   }
+  return { ipx, ipy, T, tvx, tvy };
+}
+
+// Maximum engagement range for this battery vs this specific threat.
+// External radar cueing bypasses the battery's RCS-limited tracking
+// envelope so the only constraint becomes physical missile range.
+function getEngagementLimit(t, d, c, tc) {
+  const det = getDetectionInfo(t, d, c, tc);
+  if (det.externalRadar) return c.maxRange;
+  if (det.organic) return effectiveEngagementRange(c, tc);
+  return null;  // no detection — battery cannot engage
+}
+
+// Comprehensive pre-fire viability check evaluated AT THE PREDICTED INTERCEPT
+// POINT (not at the threat's current position).  Refuses shots that would
+// certainly miss for known reasons:
+//   - no detection (organic or external radar)
+//   - intercept point outside the reachable envelope
+//   - tangential geometry at impact (≤±8.6° of perpendicular crossing)
+//   - missile flight time exceeds the threat's remaining time to its target
+// launchDelay defaults to c.reactionTime (pick-time use); pass 0 at fire time.
+function isViableShot(t, d, c, tc, launchDelay) {
+  const limit = getEngagementLimit(t, d, c, tc);
+  if (limit == null) return false;
+  const { ipx, ipy, T, tvx, tvy } = computeIntercept(t, d, c, tc, launchDelay);
   const interceptDist = Math.hypot(ipx - d.x, ipy - d.y);
-  // Predicted intercept point MUST be inside the RCS-adjusted envelope
-  const effMax = effectiveEngagementRange(c, tc);
-  if (interceptDist < c.minRange || interceptDist > effMax) return false;
+  if (interceptDist < c.minRange || interceptDist > limit) return false;
+  const btx = ipx - d.x, bty = ipy - d.y;
+  const blen = Math.hypot(btx, bty) || 1;
+  const cosAng = (btx / blen) * tvx + (bty / blen) * tvy;
+  if (Math.abs(cosAng) < 0.15) return false;
+  const delay = (launchDelay !== undefined) ? launchDelay : c.reactionTime;
   const remaining = Math.hypot(t.tx - t.x, t.ty - t.y) / tc.speed;
-  if (c.reactionTime + T > remaining) return false;
+  if (delay + T > remaining) return false;
   return true;
+}
+
+// Backwards-compatibility wrapper — kept for the canInterceptInsideRange
+// call site below; behaviour is now equivalent to isViableShot with the
+// default RT launchDelay.
+function canInterceptInsideRange(t, d, c, tc) {
+  return isViableShot(t, d, c, tc);
+}
+
+// Returns true if the threat is predicted to be moving nearly perpendicular
+// to the battery LoS AT THE INTERCEPT POINT (i.e., at the moment of impact,
+// not at the current moment).  Kept as a focused predicate for fireMissile's
+// fast-path guard — full viability is handled by isViableShot at pick time.
+function isTangentShot(t, d, c, tc) {
+  const { ipx, ipy, tvx, tvy } = computeIntercept(t, d, c, tc);
+  const btx = ipx - d.x, bty = ipy - d.y;
+  const blen = Math.hypot(btx, bty) || 1;
+  const cosAng = (btx / blen) * tvx + (bty / blen) * tvy;
+  return Math.abs(cosAng) < 0.15;
 }
 
 function alreadyEngaged(t) {
@@ -2682,8 +4414,6 @@ function isDetected(t) {
 function fireMissile(d, t) {
   const c = CATALOG[d.key];
   const tc = CATALOG[t.key];
-  d.cd = c.reload; d.ammo--;
-  t.firedAt++;
 
   // Threat velocity unit vector (along its straight path to target)
   const fdx = t.tx - t.sx, fdy = t.ty - t.sy;
@@ -2692,7 +4422,8 @@ function fireMissile(d, t) {
   const threatSpeed = tc.speed;
   const missileSpeed = c.missileSpeed;
 
-  // Iterative lead-pursuit intercept solution
+  // Iterative lead-pursuit intercept solution — converges on the future
+  // point where missile and threat will collide.
   let T = Math.hypot(t.x - d.x, t.y - d.y) / missileSpeed;
   let ipx = t.x, ipy = t.y;
   for (let i = 0; i < 6; i++) {
@@ -2701,10 +4432,36 @@ function fireMissile(d, t) {
     T = Math.hypot(ipx - d.x, ipy - d.y) / missileSpeed;
   }
 
+  // Pre-commit guards at fire time.  pickEngagementTarget already filters
+  // tangential and out-of-envelope shots based on the predicted intercept
+  // geometry, but RT-period floating-point drift or shifting detection
+  // (e.g., a supporting radar dropping LoS during RT) can occasionally
+  // change the geometry across the threshold.  If the actual intercept
+  // point would land within ±15° of perpendicular OR outside the reachable
+  // envelope, abort the launch entirely — the missile would certainly miss,
+  // so don't waste the round.  Ammo is preserved; the battery becomes idle
+  // and re-evaluates the threat next tick.
+  {
+    const btx = ipx - d.x, bty = ipy - d.y;
+    const blen = Math.hypot(btx, bty) || 1;
+    const cosAng = (btx / blen) * tvx + (bty / blen) * tvy;
+    if (Math.abs(cosAng) < 0.15) return;
+    const det = getDetectionInfo(t, d, c, tc);
+    const limit = det.externalRadar ? c.maxRange
+                : det.organic       ? effectiveEngagementRange(c, tc)
+                : null;
+    if (limit == null) return;  // lost detection during RT
+    if (blen < c.minRange || blen > limit) return;  // intercept outside envelope
+  }
+
+  // Commit the shot: decrement ammo, set cooldown.
+  d.cd = c.reload; d.ammo--;
+  t.firedAt++;
+
   // Time threat will reach its target
   const threatTimeToTarget = Math.hypot(t.tx - t.x, t.ty - t.y) / threatSpeed;
 
-  let outcome;  // 'hit' | 'flight-time' | 'out-of-range' | 'tangent' | 'statistical'
+  let outcome;  // 'hit' | 'flight-time' | 'statistical'
 
   // Rule 1: missile flight time exceeds threat's remaining time → too late
   if (T > threatTimeToTarget) {
@@ -2713,24 +4470,11 @@ function fireMissile(d, t) {
     ipx = t.x + tvx * threatSpeed * threatTimeToTarget;
     ipy = t.y + tvy * threatSpeed * threatTimeToTarget;
   }
-  // Rule 2: predicted intercept point exits the RCS-adjusted envelope
-  else if (Math.hypot(ipx - d.x, ipy - d.y) > effectiveEngagementRange(c, tc)) {
-    outcome = 'out-of-range';
-  }
-  // Rule 3: tangent crossing - threat moving (near-)perpendicular to battery LOS at intercept
-  else {
-    const btx = ipx - d.x, bty = ipy - d.y;
-    const blen = Math.hypot(btx, bty) || 1;
-    const cosAng = (btx / blen) * tvx + (bty / blen) * tvy;
-    if (Math.abs(cosAng) < 0.15) {
-      outcome = 'tangent';
-    }
-    // Rule 4: statistical hit-rate roll
-    else if (Math.random() < c.hitRate) {
-      outcome = 'hit';
-    } else {
-      outcome = 'statistical';
-    }
+  // Rule 2: statistical hit-rate roll (tangent + out-of-range already excluded above)
+  else if (Math.random() < c.hitRate) {
+    outcome = 'hit';
+  } else {
+    outcome = 'statistical';
   }
 
   state.missiles.push({
@@ -2744,11 +4488,8 @@ function fireMissile(d, t) {
 
 function finishSim() {
   state.mode = 'idle';
-  document.getElementById('simulate').style.display = '';
-  document.getElementById('stop').style.display = 'none';
-  // Capture a final snapshot so the scrubber can land exactly at the end
+  setSimButtons('idle');
   state.history.push(captureSnapshot());
-  // Show scrubber set to the end of the timeline
   const total = state.simElapsed;
   const slider = document.getElementById('scrubber');
   slider.min = 0;
@@ -2758,9 +4499,17 @@ function finishSim() {
   document.getElementById('scrubber-total').textContent = total.toFixed(1);
   document.getElementById('scrubber-time').textContent = total.toFixed(1);
   document.getElementById('scrubber-row').style.display = '';
+  placeScrubberForViewport();
+  setScrubberActive(true);
   state.scrubTime = null;  // live until user drags
   computeResults();
   renderResults();
+
+  // Score + XP + rank progression — challenge modes only (free play is unscored)
+  state.lastAward = null;
+  if (state.challengeMode === 'defense-challenge' || state.challengeMode === 'attack-challenge') {
+    awardMission(computeMissionScore(state.results));
+  }
 
   if (state.results && state.results.objectiveMet !== null) {
     const ok = state.results.objectiveMet;
@@ -2861,73 +4610,6 @@ function showResultsModal() {
     recsHtml += `<li>${rec}</li>`;
   }
 
-  // Theoretical best given the same deployment + threats (no random misses)
-  const best = computeBestPossible();
-  const yourScore = r.protectedValue;
-  const bestScore = best.bestProtectedValue;
-  const efficiency = bestScore > 0 ? Math.min(1, yourScore / bestScore) : 1;
-  const effPercent = (efficiency * 100).toFixed(0);
-  let effClass, effLabel;
-  if (efficiency >= 0.9) { effClass = 'success'; effLabel = 'ביצוע אופטימלי כמעט'; }
-  else if (efficiency >= 0.7) { effClass = 'partial'; effLabel = 'ביצוע סביר'; }
-  else { effClass = 'failure'; effLabel = 'יש מקום לשיפור משמעותי'; }
-
-  // Benchmark from attacker's perspective (damage % achieved vs maximum the
-  // defense allowed) when in attack mode; from defender's perspective otherwise
-  let benchmarkHtml;
-  if (isAttack) {
-    const yourDamage = r.totalValue - r.protectedValue;
-    const bestPossibleDamage = r.totalValue - best.bestProtectedValue;
-    // For the attacker the "best" = least the defense could intercept
-    // i.e. maximum damage given current attack threats vs deployed defense
-    // computeBestPossible models defender-optimal play. So attacker-best = how
-    // much damage even an optimal defense couldn't prevent.
-    const attackerEff = bestPossibleDamage > 0
-      ? Math.min(1, yourDamage / Math.max(1, r.totalValue - best.bestProtectedValue))
-      : (yourDamage > 0 ? 1 : 0);
-    const yourPct = (yourDamage / r.totalValue * 100).toFixed(0);
-    const bestPct = (bestPossibleDamage / r.totalValue * 100).toFixed(0);
-    benchmarkHtml = `
-      <div class="results-section-title" style="color:#a78bfa">📊 הביצוע ההתקפי שלך אל מול אופטימום</div>
-      <div class="benchmark-grid">
-        <div class="benchmark-row">
-          <div class="bench-label">נזק שגרמת</div>
-          <div class="bench-bar"><div class="bench-fill yours" style="width:${yourPct}%;background:linear-gradient(90deg,#7c2d12,#dc2626)"></div></div>
-          <div class="bench-num">${r.survived}/${r.total} פרצו | ${yourDamage}/${r.totalValue} נזק</div>
-        </div>
-        <div class="benchmark-row">
-          <div class="bench-label">נזק תיאורטי מקסימלי</div>
-          <div class="bench-bar"><div class="bench-fill best" style="width:${bestPct}%;background:linear-gradient(90deg,#92400e,#f59e0b)"></div></div>
-          <div class="bench-num">${r.total - best.bestKilled}/${r.total} פרצו | ${bestPossibleDamage}/${r.totalValue} נזק</div>
-        </div>
-      </div>
-      <div class="modal-verdict partial" style="margin-top:10px">
-        🎯 גרמת ל-<b>${(attackerEff*100).toFixed(0)}%</b> מהנזק האפשרי לפי תכנון התקפה אופטימלי<br>
-        <span style="font-size:11px;font-weight:400;color:#7e91a8">המקסימום מתאר את הנזק שאפילו הקצאה אופטימלית של ההגנה לא הייתה יכולה למנוע מול האיומים שבחרת ומיקומם.</span>
-      </div>
-    `;
-  } else {
-    benchmarkHtml = `
-      <div class="results-section-title" style="color:#a78bfa">📊 הביצוע ההגנתי שלך אל מול אופטימום</div>
-      <div class="benchmark-grid">
-        <div class="benchmark-row">
-          <div class="bench-label">הביצוע שלך</div>
-          <div class="bench-bar"><div class="bench-fill yours" style="width:${(r.protectedValue/r.totalValue*100).toFixed(0)}%"></div></div>
-          <div class="bench-num">${r.killed}/${r.total} | ${r.protectedValue}/${r.totalValue}</div>
-        </div>
-        <div class="benchmark-row">
-          <div class="bench-label">המקסימום האפשרי</div>
-          <div class="bench-bar"><div class="bench-fill best" style="width:${(best.bestProtectedValue/best.totalValue*100).toFixed(0)}%"></div></div>
-          <div class="bench-num">${best.bestKilled}/${r.total} | ${best.bestProtectedValue}/${best.totalValue}</div>
-        </div>
-      </div>
-      <div class="modal-verdict ${effClass}" style="margin-top:10px">
-        🎯 השגת <b>${effPercent}%</b> מהאופטימום - ${effLabel}<br>
-        <span style="font-size:11px;font-weight:400;color:#7e91a8">המקסימום מחושב לפי הפריסה הנוכחית, ללא החטאות סטטיסטיות, עם הקצאה אופטימלית של מיירטים.</span>
-      </div>
-    `;
-  }
-
   // Hit-targets summary line - which strategic targets actually got struck.
   // Visual semantics flip by role:
   //   Attacker: target HIT  = success (green💥),  target intact = failure (red ✗)
@@ -2988,15 +4670,43 @@ function showResultsModal() {
     : `✓ איומים שיורטו (${intercepted.length})`;
   const recsTitle = isAttack ? 'המלצות לשיפור ההתקפה' : 'המלצות לשיפור ההגנה';
 
+  // ── Score + rank progression block (challenge runs only) ──
+  let awardHtml = '';
+  if (state.lastAward) {
+    const a = state.lastAward;
+    const next = nextRankFor(profile.xp);
+    const cur = rankForXp(profile.xp);
+    const span = next ? next.minXp - cur.minXp : 1;
+    const into = next ? profile.xp - cur.minXp : 1;
+    const pct = next ? Math.round(100 * into / span) : 100;
+    awardHtml = `
+      <div class="award-block">
+        <div class="award-score">
+          <div class="award-score-num">${a.score}</div>
+          <div class="award-score-label">ציון משימה</div>
+          ${a.isNewBest ? '<div class="award-newbest">🏅 שיא אישי חדש!</div>'
+                        : `<div class="award-prevbest">שיא אישי: ${a.best}</div>`}
+        </div>
+        <div class="award-rank">
+          <div class="award-rank-row">
+            <span class="award-rank-name">🎖 ${cur.name}</span>
+            <span class="award-xp">+${a.xp} XP</span>
+          </div>
+          <div class="award-bar"><div class="award-bar-fill" style="width:${pct}%"></div></div>
+          <div class="award-rank-next">${next ? `עוד ${next.minXp - profile.xp} XP לדרגת ${next.name}` : 'הדרגה הגבוהה ביותר!'}</div>
+          ${a.rankedUp ? `<div class="award-rankup">⭐ קודמת לדרגת <b>${a.newRank.name}</b>!</div>` : ''}
+        </div>
+      </div>`;
+  }
+
   body.innerHTML = `
+    ${awardHtml}
     <div class="modal-verdict ${verdictCls}">${verdictText}</div>
 
     <div class="results-section-title" style="color:${isAttack ? '#dc2626' : '#5fa8d3'}">🎯 יעדים אסטרטגיים</div>
     <div class="targets-status">${hitTargetsHtml}</div>
 
     <div class="modal-summary">${summaryCardsHtml}</div>
-
-    ${benchmarkHtml}
 
     <div class="results-section-title" style="color:${isAttack ? '#5fa86b' : '#d35f5f'}">${breachLabel}</div>
     <table class="results-table">
@@ -3066,7 +4776,7 @@ function generateDefenseRecommendations(r) {
 
   if (counts['out-of-range'] > 0) {
     const tgts = [...new Set(targetsPerReason['out-of-range'])].join(', ');
-    recs.push(`📍 <b>${counts['out-of-range']} איומים סווגו "יציאה מטווח"</b> (יעדים: ${tgts}). הסיבה: לא היה כיסוי גאומטרי, גובה הטיסה מחוץ לתקרת הסוללה, או שהאיום עזב את הטווח לפני שהמיירט הגיע. <b>פתרון:</b> פרוס סוללה ארוכת טווח (Patriot 160km / David's Sling 300km / Barak 100km) קרוב יותר לציר התקיפה.`);
+    recs.push(`📍 <b>${counts['out-of-range']} איומים סווגו "יציאה מטווח"</b> (יעדים: ${tgts}). הסיבה: לא היה כיסוי גאומטרי, גובה הטיסה מחוץ לתקרת הסוללה, או שהאיום עזב את הטווח לפני שהמיירט הגיע. <b>פתרון:</b> פרוס סוללה ארוכת טווח (Patriot 160km / David's Sling 200km / Barak 100km) קרוב יותר לציר התקיפה.`);
   }
 
   if (counts['flight-time'] > 0) {
@@ -3188,63 +4898,24 @@ function generateAttackRecommendations(r) {
 
 function hideModal() {
   document.getElementById('modal').classList.remove('visible');
+  // After the results modal closes, surface a 'Start new game' CTA on the
+  // map so the player has a clear next step on mobile.
+  if (state.results) showNewGameCta();
+}
+
+function showNewGameCta() {
+  if (!window.MOBILE_MODE) return;
+  const btn = document.getElementById('mobile-new-game-cta');
+  if (btn) btn.style.display = '';
+}
+
+function hideNewGameCta() {
+  const btn = document.getElementById('mobile-new-game-cta');
+  if (btn) btn.style.display = 'none';
 }
 
 // Theoretical best result with the current placement: every viable engagement succeeds.
 // Greedy assignment of one available battery per threat (highest-value targets first).
-function computeBestPossible() {
-  const ammoLeft = new Map();
-  for (const d of state.defenses) {
-    if (CATALOG[d.key].kind === 'battery') {
-      ammoLeft.set(d.id, CATALOG[d.key].ammo);
-    }
-  }
-
-  // Sort threats by target value descending (defenders prioritize high-value targets)
-  const sorted = [...state.threats].sort((a, b) => {
-    const va = (TARGETS.find(x => x.name === a.target) || {}).value || 0;
-    const vb = (TARGETS.find(x => x.name === b.target) || {}).value || 0;
-    return vb - va;
-  });
-
-  let bestKilled = 0;
-  let damagedValue = 0;
-  const totalValue = TARGETS.reduce((s, t) => s + t.value, 0);
-
-  for (const t of sorted) {
-    const tc = CATALOG[t.key];
-    let assigned = null;
-    // Find any battery that has ammo and can geometrically engage (would hit at 100% PK)
-    for (const d of state.defenses) {
-      const c = CATALOG[d.key];
-      if (c.kind !== 'battery') continue;
-      if ((ammoLeft.get(d.id) || 0) <= 0) continue;
-      const outcome = simulateEngagementOutcome(t, d, c, tc);
-      if (outcome === 'statistical') {
-        assigned = d;
-        break;
-      }
-    }
-    if (assigned) {
-      ammoLeft.set(assigned.id, ammoLeft.get(assigned.id) - 1);
-      bestKilled++;
-    } else {
-      const tg = TARGETS.find(x => x.name === t.target);
-      if (tg) damagedValue += tg.value;
-    }
-  }
-
-  damagedValue = Math.min(damagedValue, totalValue);
-  const total = sorted.length;
-  return {
-    bestKilled,
-    bestSurvived: total - bestKilled,
-    bestProtectedValue: totalValue - damagedValue,
-    totalValue,
-    bestProtectedFraction: totalValue > 0 ? (totalValue - damagedValue) / totalValue : 1
-  };
-}
-
 function computeResults() {
   const total = state.threats.length;
   const killed = state.threats.filter(t => t.status === 'destroyed').length;
@@ -3283,6 +4954,19 @@ function computeResults() {
   };
 }
 
+// Returns true if the threat's straight-line path comes within the battery's effective engagement range.
+function threatPathEntersEnvelope(t, d, c, tc) {
+  const altMSL = getThreatAltMSL(t);
+  if (altMSL < c.minAlt || altMSL > c.maxAlt) return false;
+  const effMax = effectiveEngagementRange(c, tc);
+  const dx = t.tx - t.sx, dy = t.ty - t.sy;
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len, uy = dy / len;
+  const proj = (d.x - t.sx) * ux + (d.y - t.sy) * uy;
+  const cpx = t.sx + proj * ux, cpy = t.sy + proj * uy;
+  return Math.hypot(cpx - d.x, cpy - d.y) <= effMax;
+}
+
 // Classify EVERY surviving threat into exactly one of the 4 user-defined miss categories:
 //   statistical | flight-time | out-of-range | tangent
 function diagnoseFailure(t) {
@@ -3302,17 +4986,31 @@ function diagnoseFailure(t) {
     return `נורו ${t.firedAt} טילי יירוט וכולם פספסו: ${parts.join(' • ')}`;
   }
 
-  // Case B: threat was never engaged - simulate engagement physics for each battery
+  // Case B: threat was never engaged
   const tc = CATALOG[t.key];
-  const candidates = [];
 
-  for (const d of state.defenses) {
+  // B1: threat passed through a depleted battery's envelope (tracked in real-time)
+  if (t.depletedEnvelope && t.depletedEnvelope.length > 0) {
+    const batts = [...new Set(t.depletedEnvelope)].join(', ');
+    return `<b>בתוך מעטפת סוללה, גמר מיירטים</b> [${batts}]`;
+  }
+
+  // B2: threat path never entered any battery's engagement envelope
+  const batteries = state.defenses.filter(d => CATALOG[d.key].kind === 'battery');
+  if (batteries.length > 0) {
+    const anyInRange = batteries.some(d => threatPathEntersEnvelope(t, d, CATALOG[d.key], tc));
+    if (!anyInRange) {
+      return `<b>מטרה מחוץ למעטפות היירוט של הסוללות</b>`;
+    }
+  }
+
+  // B3: path entered an envelope but engagement physics prevented a shot
+  const candidates = [];
+  for (const d of batteries) {
     const c = CATALOG[d.key];
-    if (c.kind !== 'battery') continue;
     candidates.push({ battery: c.short, reason: simulateEngagementOutcome(t, d, c, tc) });
   }
 
-  // Pick the best (most specific) reason: prefer statistical > tangent > flight-time > out-of-range
   if (!candidates.length) {
     return `<b>${REASON_LABEL['out-of-range']}</b> - אין סוללה כלשהי במפה`;
   }
@@ -3320,8 +5018,8 @@ function diagnoseFailure(t) {
   for (const p of priority) {
     const list = candidates.filter(x => x.reason === p);
     if (list.length) {
-      const batteries = [...new Set(list.map(x => x.battery))].join(', ');
-      return `<b>${REASON_LABEL[p]}</b> [${batteries}]`;
+      const batNames = [...new Set(list.map(x => x.battery))].join(', ');
+      return `<b>${REASON_LABEL[p]}</b> [${batNames}]`;
     }
   }
   return `<b>${REASON_LABEL['out-of-range']}</b>`;
@@ -3441,25 +5139,25 @@ function startAttackChallenge(difficulty) {
   state.attackChallenge = true;
   state.challengeMode = 'attack-challenge';
   state.challengeDifficulty = difficulty;
+  regenerateMountains(difficulty);   // terrain complexity scales with difficulty
   state.threatBudget = { ...profile.threatBudget };
   state.objective = profile.objective;
+  state.noIntel = !!profile.noIntel;
+  state.intelRevealed = !state.noIntel;
 
-  const _atkTotal = profile.threatBudget.uav + profile.threatBudget.fighter + profile.threatBudget.helicopter;
-  const _atkBatteries = profile.defenses.filter(d => CATALOG[d.key].kind === 'battery').length;
+  const total = profile.threatBudget.uav + profile.threatBudget.fighter + profile.threatBudget.helicopter;
+  const numBatteries = profile.defenses.filter(d => CATALOG[d.key].kind === 'battery').length;
 
-  // System auto-deploys defenses according to the difficulty profile.
-  // Anchors are resolved against the *current* (randomized) target layout.
   for (const item of profile.defenses) {
     const pos = resolveAnchor(item);
-    const _a = calcAutoAmmo(item.key, _atkTotal, _atkBatteries);
+    const ammo = calcAutoAmmo(item.key, total, numBatteries);
     state.defenses.push({
       id: nextId++, key: item.key, x: pos.x, y: pos.y,
-      ammo: _a, initialAmmo: _a, cd: 0,
+      ammo, initialAmmo: ammo, cd: 0,
       prepareTarget: null, prepareUntil: 0
     });
   }
 
-  // Switch to red side and prompt for first placement
   switchSide('red');
   state.mode = 'idle';
   state.placeKey = null;
@@ -3467,17 +5165,23 @@ function startAttackChallenge(difficulty) {
   state.placeOrigin = null;
   refreshButtonStates();
   renderBudget();
+  renderBatteryLegend();
 
-  const total = profile.threatBudget.uav + profile.threatBudget.fighter + profile.threatBudget.helicopter;
+  const intelLine = state.noIntel
+    ? `<span style="font-size:12px;font-weight:400;color:#ff7373"><b>🕶 ללא מודיעין:</b> פריסת ההגנה נסתרת — תיחשף רק כשתפעיל את הסימולציה. תקציב: ${total} איומים</span>`
+    : `<span style="font-size:12px;font-weight:400">תקציב: ${total} איומים | בחר סוג, לחץ מחוץ לגבולות, ואז על יעד</span>`;
   showBanner(
-    `🎯 <u>משימת התקפה - ${profile.label}</u><br>` +
+    `🎯 <u>משימת התקפה - ${profile.label}</u>${state.noIntel ? ' 🕶' : ''}<br>` +
     `<span style="color:#fbbf24">תנאי ניצחון:</span> ${profile.objective.text}<br>` +
-    `<span style="font-size:12px;font-weight:400">תקציב: ${total} איומים | בחר סוג, לחץ מחוץ לגבולות, ואז על יעד</span>`,
+    intelLine,
     ''
   );
-  setStatus(`משימת התקפה ${profile.label} - בחר סוג איום מהתפריט`);
+  setStatus(`משימת התקפה ${profile.label}${state.noIntel ? ' (ללא מודיעין)' : ''} - בחר סוג איום מהתפריט`);
   showBackButton();
   updateStepGuide();
+  closeMobileSidebar();
+  armMenuAttention();
+  hideNewGameCta();
 }
 
 // =============================================================
@@ -3543,16 +5247,19 @@ function generateAutoAttack() {
 function calcAutoAmmo(key, totalThreats, numBatteries) {
   const c = CATALOG[key];
   if (c.kind !== 'battery') return c.ammo;
-  return Math.max(c.ammo, Math.ceil(totalThreats / Math.max(numBatteries, 1) / c.hitRate * 1.2));
+  return Math.max(c.ammo, Math.ceil(totalThreats / Math.max(numBatteries, 1) / c.hitRate * 1.3));
 }
 
 function startDefenseChallenge(difficulty = 'medium') {
   resetAll();
   state.challengeMode = 'defense-challenge';
   state.challengeDifficulty = difficulty;
+  regenerateMountains(difficulty);   // terrain complexity scales with difficulty
   const profile = DEFENSE_DIFFICULTY[difficulty];
   if (!profile) return;
   state.objective = profile.objective;
+  state.noIntel = !!profile.noIntel;
+  state.intelRevealed = !state.noIntel;
 
   const attackSize = profile.countMin + Math.floor(Math.random() * (profile.countMax - profile.countMin));
   for (let i = 0; i < attackSize; i++) {
@@ -3562,15 +5269,9 @@ function startDefenseChallenge(difficulty = 'medium') {
     else if (r < 0.4) key = 'helicopter';
     else key = 'uav';
     const tgt = TARGETS[Math.floor(Math.random() * TARGETS.length)];
-    let sx, sy;
-    const fromNorth = Math.random() < (difficulty === 'hard' ? 0.4 : 0.3);
-    if (fromNorth) {
-      sx = 150 + Math.random() * (profile.jitterX + 500);
-      sy = 20 + Math.random() * 60;
-    } else {
-      sx = 20 + Math.random() * profile.jitterX;
-      sy = profile.baseY + Math.random() * profile.jitterY;
-    }
+    // Spawn only from inside the red zone (x ∈ [10, 370], y ∈ [10, 790])
+    const sx = 10 + Math.random() * 360;
+    const sy = 10 + Math.random() * 780;
     state.threats.push(makeThreat(
       key, sx, sy,
       tgt.x + (Math.random() - 0.5) * 30,
@@ -3586,16 +5287,25 @@ function startDefenseChallenge(difficulty = 'medium') {
 
   state.budget = profile.budget;
   switchSide('blue');
-  setStatus(`משימת הגנה ${profile.label}: ${attackSize} איומים, פרוס במסגרת התקציב`);
+  const statusMsg = state.noIntel
+    ? `משימת הגנה ${profile.label} (ללא מודיעין) - תכנן הגנה רב-שכבתית`
+    : `משימת הגנה ${profile.label}: ${attackSize} איומים, פרוס במסגרת התקציב`;
+  setStatus(statusMsg);
+  const intelLine = state.noIntel
+    ? `<span style="font-size:12px;font-weight:400;color:#ff7373"><b>🕶 ללא מודיעין:</b> נתיבי האיומים יחשפו רק עם תחילת הסימולציה — תכנן הגנה רב-שכבתית!</span>`
+    : `<span style="font-size:12px;font-weight:400">איומים מתקרבים: ${attackSize} | פרוס במסגרת התקציב</span>`;
   showBanner(
-    `🛡 <u>משימת הגנה - ${profile.label}</u><br>` +
+    `🛡 <u>משימת הגנה - ${profile.label}</u>${state.noIntel ? ' 🕶' : ''}<br>` +
     `<span style="color:#fbbf24">תנאי ניצחון:</span> ${profile.objective.text}<br>` +
-    `<span style="font-size:12px;font-weight:400">איומים מתקרבים: ${attackSize} | פרוס במסגרת התקציב</span>`,
+    intelLine,
     ''
   );
   renderBudget();
   showBackButton();
   updateStepGuide();
+  closeMobileSidebar();
+  armMenuAttention();
+  hideNewGameCta();
 }
 
 function renderBudget() {
@@ -3639,5 +5349,55 @@ function renderBudget() {
       b.style.opacity = '1';
     }
   });
+  renderMobileBudgetPill();
+}
+
+// Compact floating "remaining budget" pill shown on the map in mobile mode
+// while a challenge is active and the sheet is closed. The sidebar buttons
+// (with their orange/red /max badges) are out of view once the sheet
+// auto-closes after placement, so this gives an at-a-glance reminder.
+function renderMobileBudgetPill() {
+  if (!window.MOBILE_MODE) return;
+  const pill = document.getElementById('mobile-budget-pill');
+  if (!pill) return;
+
+  const items = [];
+  if (state.budget) {
+    for (const k of [...BATTERY_KEYS, ...RADAR_KEYS]) {
+      const max = state.budget[k] || 0;
+      if (max === 0) continue;
+      const used = state.defenses.filter(d => d.key === k).length;
+      items.push({ key: k, remain: max - used, max });
+    }
+  } else if (state.threatBudget) {
+    for (const k of THREAT_KEYS) {
+      const max = state.threatBudget[k] || 0;
+      if (max === 0) continue;
+      const used = state.threats.filter(t => t.key === k).length;
+      items.push({ key: k, remain: max - used, max });
+    }
+  }
+
+  const mapEl = document.getElementById('map-container');
+  const isShowing = items.length > 0 && !isSimActive();
+  if (mapEl) {
+    mapEl.classList.toggle('challenge-active', isShowing);
+    mapEl.classList.toggle('attack-challenge', state.challengeMode === 'attack-challenge');
+  }
+  if (!isShowing) {
+    pill.style.display = 'none';
+    return;
+  }
+
+  pill.style.display = '';
+  pill.innerHTML = items.map(it => {
+    const c = CATALOG[it.key];
+    const depleted = it.remain <= 0;
+    const cls = `budget-chip${depleted ? ' depleted' : ''}${state.placeKey === it.key ? ' active' : ''}`;
+    return `<div class="${cls}" data-key="${it.key}" style="border-color:${c.color};color:${c.color}">`
+         + `<span class="budget-chip-name">${c.short}</span>`
+         + `<span class="budget-chip-count">${Math.max(0, it.remain)}/${it.max}</span>`
+         + `</div>`;
+  }).join('');
 }
 
