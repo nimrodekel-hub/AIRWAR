@@ -618,14 +618,15 @@ function isInsideRedZone(x, y) {
 // "out-of-envelope" used to be a single bucket; it's now split into the
 // distinct physical causes the player can actually act on.
 const REASON_LABEL = {
-  'statistical':   'החטאה סטטיסטית',
-  'tangent':       'חציה משיקית (ניצב לסוללה)',
-  'flight-time':   'זמן מעוף לא מספיק',
-  'out-of-range':  'מחוץ לטווח היירוט הנומינלי',
-  'rcs-shrunk':    'מעטפת מצומצמת בשל RCS נמוך',
-  'altitude':      'מחוץ למעטפת הגובה של הסוללה',
-  'los-blocked':   'קו ראיה חסום ע"י טופוגרפיה',
-  'ammo-depleted': 'בתוך מעטפת סוללה, גמר מיירטים'
+  'statistical':           'החטאה סטטיסטית',
+  'tangent':               'חציה משיקית (ניצב לסוללה)',
+  'flight-time':           'זמן מעוף לא מספיק',
+  'out-of-range':          'מחוץ לטווח היירוט הנומינלי',
+  'rcs-shrunk':            'מעטפת מצומצמת בשל RCS נמוך',
+  'altitude':              'מחוץ למעטפת הגובה של הסוללה',
+  'los-blocked':           'קו ראיה חסום ע"י טופוגרפיה',
+  'ammo-depleted':         'בתוך מעטפת סוללה, גמר מיירטים',
+  'engagement-saturation': 'סוללה תפוסה ביירוט אחר (רוויה)'
 };
 
 // ---- מצב כללי ----
@@ -1212,12 +1213,13 @@ function showInfoModal(key) {
   if (c.kind === 'battery') {
     html += `
       <div class="info-failure-list">
-        <h4>8 סיבות אפשריות לכשלון יירוט (קטגוריות מסך הסיכום):</h4>
+        <h4>9 סיבות אפשריות לכשלון יירוט (קטגוריות מסך הסיכום):</h4>
         <ul>
           <li><b>החטאה סטטיסטית</b> — הסוללה ירתה אבל הגרלת ה-PK נכשלה (${(c.hitRate*100).toFixed(0)}% פגיעה → ${(100 - c.hitRate*100).toFixed(0)}% פספוס בממוצע)</li>
           <li><b>חציה משיקית</b> — האיום נע בניצב לציר הסוללה ברגע היירוט (עד 15° מהניצב)</li>
           <li><b>זמן מעוף לא מספיק</b> — האיום מקדים להגיע ליעד לפני שהמיירט מגיע (תלוי במהירות המיירט: ${c.realSpeed})</li>
-          <li><b>בתוך מעטפת סוללה, גמר מיירטים</b> — האיום היה בטווח אך התחמושת אזלה</li>
+          <li><b>סוללה תפוסה ביירוט אחר</b> — האיום עבר במעטפת בעוד הסוללה ב-reactionTime ${c.reactionTime}s / cooldown ${c.reload}s עם איום אחר</li>
+          <li><b>בתוך מעטפת סוללה, גמר מיירטים</b> — האיום עבר במעטפת אך כל ${c.ammo} המיירטים כבר שוגרו</li>
           <li><b>קו ראיה חסום ע"י טופוגרפיה</b> — הר חסם את הקו בין הסוללה לאיום לאורך כל מעבר המעטפת</li>
           <li><b>מעטפת מצומצמת בשל RCS נמוך</b> — האיום היה בטווח הנומינלי אך מחוץ לטווח האפקטיבי שצומצם ע"י RCS קטן</li>
           <li><b>מחוץ למעטפת הגובה</b> — האיום מתחת ל-${c.minAlt} ק"מ או מעל ${c.maxAlt} ק"מ</li>
@@ -1783,14 +1785,15 @@ const TUTORIAL_STEPS = [
         </svg>
         <div class="caption">4 שלבי רצף היירוט מהגילוי ועד התוצאה - מה שאתה רואה על המסך לכל איום</div>
       </div>
-      <h4>🔍 8 קטגוריות החטאה — מסך הסיכום</h4>
-      <p>בסיום משחק, מסך התוצאות מציג <u>לכל איום שחדר</u> מה קרה עם <u>כל אחת מהסוללות במפה</u> — גם אלה שירו עליו, וגם אלה שלא ירו וההסבר למה. שמונה הקטגוריות מסודרות מ"כמעט יירוט" ל"חסם מבני":</p>
+      <h4>🔍 9 קטגוריות החטאה — מסך הסיכום</h4>
+      <p>בסיום משחק, מסך התוצאות מציג <u>לכל איום שחדר</u> מה קרה עם <u>כל אחת מהסוללות במפה</u> — גם אלה שירו עליו, וגם אלה שלא ירו וההסבר למה. תשע הקטגוריות מסודרות מ"כמעט יירוט" ל"חסם מבני":</p>
       <h5 style="color:#fbbf24;margin-top:8px">קרוב ליירוט — כיוונון של הפריסה הקיימת</h5>
       <ul>
         <li>🎲 <b>החטאה סטטיסטית</b> — הסוללה ירתה והתבצעה הגרלה לפי ה-PK שלה. <b>תיקון:</b> שכב סוללה נוספת על אותו ציר תקיפה (90%×90% = 99% פגיעה).</li>
         <li>📐 <b>חציה משיקית (ניצב לסוללה)</b> — האיום עבר ניצב לציר הסוללה (תוך 15° מהניצב) ברגע היירוט. גאומטריה גרועה למיירט. <b>תיקון:</b> הצב סוללה כך שהאיום מתקרב אליה לאורך הציר ולא חוצה אותו לרוחב.</li>
         <li>⏱ <b>זמן מעוף לא מספיק</b> — הסוללה זיהתה מאוחר מדי / רחוקה מדי, והמיירט לא הספיק להגיע לפני שהאיום פגע ביעד. <b>תיקון:</b> הצב סוללות קרובות יותר לציר התקיפה, או הוסף מכ"ם אזהרה מוקדמת.</li>
-        <li>📦 <b>בתוך מעטפת סוללה, גמר מיירטים</b> — הסוללה הייתה בטווח אבל גמרה תחמושת. <b>תיקון:</b> פרוס יותר סוללות, או הפחת עומס על-ידי הצבתן רחוק זו מזו.</li>
+        <li>🔁 <b>סוללה תפוסה ביירוט אחר (רוויה)</b> — האיום עבר במעטפת בעוד הסוללה הייתה באמצע טיפול במטרה אחרת (reactionTime או cooldown). <b>תיקון:</b> פרוס סוללה נוספת באותו אזור כדי לפזר את העומס, או החלף לסוללה עם זמן תגובה קצר יותר (SA-8 / Barak = 0.5s).</li>
+        <li>📦 <b>בתוך מעטפת סוללה, גמר מיירטים</b> — האיום עבר במעטפת אבל כל התחמושת כבר שוגרה על איומים קודמים. <b>תיקון:</b> פרוס סוללת גיבוי באזור, או החלף לסוללה עם תחמושת גדולה יותר (Iron shield = 8, Barak = 6).</li>
       </ul>
       <h5 style="color:#f87171;margin-top:8px">חסם מבני — דורש שינוי פריסה משמעותי</h5>
       <ul>
@@ -4265,7 +4268,7 @@ function startSim() {
   // reset threats and defenses
   for (const t of state.threats) {
     t.x = t.sx; t.y = t.sy; t.status = 'inflight'; t.hitBy = null;
-    t.firedAt = 0; t.missedBy = []; t.depletedEnvelope = [];
+    t.firedAt = 0; t.missedBy = []; t.depletedEnvelope = []; t.saturatedBatteries = [];
   }
   for (const d of state.defenses) {
     const c = CATALOG[d.key];
@@ -4352,17 +4355,29 @@ function tick(dt) {
     }
   }
 
-  // 3c. Track threats passing through depleted-battery envelopes (for post-sim annotation)
+  // 3c. Per-tick tracking of threats passing through a battery's NOMINAL
+  // envelope while the battery couldn't engage them, for post-sim diagnosis:
+  //   ammo-depleted    — d.ammo === 0
+  //   engagement-saturation — battery preparing/cooling another shot
+  // We deliberately use c.maxRange (not RCS-adjusted) here — the player's
+  // mental model is "the threat flew through the battery's circle"; tagging
+  // RCS-only stuff as ammo-depleted would be confusing.
   for (const d of state.defenses) {
     const c = CATALOG[d.key];
-    if (c.kind !== 'battery' || d.ammo > 0) continue;
+    if (c.kind !== 'battery') continue;
     for (const t of state.threats) {
       if (t.status !== 'inflight') continue;
-      const tc = CATALOG[t.key];
-      const effMax = effectiveEngagementRange(c, tc);
       const dist = Math.hypot(t.x - d.x, t.y - d.y);
-      if (dist <= effMax && dist >= c.minRange && !t.depletedEnvelope.includes(c.short)) {
-        t.depletedEnvelope.push(c.short);
+      if (dist > c.maxRange || dist < c.minRange) continue;
+      // Battery actually engaging THIS threat right now → not a missed opportunity
+      if (d.prepareTarget === t.id) continue;
+      if (state.missiles.some(m => m.threatId === t.id && m.battery === c.name && !m.resolved)) continue;
+
+      if (d.ammo === 0) {
+        if (!t.depletedEnvelope.includes(c.short)) t.depletedEnvelope.push(c.short);
+      } else if (d.prepareTarget != null || d.cd > 0) {
+        if (!t.saturatedBatteries) t.saturatedBatteries = [];
+        if (!t.saturatedBatteries.includes(c.short)) t.saturatedBatteries.push(c.short);
       }
     }
   }
@@ -4987,6 +5002,16 @@ function generateDefenseRecommendations(r) {
     recs.push(`🎲 <b>${counts['statistical']} פספוסים סטטיסטיים</b> - בתחום השונות הנורמלית לפי ה-PK של הסוללה (לדוגמה: SA-8 Gecko יחטיא בממוצע 35% מהירויות). <b>פתרון:</b> <u>הגנה רב-שכבתית</u> - שתי סוללות יורות בזו אחר זו על אותו איום מכפילות את הסבירות לפגיעה (90%+90% = 99%).`);
   }
 
+  if (counts['ammo-depleted'] > 0) {
+    const tgts = [...new Set(targetsPerReason['ammo-depleted'])].join(', ');
+    recs.push(`📦 <b>${counts['ammo-depleted']} איומים עברו דרך מעטפת סוללה שגמרה תחמושת</b> (יעדים: ${tgts}). הסוללה הייתה במקום הנכון אך כל המיירטים שלה כבר שוגרו על איומים קודמים. <b>פתרון:</b> פרוס סוללה <u>נוספת</u> בכיסוי-יתר באזור, או החלף לסוללה עם תחמושת גדולה יותר (Iron shield = 8, Barak = 6). אפשרות נוספת — סוללה רחוקה יותר שלא ניצלה את כל התחמושת.`);
+  }
+
+  if (counts['engagement-saturation'] > 0) {
+    const tgts = [...new Set(targetsPerReason['engagement-saturation'])].join(', ');
+    recs.push(`🔁 <b>${counts['engagement-saturation']} איומים חלפו בעוד הסוללה עסוקה ביירוט אחר</b> (יעדים: ${tgts}). מצב של רוויה — הסוללה לא הספיקה לטפל בכמה איומים בו-זמנית בשל זמן תגובה / cooldown. <b>פתרון:</b> פזר את העומס — סוללה נוספת באותו אזור, או סוללה עם reactionTime קצר יותר (SA-8 = 0.5s, Barak = 0.5s) כדי לקצר את זמן הטיפול בכל איום.`);
+  }
+
   // Target-specific hotspot
   const targetDamage = {};
   survived.forEach(b => { targetDamage[b.target] = (targetDamage[b.target] || 0) + 1; });
@@ -5170,6 +5195,7 @@ function diagnoseFailure(t) {
     fired[miss.battery].push(miss.reason);
   }
   const depleted = new Set(t.depletedEnvelope || []);
+  const saturated = new Set(t.saturatedBatteries || []);
 
   const byReason = {};
   for (const d of batteries) {
@@ -5182,6 +5208,8 @@ function diagnoseFailure(t) {
       reason = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
     } else if (depleted.has(c.short)) {
       reason = 'ammo-depleted';
+    } else if (saturated.has(c.short)) {
+      reason = 'engagement-saturation';
     } else {
       reason = simulateEngagementOutcome(t, d, c, tc);
     }
@@ -5192,7 +5220,8 @@ function diagnoseFailure(t) {
   // Report from "closest to a viable engagement" → "structural blocker" so
   // the most informative diagnosis appears first.
   const priority = [
-    'statistical', 'tangent', 'flight-time', 'ammo-depleted',
+    'statistical', 'tangent', 'flight-time',
+    'engagement-saturation', 'ammo-depleted',
     'los-blocked', 'rcs-shrunk', 'altitude', 'out-of-range'
   ];
   const parts = [];
