@@ -616,15 +616,16 @@ function isInsideRedZone(x, y) {
 
 // ---- Miss reason labels (Hebrew UI) ----
 // "out-of-envelope" used to be a single bucket; it's now split into the
-// three distinct physical causes the player can actually act on.
+// distinct physical causes the player can actually act on.
 const REASON_LABEL = {
-  'statistical':  'החטאה סטטיסטית',
-  'tangent':      'חציה משיקית (ניצב לסוללה)',
-  'flight-time':  'זמן מעוף לא מספיק',
-  'out-of-range': 'מחוץ לטווח היירוט הנומינלי',
-  'rcs-shrunk':   'מעטפת מצומצמת בשל RCS נמוך',
-  'altitude':     'מחוץ למעטפת הגובה של הסוללה',
-  'los-blocked':  'קו ראיה חסום ע"י טופוגרפיה'
+  'statistical':   'החטאה סטטיסטית',
+  'tangent':       'חציה משיקית (ניצב לסוללה)',
+  'flight-time':   'זמן מעוף לא מספיק',
+  'out-of-range':  'מחוץ לטווח היירוט הנומינלי',
+  'rcs-shrunk':    'מעטפת מצומצמת בשל RCS נמוך',
+  'altitude':      'מחוץ למעטפת הגובה של הסוללה',
+  'los-blocked':   'קו ראיה חסום ע"י טופוגרפיה',
+  'ammo-depleted': 'בתוך מעטפת סוללה, גמר מיירטים'
 };
 
 // ---- מצב כללי ----
@@ -5138,59 +5139,66 @@ function computeResults() {
 // Classify every surviving threat into the most informative miss category
 // for the player. See REASON_LABEL for the full list of categories.
 function diagnoseFailure(t) {
-  // Case A: threat WAS engaged - report grouped miss reasons by battery
-  if (t.firedAt > 0) {
-    const byReason = {};
-    for (const miss of t.missedBy) {
-      const key = miss.reason;
-      if (!byReason[key]) byReason[key] = [];
-      byReason[key].push(miss.battery);
-    }
-    const parts = [];
-    for (const reason of Object.keys(byReason)) {
-      const batteries = [...new Set(byReason[reason])].join(', ');
-      parts.push(`<b>${REASON_LABEL[reason] || reason}</b> [${batteries}]`);
-    }
-    return `נורו ${t.firedAt} טילי יירוט וכולם פספסו: ${parts.join(' • ')}`;
-  }
-
-  // Case B: threat was never engaged
   const tc = CATALOG[t.key];
-
-  // B1: threat passed through a depleted battery's envelope (tracked in real-time)
-  if (t.depletedEnvelope && t.depletedEnvelope.length > 0) {
-    const batts = [...new Set(t.depletedEnvelope)].join(', ');
-    return `<b>בתוך מעטפת סוללה, גמר מיירטים</b> [${batts}]`;
-  }
-
-  // B2: threat was never engaged. Diagnose per battery to find the FIRST
-  // blocker, then summarise across batteries by best-case outcome (the
-  // priority order goes from "would have hit" → "no shot possible").
   const batteries = state.defenses.filter(d => CATALOG[d.key].kind === 'battery');
   if (!batteries.length) {
     return `<b>אין סוללות הגנה במפה</b>`;
   }
-  const candidates = [];
+
+  // Build a per-battery diagnosis: real fire outcomes for batteries that
+  // actually launched a missile, simulated outcomes for those that didn't.
+  // This is the key fix — earlier versions reported ONLY the batteries
+  // that fired (Case A), so reasons like LOS-blocked / RCS-shrunk on the
+  // OTHER batteries were never surfaced to the player.
+  const fired = {};
+  for (const miss of t.missedBy) {
+    if (!fired[miss.battery]) fired[miss.battery] = [];
+    fired[miss.battery].push(miss.reason);
+  }
+  const depleted = new Set(t.depletedEnvelope || []);
+
+  const byReason = {};
   for (const d of batteries) {
     const c = CATALOG[d.key];
-    candidates.push({ battery: c.short, reason: simulateEngagementOutcome(t, d, c, tc) });
+    let reason;
+    if (fired[c.short]) {
+      // Pick the most common reason this battery missed for (usually one)
+      const counts = {};
+      for (const r of fired[c.short]) counts[r] = (counts[r] || 0) + 1;
+      reason = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+    } else if (depleted.has(c.short)) {
+      reason = 'ammo-depleted';
+    } else {
+      reason = simulateEngagementOutcome(t, d, c, tc);
+    }
+    if (!byReason[reason]) byReason[reason] = [];
+    byReason[reason].push(c.short);
   }
-  // From "closest to a viable engagement" to "physically impossible".
-  // Statistical = the battery would have engaged and just missed by chance,
-  // los-blocked / rcs-shrunk / altitude = structural reasons the player
-  // could plan around.
+
+  // Report from "closest to a viable engagement" → "structural blocker" so
+  // the most informative diagnosis appears first.
   const priority = [
-    'statistical', 'tangent', 'flight-time',
+    'statistical', 'tangent', 'flight-time', 'ammo-depleted',
     'los-blocked', 'rcs-shrunk', 'altitude', 'out-of-range'
   ];
+  const parts = [];
   for (const p of priority) {
-    const list = candidates.filter(x => x.reason === p);
-    if (list.length) {
-      const batNames = [...new Set(list.map(x => x.battery))].join(', ');
-      return `<b>${REASON_LABEL[p]}</b> [${batNames}]`;
-    }
+    if (!byReason[p]) continue;
+    const batNames = [...new Set(byReason[p])].join(', ');
+    const label = REASON_LABEL[p] || (p === 'ammo-depleted' ? 'בתוך מעטפת סוללה, גמר מיירטים' : p);
+    parts.push(`<b>${label}</b> [${batNames}]`);
   }
-  return `<b>${REASON_LABEL['out-of-range']}</b>`;
+  // Catch-all for any unmapped reason
+  for (const p of Object.keys(byReason)) {
+    if (priority.includes(p)) continue;
+    const batNames = [...new Set(byReason[p])].join(', ');
+    parts.push(`<b>${REASON_LABEL[p] || p}</b> [${batNames}]`);
+  }
+
+  const lead = t.firedAt > 0
+    ? `נורו ${t.firedAt} מיירטים והאיום חדר. סיכום סיבות לכל סוללה:`
+    : `לא נורה אף מיירט. סיכום לכל סוללה:`;
+  return `${lead} ${parts.join(' • ')}`;
 }
 
 // Closest approach point on threat path to a battery
