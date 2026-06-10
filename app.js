@@ -516,11 +516,118 @@ const state = {
   mouseX: 0, mouseY: 0,
   serialCounters: {},
   viewport: { offsetX: 0, offsetY: 0, scale: 1 },
-  tutorialStep: 0
+  tutorialStep: 0,
+  killLabels: [],         // floating "SPLASH" confirmations over fresh interceptions
+  leakerFlashT: -1,       // simElapsed timestamp of the last breach (drives red edge flash)
+  lastAward: null         // {score, xp, oldRank, newRank, isNewBest, best} from the last challenge run
 };
 
 let canvas, ctx, W, H, tooltip, banner, zoomLevelEl;
 let nextId = 1;
+
+// =============================================================
+// פרופיל שחקן: דרגות, נק"ז (XP) ושיאים — נשמר ב-localStorage.
+// המבנה מוכן להזרקה עתידית של backend (טבלת שחקנים גלובלית):
+// כל הקריאות עוברות דרך loadProfile/saveProfile בלבד.
+// =============================================================
+const RANKS = [
+  { name: 'טוראי',  minXp: 0 },
+  { name: 'רב"ט',   minXp: 150 },
+  { name: 'סמל',    minXp: 350 },
+  { name: 'סמ"ר',   minXp: 600 },
+  { name: 'רס"ל',   minXp: 950 },
+  { name: 'רס"ר',   minXp: 1400 },
+  { name: 'סג"מ',   minXp: 2000 },
+  { name: 'סגן',    minXp: 2700 },
+  { name: 'סרן',    minXp: 3500 },
+  { name: 'רס"ן',   minXp: 4500 },
+  { name: 'סא"ל',   minXp: 5700 },
+  { name: 'אל"מ',   minXp: 7100 },
+  { name: 'תא"ל',   minXp: 8700 },
+  { name: 'אלוף',   minXp: 10500 },
+  { name: 'רמטכ"ל', minXp: 13000 }
+];
+
+const XP_MULTIPLIER = { easy: 1, medium: 1.5, hard: 2, extreme: 3 };
+const PROFILE_KEY = 'airwar-profile-v1';
+
+let profile = loadProfile();
+
+function loadProfile() {
+  try {
+    const raw = localStorage.getItem(PROFILE_KEY);
+    if (raw) {
+      const p = JSON.parse(raw);
+      if (typeof p.xp === 'number' && p.bests) return p;
+    }
+  } catch (e) { /* corrupt or blocked storage — start fresh */ }
+  return { xp: 0, games: 0, wins: 0, bests: {} };
+}
+
+function saveProfile() {
+  try { localStorage.setItem(PROFILE_KEY, JSON.stringify(profile)); } catch (e) {}
+}
+
+function rankForXp(xp) {
+  let r = RANKS[0];
+  for (const rank of RANKS) if (xp >= rank.minXp) r = rank;
+  return r;
+}
+
+function nextRankFor(xp) {
+  for (const rank of RANKS) if (xp < rank.minXp) return rank;
+  return null; // top rank reached
+}
+
+// Mission score 0-100. Defense rewards protecting value, interception
+// rate and ammo discipline; attack rewards damage dealt and breach rate.
+function computeMissionScore(r) {
+  let score;
+  if (state.challengeMode === 'attack-challenge') {
+    const damageRatio = 1 - r.protectedValue / r.totalValue;
+    const breachRatio = r.total ? r.survived / r.total : 0;
+    score = 65 * damageRatio + 35 * breachRatio;
+  } else {
+    const protectedRatio = r.protectedValue / r.totalValue;
+    const killRatio = r.total ? r.killed / r.total : 0;
+    let spent = 0;
+    for (const d of state.defenses) {
+      const c = CATALOG[d.key];
+      if (c.kind === 'battery') spent += (d.initialAmmo !== undefined ? d.initialAmmo : c.ammo) - d.ammo;
+    }
+    const efficiency = spent > 0 ? Math.min(1, r.killed / spent) : 0;
+    score = 60 * protectedRatio + 25 * killRatio + 15 * efficiency;
+  }
+  if (r.objectiveMet) score += 5;
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+// Award XP for a completed challenge run and persist bests/rank.
+function awardMission(score) {
+  const diff = state.challengeDifficulty || 'medium';
+  const mult = XP_MULTIPLIER[diff] || 1;
+  const won = !!(state.results && state.results.objectiveMet);
+  const xpGain = Math.round(score * mult * (won ? 1 : 0.5));
+
+  const oldRank = rankForXp(profile.xp);
+  profile.xp += xpGain;
+  profile.games += 1;
+  if (won) profile.wins += 1;
+  const bestKey = `${state.challengeMode}-${diff}`;
+  const prevBest = profile.bests[bestKey] || 0;
+  const isNewBest = score > prevBest;
+  if (isNewBest) profile.bests[bestKey] = score;
+  const newRank = rankForXp(profile.xp);
+  saveProfile();
+
+  state.lastAward = {
+    score, xp: xpGain, won,
+    oldRank, newRank,
+    rankedUp: newRank !== oldRank,
+    isNewBest,
+    best: profile.bests[bestKey]
+  };
+}
 
 // =============================================================
 // אתחול
@@ -854,7 +961,47 @@ function bindControls() {
 }
 
 function showStartModal() {
+  renderProfileStrip();
+  renderBestBadges();
   document.getElementById('start-modal').classList.add('visible');
+}
+
+// Player rank / XP summary at the top of the start modal
+function renderProfileStrip() {
+  const el = document.getElementById('profile-strip');
+  if (!el) return;
+  const cur = rankForXp(profile.xp);
+  const next = nextRankFor(profile.xp);
+  const span = next ? next.minXp - cur.minXp : 1;
+  const into = next ? profile.xp - cur.minXp : 1;
+  const pct = next ? Math.round(100 * into / span) : 100;
+  el.innerHTML = `
+    <div class="ps-rank">🎖 <b>${cur.name}</b></div>
+    <div class="ps-bar"><div class="ps-bar-fill" style="width:${pct}%"></div></div>
+    <div class="ps-stats">
+      <span>XP ${profile.xp}</span>
+      <span>משחקים ${profile.games}</span>
+      <span>נצחונות ${profile.wins}</span>
+    </div>`;
+}
+
+// Personal-best badge on each difficulty button in the start modal
+function renderBestBadges() {
+  document.querySelectorAll('#start-modal .diff-btn[data-startmode]').forEach(btn => {
+    const mode = btn.dataset.startmode === 'attack' ? 'attack-challenge' : 'defense-challenge';
+    const best = profile.bests[`${mode}-${btn.dataset.startdiff}`];
+    let badge = btn.querySelector('.best-badge');
+    if (best) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'best-badge';
+        btn.appendChild(badge);
+      }
+      badge.textContent = best;
+    } else if (badge) {
+      badge.remove();
+    }
+  });
 }
 function hideStartModal() {
   document.getElementById('start-modal').classList.remove('visible');
@@ -1944,6 +2091,7 @@ function clearThreats() {
 
 function resetAll() {
   state.defenses = []; state.threats = []; state.missiles = []; state.explosions = []; state.targetHits = [];
+  state.killLabels = []; state.leakerFlashT = -1;
   state.history = [];
   state.scrubTime = null;
   state.serialCounters = {};
@@ -2070,6 +2218,7 @@ function draw() {
   drawMissiles();
   drawExplosions();
   drawTargetHits();
+  drawKillLabels();
 
   state.simElapsed = _scrubSavedElapsed;
   _scrubDef = null;
@@ -2083,6 +2232,97 @@ function draw() {
   drawPlacementGuide();
   ctx.restore();
   drawHUD();
+  drawSimOverlay();
+}
+
+// Floating ✓ SPLASH confirmations — world space, rise & fade
+function drawKillLabels() {
+  for (const k of state.killLabels) {
+    const p = k.t / k.dur;
+    const alpha = p < 0.15 ? p / 0.15 : 1 - (p - 0.15) / 0.85;
+    const rise = p * 26;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, alpha);
+    ctx.font = 'bold 12px "Share Tech Mono", ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    const txt = '✓ SPLASH';
+    const y = k.y - 18 - rise;
+    ctx.fillStyle = 'rgba(8, 14, 22, 0.85)';
+    const tw = ctx.measureText(txt).width;
+    ctx.fillRect(k.x - tw / 2 - 5, y - 11, tw + 10, 15);
+    ctx.fillStyle = '#86efac';
+    ctx.fillText(txt, k.x, y);
+    ctx.font = '9px "Share Tech Mono", ui-monospace, monospace';
+    ctx.fillStyle = 'rgba(134, 239, 172, 0.75)';
+    ctx.fillText(k.battery, k.x, y + 11);
+    ctx.restore();
+  }
+}
+
+// Screen-space overlays during an active simulation: a large live intercept
+// tally (top-centre) and a red "LEAKER" edge flash when a threat breaches.
+function drawSimOverlay() {
+  const simVisible = isSimActive() || state.scrubTime != null;
+  if (!simVisible) return;
+
+  // ── Live tally ──
+  const total  = state.threats.length;
+  if (total > 0 && state.challengeMode) {
+    const killed = state.threats.filter(t => t.status === 'destroyed').length;
+    const isAttack = state.challengeMode === 'attack-challenge';
+    const breached = state.threats.filter(t => t.status === 'reached').length;
+    const big = isAttack ? `${breached}/${total}` : `${killed}/${total}`;
+    const label = isAttack ? 'BREACHED' : 'INTERCEPTED';
+    const color = isAttack ? '#fca5a5' : '#86efac';
+
+    ctx.save();
+    ctx.font = 'bold 20px "Share Tech Mono", ui-monospace, monospace';
+    const bigW = ctx.measureText(big).width;
+    ctx.font = '8px "Share Tech Mono", ui-monospace, monospace';
+    const labW = ctx.measureText(label).width;
+    const bw = Math.max(bigW, labW) + 26;
+    const bh = 38;
+    const bx = (W - bw) / 2;
+    const by = 6;
+    // Chamfered backing consistent with the TACSIT HUD
+    ctx.beginPath();
+    ctx.moveTo(bx + 7, by); ctx.lineTo(bx + bw - 7, by);
+    ctx.lineTo(bx + bw, by + 7); ctx.lineTo(bx + bw, by + bh);
+    ctx.lineTo(bx + 7, by + bh); ctx.lineTo(bx, by + bh - 7);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(5, 8, 16, 0.85)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(95, 200, 232, 0.35)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = color;
+    ctx.font = 'bold 20px "Share Tech Mono", ui-monospace, monospace';
+    ctx.fillText(big, W / 2, by + 22);
+    ctx.fillStyle = 'rgba(143, 180, 201, 0.75)';
+    ctx.font = '8px "Share Tech Mono", ui-monospace, monospace';
+    ctx.fillText(label, W / 2, by + 33);
+    ctx.restore();
+  }
+
+  // ── Leaker flash: red edge glow for 0.9s after a breach ──
+  const since = state.simElapsed - state.leakerFlashT;
+  if (state.leakerFlashT >= 0 && since >= 0 && since < 0.9) {
+    const a = (1 - since / 0.9) * 0.4;
+    ctx.save();
+    const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.38, W / 2, H / 2, Math.max(W, H) * 0.7);
+    g.addColorStop(0, 'rgba(220, 38, 38, 0)');
+    g.addColorStop(1, `rgba(220, 38, 38, ${a})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    if (since < 0.6) {
+      ctx.font = 'bold 13px "Share Tech Mono", ui-monospace, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = `rgba(252, 165, 165, ${1 - since / 0.6})`;
+      ctx.fillText('⚠ LEAKER', W / 2, 64);
+    }
+    ctx.restore();
+  }
 }
 
 function drawValidityRing(x, y, valid, validLabel, invalidLabel) {
@@ -3077,6 +3317,7 @@ function drawExplosions() {
 }
 
 function triggerTargetHit(t) {
+  state.leakerFlashT = state.simElapsed;  // red edge flash + LEAKER callout
   if (t.key === 'helicopter') {
     // Helicopter touchdown: troops disembark and run outward.  Combined with
     // a large rising smoke column + scorched ground so it's unmistakable
@@ -3434,6 +3675,7 @@ function startSim() {
   state.mode = 'sim';
   state.simElapsed = 0;
   state.missiles = []; state.explosions = []; state.targetHits = [];
+  state.killLabels = []; state.leakerFlashT = -1;
   state.history = [];
   state.scrubTime = null;
   state.endLinger = null;
@@ -3560,6 +3802,8 @@ function tick(dt) {
           target.hitBy = m.battery;
           // Smaller, brief mid-air interception puff
           state.explosions.push({ x: target.x, y: target.y, r: 9, t: 0, dur: 0.5 });
+          // Kill confirmation — floating label rising over the intercept point
+          state.killLabels.push({ x: target.x, y: target.y, t: 0, dur: 1.4, battery: m.battery });
         } else {
           target.missedBy.push({ battery: m.battery, reason: m.reason });
           state.explosions.push({ x: m.x + (Math.random()-0.5)*10, y: m.y + (Math.random()-0.5)*10, r: 5, t: 0, dur: 0.35 });
@@ -3572,6 +3816,10 @@ function tick(dt) {
   // 5. Update explosions
   for (const e of state.explosions) e.t += dt;
   state.explosions = state.explosions.filter(e => e.t < e.dur);
+
+  // 5a. Update kill-confirmation labels
+  for (const k of state.killLabels) k.t += dt;
+  state.killLabels = state.killLabels.filter(k => k.t < k.dur);
 
   // 5b. Update target-hit effects (explosions on target / paratroopers)
   for (const e of state.targetHits) {
@@ -3850,6 +4098,12 @@ function finishSim() {
   computeResults();
   renderResults();
 
+  // Score + XP + rank progression — challenge modes only (free play is unscored)
+  state.lastAward = null;
+  if (state.challengeMode === 'defense-challenge' || state.challengeMode === 'attack-challenge') {
+    awardMission(computeMissionScore(state.results));
+  }
+
   if (state.results && state.results.objectiveMet !== null) {
     const ok = state.results.objectiveMet;
     if (state.challengeMode === 'attack-challenge') {
@@ -4009,7 +4263,37 @@ function showResultsModal() {
     : `✓ איומים שיורטו (${intercepted.length})`;
   const recsTitle = isAttack ? 'המלצות לשיפור ההתקפה' : 'המלצות לשיפור ההגנה';
 
+  // ── Score + rank progression block (challenge runs only) ──
+  let awardHtml = '';
+  if (state.lastAward) {
+    const a = state.lastAward;
+    const next = nextRankFor(profile.xp);
+    const cur = rankForXp(profile.xp);
+    const span = next ? next.minXp - cur.minXp : 1;
+    const into = next ? profile.xp - cur.minXp : 1;
+    const pct = next ? Math.round(100 * into / span) : 100;
+    awardHtml = `
+      <div class="award-block">
+        <div class="award-score">
+          <div class="award-score-num">${a.score}</div>
+          <div class="award-score-label">ציון משימה</div>
+          ${a.isNewBest ? '<div class="award-newbest">🏅 שיא אישי חדש!</div>'
+                        : `<div class="award-prevbest">שיא אישי: ${a.best}</div>`}
+        </div>
+        <div class="award-rank">
+          <div class="award-rank-row">
+            <span class="award-rank-name">🎖 ${cur.name}</span>
+            <span class="award-xp">+${a.xp} XP</span>
+          </div>
+          <div class="award-bar"><div class="award-bar-fill" style="width:${pct}%"></div></div>
+          <div class="award-rank-next">${next ? `עוד ${next.minXp - profile.xp} XP לדרגת ${next.name}` : 'הדרגה הגבוהה ביותר!'}</div>
+          ${a.rankedUp ? `<div class="award-rankup">⭐ קודמת לדרגת <b>${a.newRank.name}</b>!</div>` : ''}
+        </div>
+      </div>`;
+  }
+
   body.innerHTML = `
+    ${awardHtml}
     <div class="modal-verdict ${verdictCls}">${verdictText}</div>
 
     <div class="results-section-title" style="color:${isAttack ? '#dc2626' : '#5fa8d3'}">🎯 יעדים אסטרטגיים</div>

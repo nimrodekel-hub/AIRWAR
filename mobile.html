@@ -7,8 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20260518t">
-  <link rel="stylesheet" href="mobile.css?v=20260518t">
+  <link rel="stylesheet" href="styles.css?v=20260519a">
+  <link rel="stylesheet" href="mobile.css?v=20260519a">
 </head>
 <body class="mobile">
   <div id="app">
@@ -245,6 +245,7 @@
         <h2>🎯 ברוך הבא לסימולטור הגנה אווירית</h2>
       </div>
       <div id="start-body">
+        <div id="profile-strip"></div>
         <p class="start-intro">איזה משחק תרצה לשחק?<br>בחר מצב משחק ורמת קושי כדי להתחיל.</p>
         <div class="start-grid">
           <div class="start-section defense">
@@ -296,7 +297,7 @@
 
   <!-- Force mobile mode before app.js initialises -->
   <script>window.MOBILE_MODE = true;</script>
-  <script src="app.js?v=20260518t"></script>
+  <script src="app.js?v=20260519a"></script>
   <script>
     // Wire up the sheet close button (app.js only wires #mobile-menu-toggle and #mobile-backdrop)
     document.getElementById('sheet-close').addEventListener('click', function () {

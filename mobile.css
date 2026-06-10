@@ -623,3 +623,17 @@ body.mobile #start-free-btn {
   padding: 7px 8px;
   min-height: 34px;
 }
+body.mobile #profile-strip {
+  padding: 6px 10px;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+body.mobile .ps-rank  { font-size: 12px; }
+body.mobile .ps-stats { font-size: 8px; gap: 6px; }
+body.mobile .award-block {
+  padding: 9px 12px;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+body.mobile .award-score-num { font-size: 30px; }
+body.mobile .award-rank-name { font-size: 14px; }
