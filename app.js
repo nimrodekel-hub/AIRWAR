@@ -900,9 +900,23 @@ function mergeRemoteIntoLocal() {
   if (changed) saveProfile();
 }
 
-async function syncRemoteProfile(retry = true) {
+async function syncRemoteProfile(retry = true, snap = null) {
   const token = ghToken();
-  if (!token || !profile.callsign) return;
+  if (!token) return;
+  // Snapshot the player record at call time. The local `profile` may be
+  // replaced (e.g. when the user clicks a different commander in the
+  // leaderboard) while this async function is mid-flight; without the
+  // snapshot, the PUT would write the new player's stats under the OLD
+  // callsign — or vice-versa — and the row that was meant to be flushed
+  // would be silently overwritten.
+  const me = snap || {
+    callsign: profile.callsign,
+    xp: profile.xp,
+    games: profile.games,
+    wins: profile.wins,
+    bests: { ...profile.bests }
+  };
+  if (!me.callsign) return;
   remoteSyncState = 'loading';
   renderLeaderboard();
   try {
@@ -920,17 +934,17 @@ async function syncRemoteProfile(retry = true) {
       throw new Error('HTTP ' + res.status);
     }
 
-    db.players[profile.callsign] = {
-      xp: profile.xp,
-      games: profile.games,
-      wins: profile.wins,
-      bests: profile.bests,
-      rank: rankForXp(profile.xp).name,
+    db.players[me.callsign] = {
+      xp: me.xp,
+      games: me.games,
+      wins: me.wins,
+      bests: me.bests,
+      rank: rankForXp(me.xp).name,
       updated: new Date().toISOString()
     };
 
     const body = {
-      message: `score: ${profile.callsign} → ${profile.xp} XP`,
+      message: `score: ${me.callsign} → ${me.xp} XP`,
       content: b64EncodeUtf8(JSON.stringify(db, null, 2)),
       branch: REMOTE_DB.branch
     };
@@ -944,7 +958,7 @@ async function syncRemoteProfile(retry = true) {
     if (!put.ok) {
       // Conflict (someone else pushed between GET and PUT) — retry once
       if (retry && (put.status === 409 || put.status === 422)) {
-        return syncRemoteProfile(false);
+        return syncRemoteProfile(false, me);
       }
       throw new Error('HTTP ' + put.status);
     }
@@ -1438,11 +1452,18 @@ function switchPlayer() {
 // without the prompt() so the name comes from the click instead.
 function switchPlayerTo(name) {
   if (!name || name === profile.callsign) return;
-  syncRemoteProfile();   // flush any unsynced progress for the current player
+  // Flush the outgoing player only if they have actual unsaved progress.
+  // Skipping the no-op flush avoids a misleading "sync error" state when
+  // a fresh tab has no progress to upload yet.
+  if (profile.callsign && profile.games > 0) syncRemoteProfile();
   profile = { xp: 0, games: 0, wins: 0, bests: {}, callsign: name };
   saveProfile();
   mergeRemoteIntoLocal();   // adopt this callsign's existing stats, if any
   saveProfile();
+  // Sync state was bumped to 'ok' by loadRemoteDb's initial fetch; the
+  // switch itself doesn't talk to the network, so don't leave a stale
+  // 'loading' indicator on the leaderboard.
+  if (remoteSyncState === 'loading') remoteSyncState = 'ok';
   renderProfileStrip();
   renderBestBadges();
   renderLeaderboard();
