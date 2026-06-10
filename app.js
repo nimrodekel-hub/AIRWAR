@@ -692,7 +692,9 @@ const RANKS = [
 // The spread is intentionally wide so a perfect extreme run is worth
 // dozens of perfect easy runs.
 const XP_MAX_BY_DIFF = { easy: 25, medium: 100, hard: 320, extreme: 900 };
-const PROFILE_KEY = 'airwar-profile-v1';
+// v2 — bumped after the global score wipe, so every device starts fresh
+// instead of restoring stale XP from its localStorage cache.
+const PROFILE_KEY = 'airwar-profile-v2';
 
 let profile = loadProfile();
 
