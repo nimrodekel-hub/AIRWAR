@@ -111,6 +111,14 @@ const BASE_LAND_POLYGON = [
 ];
 const LAND_POLYGON = [];
 const MOUNTAINS = [];
+const HILLS = [];       // broad low mounds — visual texture + mild terrain-following
+
+// Sampled heightfield: analytic gaussians are baked into a grid once per
+// map regen, so getTerrainAlt is O(1) in hot loops (LOS raycasts) and the
+// same data drives the hillshade/contour overlay — visuals and gameplay
+// share one truth.
+const TERRAIN_GRID = { cell: 5, w: 241, h: 161, data: null };
+let TERRAIN_CANVAS = null;   // pre-rendered hillshade + contours overlay
 
 function regenerateLand() {
   LAND_POLYGON.length = 0;
@@ -160,13 +168,115 @@ function distToSegment(px, py, x1, y1, x2, y2) {
   return Math.hypot(px - x1 - t*dx, py - y1 - t*dy);
 }
 
-function getTerrainAlt(x, y) {
+// Analytic heightfield: gaussian ridges (mountains) + gaussian mounds (hills)
+function terrainAltAnalytic(x, y) {
   let alt = 0;
   for (const m of MOUNTAINS) {
     const d = distToSegment(x, y, m.x1, m.y1, m.x2, m.y2);
     alt += m.peak * Math.exp(-0.5 * (d / m.sigma) ** 2);
   }
+  for (const h of HILLS) {
+    const d = Math.hypot(x - h.x, y - h.y);
+    alt += h.peak * Math.exp(-0.5 * (d / h.sigma) ** 2);
+  }
   return alt;
+}
+
+// Bilinear lookup into the baked grid (falls back to analytic pre-bake)
+function getTerrainAlt(x, y) {
+  const g = TERRAIN_GRID;
+  if (!g.data) return terrainAltAnalytic(x, y);
+  const fx = Math.min(Math.max(x / g.cell, 0), g.w - 1.001);
+  const fy = Math.min(Math.max(y / g.cell, 0), g.h - 1.001);
+  const ix = Math.floor(fx), iy = Math.floor(fy);
+  const tx = fx - ix, ty = fy - iy;
+  const i00 = iy * g.w + ix;
+  const a = g.data[i00], b = g.data[i00 + 1];
+  const c = g.data[i00 + g.w], d = g.data[i00 + g.w + 1];
+  return a + (b - a) * tx + (c - a) * ty + (a - b - c + d) * tx * ty;
+}
+
+function buildTerrainGrid() {
+  const g = TERRAIN_GRID;
+  g.data = new Float32Array(g.w * g.h);
+  for (let iy = 0; iy < g.h; iy++) {
+    for (let ix = 0; ix < g.w; ix++) {
+      g.data[iy * g.w + ix] = terrainAltAnalytic(ix * g.cell, iy * g.cell);
+    }
+  }
+}
+
+// Render the terrain overlay once per map regen: directional hillshade
+// (lit from NW), hypsometric rock tint on high ground and contour lines —
+// all derived from the same heightfield the LOS engine uses.
+function buildTerrainOverlay() {
+  const w = 1200, h = 800;
+  const cnv = document.createElement('canvas');
+  cnv.width = w; cnv.height = h;
+  const c2 = cnv.getContext('2d');
+  const img = c2.createImageData(w, h);
+  const px = img.data;
+
+  // Light from the north-west, normalized
+  let Lx = -0.6, Ly = -0.6, Lz = 0.55;
+  const Ll = Math.hypot(Lx, Ly, Lz); Lx /= Ll; Ly /= Ll; Lz /= Ll;
+  const EXAG = 30;            // vertical exaggeration for slope shading
+  const CONTOUR_STEP = 0.5;   // km between contour lines
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 4;
+      const alt = getTerrainAlt(x, y);
+      if (alt < 0.05) continue;   // flat plain — leave base terrain untouched
+
+      // Surface normal from central differences
+      const gx = getTerrainAlt(x + 2, y) - getTerrainAlt(x - 2, y);
+      const gy = getTerrainAlt(x, y + 2) - getTerrainAlt(x, y - 2);
+      let nx = -gx * EXAG, ny = -gy * EXAG, nz = 4;
+      const nl = Math.hypot(nx, ny, nz); nx /= nl; ny /= nl; nz /= nl;
+      const lam = nx * Lx + ny * Ly + nz * Lz;
+      const flat = Lz * (4 / Math.hypot(0, 0, 4));   // lambert of flat ground
+      const shade = lam - flat;
+
+      // Compose: shade layer + rock tint + contour line → one rgba
+      let r = 0, g = 0, b = 0, a = 0;
+      if (shade > 0) {          // sun-facing slope — warm light
+        r = 255; g = 246; b = 214;
+        a = Math.min(0.32, shade * 1.5);
+      } else {                  // shadow slope — cold dark
+        r = 4; g = 10; b = 16;
+        a = Math.min(0.5, -shade * 1.8);
+      }
+      // High-ground rock tint fades in above 1.6 km
+      if (alt > 1.6) {
+        const ta = Math.min(0.38, (alt - 1.6) * 0.2);
+        const na = ta + a * (1 - ta);
+        r = (110 * ta + r * a * (1 - ta)) / (na || 1);
+        g = (96  * ta + g * a * (1 - ta)) / (na || 1);
+        b = (82  * ta + b * a * (1 - ta)) / (na || 1);
+        a = na;
+      }
+      // Contour lines every 0.5 km (only meaningful above 0.25 km)
+      if (alt > 0.25) {
+        const f = alt / CONTOUR_STEP;
+        const frac = f - Math.floor(f);
+        if (frac < 0.06 || frac > 0.94) {
+          const ca = 0.22;
+          const na = ca + a * (1 - ca);
+          r = (10 * ca + r * a * (1 - ca)) / na;
+          g = (16 * ca + g * a * (1 - ca)) / na;
+          b = (12 * ca + b * a * (1 - ca)) / na;
+          a = na;
+        }
+      }
+      px[idx]     = r;
+      px[idx + 1] = g;
+      px[idx + 2] = b;
+      px[idx + 3] = Math.round(a * 255);
+    }
+  }
+  c2.putImageData(img, 0, 0);
+  TERRAIN_CANVAS = cnv;
 }
 
 function getThreatAltMSL(t) {
@@ -268,6 +378,55 @@ function regenerateMountains() {
     MOUNTAINS.push({ x1, y1, x2, y2, peak, sigma, ridgePts, snowPatches, treeDots, hatches });
     placed++;
   }
+
+  // One interior ridge deeper in the country — lower than the western
+  // blockers but tall enough to matter for low-flyers and to give the
+  // east half of the map real relief.
+  for (let attempt = 0; attempt < 120; attempt++) {
+    const cx = 620 + Math.random() * 280;
+    const cy = 160 + Math.random() * 420;
+    if (!isInsideCountry(cx, cy)) continue;
+    const angle = Math.random() * Math.PI;
+    const len = 70 + Math.random() * 90;
+    const x1 = cx - Math.cos(angle) * len / 2;
+    const y1 = cy - Math.sin(angle) * len / 2;
+    const x2 = cx + Math.cos(angle) * len / 2;
+    const y2 = cy + Math.sin(angle) * len / 2;
+    const peak = 1.2 + Math.random() * 1.0;
+    const sigma = 14 + Math.random() * 14;
+    const dx = x2 - x1, dy = y2 - y1;
+    const rlen = Math.hypot(dx, dy) || 1;
+    const nx = -dy / rlen, ny = dx / rlen;
+    const ridgePts = [[x1, y1]];
+    for (let i = 1; i < 10; i++) {
+      const ft = i / 10;
+      ridgePts.push([x1 + ft * dx + nx * (Math.random() - 0.5) * 14,
+                     y1 + ft * dy + ny * (Math.random() - 0.5) * 14]);
+    }
+    ridgePts.push([x2, y2]);
+    MOUNTAINS.push({ x1, y1, x2, y2, peak, sigma, ridgePts, snowPatches: [], treeDots: [], hatches: [] });
+    break;
+  }
+
+  // Broad low hills scattered across the country — gentle relief that the
+  // hillshade picks up; threats terrain-follow over them (AGL model).
+  HILLS.length = 0;
+  let hillsPlaced = 0;
+  for (let attempt = 0; attempt < 220 && hillsPlaced < 6; attempt++) {
+    const x = 430 + Math.random() * 600;
+    const y = 110 + Math.random() * 580;
+    if (!isInsideCountry(x, y)) continue;
+    HILLS.push({
+      x, y,
+      peak: 0.25 + Math.random() * 0.5,
+      sigma: 35 + Math.random() * 55
+    });
+    hillsPlaced++;
+  }
+
+  // Bake the heightfield + pre-render the shaded overlay
+  buildTerrainGrid();
+  buildTerrainOverlay();
 }
 
 function getCountryCenter() {
@@ -2757,6 +2916,78 @@ function drawBackground() {
   ctx.fillStyle = 'rgba(220, 38, 38, 0.3)';
   ctx.font = '9px monospace';
   ctx.fillText('THREAT ORIGIN', 190, 30);
+
+  // ── Cartographic furniture: compass rose, scale bar, area labels ──
+  // Compass rose (top-right, inside the frame)
+  const cpx = 1124, cpy = 86, cr = 24;
+  ctx.strokeStyle = GC + '0.45)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(cpx, cpy, cr, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cpx, cpy, cr - 5, 0, Math.PI * 2);
+  ctx.strokeStyle = GC + '0.18)';
+  ctx.stroke();
+  // Cardinal ticks
+  ctx.strokeStyle = GC + '0.5)';
+  for (let k = 0; k < 8; k++) {
+    const a = k * Math.PI / 4;
+    const len = k % 2 === 0 ? 5 : 3;
+    ctx.beginPath();
+    ctx.moveTo(cpx + Math.cos(a) * (cr - len), cpy + Math.sin(a) * (cr - len));
+    ctx.lineTo(cpx + Math.cos(a) * cr,         cpy + Math.sin(a) * cr);
+    ctx.stroke();
+  }
+  // North needle (filled) + south tail
+  ctx.beginPath();
+  ctx.moveTo(cpx, cpy - cr + 7);
+  ctx.lineTo(cpx - 4.5, cpy + 3);
+  ctx.lineTo(cpx + 4.5, cpy + 3);
+  ctx.closePath();
+  ctx.fillStyle = GC + '0.6)';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cpx - 4.5, cpy + 3);
+  ctx.lineTo(cpx, cpy + cr - 7);
+  ctx.lineTo(cpx + 4.5, cpy + 3);
+  ctx.closePath();
+  ctx.fillStyle = GC + '0.22)';
+  ctx.fill();
+  // N label
+  ctx.fillStyle = GC + '0.8)';
+  ctx.font = 'bold 11px "Share Tech Mono", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('N', cpx, cpy - cr - 5);
+
+  // Scale bar (bottom-right): 200 px = 200 km
+  const sbX = 950, sbY = 772, sbW = 200;
+  ctx.strokeStyle = GC + '0.5)';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(sbX, sbY); ctx.lineTo(sbX + sbW, sbY); ctx.stroke();
+  for (const f of [0, 0.5, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(sbX + sbW * f, sbY - 4);
+    ctx.lineTo(sbX + sbW * f, sbY + 4);
+    ctx.stroke();
+  }
+  ctx.fillStyle = GC + '0.55)';
+  ctx.font = '8px "Share Tech Mono", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('0',      sbX, sbY + 14);
+  ctx.fillText('100',    sbX + sbW / 2, sbY + 14);
+  ctx.fillText('200 km', sbX + sbW, sbY + 14);
+
+  // Area labels — faint, letter-spaced, cartographic
+  ctx.font = '700 20px Rajdhani, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = GC + '0.09)';
+  ctx.fillText('N O R T H E R N   S E C T O R', 720, 52);
+  ctx.fillStyle = GC + '0.11)';
+  ctx.fillText('S O U T H E R N   A P P R O A C H', 700, 762);
+  ctx.save();
+  ctx.translate(1148, 420);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillStyle = GC + '0.10)';
+  ctx.fillText('O P E N   S E A', 0, 0);
+  ctx.restore();
 }
 
 function drawCountry() {
@@ -2779,6 +3010,10 @@ function drawCountry() {
   tGrad.addColorStop(1.0, '#0d2218');   // dark coast
   ctx.fillStyle = tGrad;
   ctx.fillRect(350, 50, 800, 700);
+
+  // Real topography: hillshade + hypsometric tint + contour lines,
+  // pre-rendered from the same heightfield the LOS engine raycasts.
+  if (TERRAIN_CANVAS) ctx.drawImage(TERRAIN_CANVAS, 0, 0);
 
   // Subtle coastal shading — darker strip near boundary
   const coastGrad = ctx.createRadialGradient(720, 410, 240, 720, 410, 380);
