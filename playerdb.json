@@ -1,0 +1,15 @@
+{
+  "players": {
+    "גל": {
+      "xp": 350,
+      "games": 3,
+      "wins": 2,
+      "bests": {
+        "defense-challenge-medium": 100,
+        "defense-challenge-extreme": 47
+      },
+      "rank": "סמל",
+      "updated": "2026-06-10T11:39:20.455Z"
+    }
+  }
+}
