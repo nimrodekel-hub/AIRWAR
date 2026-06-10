@@ -1388,7 +1388,7 @@ function renderProfileStrip() {
   const idHtml = profile.callsign
     ? `<span class="ps-callsign">${profile.callsign}</span>`
       + `<button class="ps-edit" id="ps-edit-name" title="שנה שם קוד (שומר על הניקוד)">✎</button>`
-      + `<button class="ps-switch" id="ps-switch-player" title="התחל משחק עם שחקן אחר">🔄 החלף שחקן</button>`
+      + `<button class="ps-switch" id="ps-switch-player" title="הוסף שחקן חדש שאינו בטבלה">➕ הוסף שחקן</button>`
     : `<input id="ps-name-input" class="ps-input" maxlength="14" placeholder="שם קוד..."><button id="ps-name-save" class="ps-save">שמור</button>`;
 
   el.innerHTML = `
@@ -1438,12 +1438,11 @@ function renderProfileStrip() {
   if (switchBtn) switchBtn.addEventListener('click', switchPlayer);
 }
 
-// Start playing as a different commander on this device. The outgoing
-// player's progress is already mirrored to the global table, so we push
-// once more to be safe, then load the requested callsign: an existing
-// name pulls its stats from the table, a new name starts a fresh record.
+// Add a brand-new commander on this device. Switching to an existing
+// player is now done by clicking their row in the leaderboard — this
+// button is reserved for callsigns that aren't in the table yet.
 function switchPlayer() {
-  const v = prompt('שם קוד של השחקן (שם קיים יטען את ההתקדמות שלו, שם חדש יתחיל מאפס):', '');
+  const v = prompt('שם קוד לשחקן חדש (לבחירת שחקן קיים — לחץ על השם שלו בטבלה):', '');
   if (!v || !v.trim()) return;
   switchPlayerTo(v.trim().slice(0, 14));
 }
@@ -1997,7 +1996,8 @@ const TUTORIAL_STEPS = [
       <p>הציון ושיא אישי לכל שילוב של מצב משחק × רמת קושי נשמרים אוטומטית בגיטהאב אחרי כל משימה. במסך הפתיחה מופיעה טבלת המפקדים הגלובלית — 10 השחקנים עם ה-XP הגבוה ביותר.</p>
       <ul>
         <li>🪪 <b>שם קוד</b> — מזהה אותך בטבלה. שינוי השם (✎) שומר על הניקוד.</li>
-        <li>🔄 <b>החלף שחקן</b> — להתחיל עם משתמש אחר; שם קיים יטען את ההתקדמות שלו, שם חדש יתחיל מאפס.</li>
+        <li>🖱 <b>החלפת שחקן</b> — לחץ על שורה בטבלת המפקדים כדי לעבור לשחק בשמו ולטעון את ההתקדמות שלו.</li>
+        <li>➕ <b>הוסף שחקן</b> — לפתיחת רשומה חדשה לשחקן שעדיין אינו בטבלה.</li>
       </ul>
 
       <h4>⚡ פידבק רגעי בסימולציה</h4>
