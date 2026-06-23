@@ -9,14 +9,15 @@
       "updated": "2026-06-10T00:00:00.000Z"
     },
     "נמרוד": {
-      "xp": 175,
-      "games": 13,
+      "xp": 185,
+      "games": 14,
       "wins": 0,
       "bests": {
-        "defense-challenge-hard": 55
+        "defense-challenge-hard": 55,
+        "defense-challenge-extreme": 11
       },
       "rank": "רב\"ט",
-      "updated": "2026-06-23T14:28:39.453Z"
+      "updated": "2026-06-23T14:31:15.789Z"
     }
   }
 }
