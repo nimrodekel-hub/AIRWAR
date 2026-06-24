@@ -517,24 +517,29 @@ body.mobile #legend-overlay {
 }
 
 /* Always-visible version badge (independent of legend-overlay).
-   Pinned to the very top-left of the map so it survives challenge mode
-   (which hides #legend-overlay to free the bottom-left for the
-   budget chips). */
+   Pinned to the top-RIGHT corner of the map because:
+   - #banner-group claims top-left during active missions and would
+     visually hide a top-left badge
+   - top-right has no competing UI on the mobile layout
+   - corner placement keeps it out of the active game area
+   It survives challenge mode (which hides #legend-overlay to free
+   the bottom-left for the budget chips). */
 body.mobile #version-badge {
   position: absolute;
-  top: 6px;
-  left: 6px;
-  z-index: 30;
-  padding: 2px 6px;
-  background: rgba(8, 14, 22, 0.78);
-  border: 1px solid rgba(251,191,36,0.4);
-  border-radius: 3px;
+  top: 8px;
+  right: 8px;
+  z-index: 40;
+  padding: 3px 8px;
+  background: rgba(8, 14, 22, 0.85);
+  border: 1px solid rgba(251,191,36,0.55);
+  border-radius: 4px;
   font-family: 'Share Tech Mono', 'Courier New', monospace;
   font-weight: 700;
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.5px;
   color: #fbbf24;
   pointer-events: none;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
 }
 
 /* ─── Backdrop ───────────────────────────────────────────── */
