@@ -516,16 +516,25 @@ body.mobile #legend-overlay {
   padding: 5px 8px;
 }
 
-body.mobile #legend-overlay .version-line {
-  margin-top: 4px;
-  padding-top: 4px;
-  border-top: 1px solid rgba(95,168,211,0.18);
+/* Always-visible version badge (independent of legend-overlay).
+   Pinned to the very top-left of the map so it survives challenge mode
+   (which hides #legend-overlay to free the bottom-left for the
+   budget chips). */
+body.mobile #version-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 30;
+  padding: 2px 6px;
+  background: rgba(8, 14, 22, 0.78);
+  border: 1px solid rgba(251,191,36,0.4);
+  border-radius: 3px;
   font-family: 'Share Tech Mono', 'Courier New', monospace;
   font-weight: 700;
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.5px;
   color: #fbbf24;
-  text-align: center;
+  pointer-events: none;
 }
 
 /* ─── Backdrop ───────────────────────────────────────────── */
