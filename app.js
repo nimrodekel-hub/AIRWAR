@@ -182,6 +182,16 @@ function terrainAltAnalytic(x, y) {
   return alt;
 }
 
+// Map labels (entity callsigns, ammo pills, target names, threat altitudes)
+// are drawn in world units and therefore shrink with the viewport scale.
+// Mobile starts at 0.48x zoom — at that level 11px text renders as ~5px and
+// becomes unreadable. This multiplier upscales label fonts + their box
+// padding on mobile so the default view is legible without forcing the
+// player to pinch-zoom every time.
+function labelScale() {
+  return window.MOBILE_MODE ? 1.7 : 1;
+}
+
 // Bilinear lookup into the baked grid (falls back to analytic pre-bake)
 function getTerrainAlt(x, y) {
   const g = TERRAIN_GRID;
@@ -3319,8 +3329,9 @@ function drawTargets() {
       ctx.fill(); ctx.stroke();
     }
     ctx.fillStyle = '#fde68a';
-    ctx.font = 'bold 11px monospace';
-    ctx.fillText(t.name, t.x, t.y - 14);
+    const tlS = labelScale();
+    ctx.font = `bold ${Math.round(11 * tlS)}px monospace`;
+    ctx.fillText(t.name, t.x, t.y - 14 * tlS);
   }
 }
 
@@ -3537,19 +3548,21 @@ function drawDefenses() {
       ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 0.8; ctx.stroke();
       // Abbreviation label
       ctx.fillStyle = 'rgba(255,255,255,0.92)';
-      ctx.font = 'bold 8px monospace';
+      ctx.font = `bold ${Math.round(8 * labelScale())}px monospace`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(c.short, 0, 0.5);
     }
     ctx.restore();
 
+    const dlS = labelScale();
+
     // Identifier label below — radars only (batteries already show the
     // abbreviation inside the frame, so a second copy would be redundant).
     if (c.kind === 'radar') {
       ctx.fillStyle = depleted ? 'rgba(126,145,168,0.7)' : 'rgba(198,214,230,0.85)';
-      ctx.font = '9px monospace';
+      ctx.font = `${Math.round(9 * dlS)}px monospace`;
       ctx.textAlign = 'center';
-      ctx.fillText(c.short, d.x, d.y + 26);
+      ctx.fillText(c.short, d.x, d.y + 26 * dlS);
     }
 
     // Ammo counter pill (only for batteries)
@@ -3562,13 +3575,13 @@ function drawDefenses() {
       else if (sd.ammo / maxAmmo > 0.25)   { bgColor = '#8a5a1c'; fgColor = '#fcd34d'; }
       else                                 { bgColor = '#9c2d3e'; fgColor = '#fca5a5'; }
 
-      ctx.font = 'bold 11px ui-monospace, monospace';
+      ctx.font = `bold ${Math.round(11 * dlS)}px ui-monospace, monospace`;
       const tw = ctx.measureText(txt).width;
-      const padX = 6, padY = 2;
+      const padX = 6 * dlS, padY = 2 * dlS;
       const bx = d.x - tw/2 - padX;
-      const by = d.y + 30;
+      const by = d.y + 22 + 8 * dlS;   // pill sits just below the icon; total gap grows with label scale
       const bw = tw + padX*2;
-      const bh = 14 + padY;
+      const bh = 14 * dlS + padY;
       ctx.fillStyle = bgColor;
       ctx.strokeStyle = fgColor;
       ctx.lineWidth = 1.5;
@@ -3668,13 +3681,14 @@ function drawThreats() {
     // Label with absolute altitude (changes over terrain)
     const altMSL = c.altitude + getTerrainAlt(t.x, t.y);
     const labelText = `${t.label} · ${altMSL.toFixed(1)}km`;
-    ctx.font = 'bold 11px monospace';
+    const tlS = labelScale();
+    ctx.font = `bold ${Math.round(11 * tlS)}px monospace`;
     const tw = ctx.measureText(labelText).width;
-    const padX = 5, padY = 2;
+    const padX = 5 * tlS, padY = 2 * tlS;
     const bx = t.x - tw / 2 - padX;
-    const by = t.y + 16;
+    const by = t.y + 12 + 4 * tlS;
     const bw = tw + padX * 2;
-    const bh = 14 + padY;
+    const bh = 14 * tlS + padY;
     ctx.fillStyle = 'rgba(6, 10, 18, 0.93)';
     ctx.strokeStyle = c.color;
     ctx.lineWidth = 1.2;
