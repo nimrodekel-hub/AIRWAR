@@ -516,6 +516,18 @@ body.mobile #legend-overlay {
   padding: 5px 8px;
 }
 
+body.mobile #legend-overlay .version-line {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(95,168,211,0.18);
+  font-family: 'Share Tech Mono', 'Courier New', monospace;
+  font-weight: 700;
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  color: #fbbf24;
+  text-align: center;
+}
+
 /* ─── Backdrop ───────────────────────────────────────────── */
 body.mobile #mobile-backdrop {
   display: block;
