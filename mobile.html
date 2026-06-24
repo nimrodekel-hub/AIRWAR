@@ -7,8 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20260519q">
-  <link rel="stylesheet" href="mobile.css?v=20260519q">
+  <link rel="stylesheet" href="styles.css?v=20260519r">
+  <link rel="stylesheet" href="mobile.css?v=20260519r">
 </head>
 <body class="mobile">
   <div id="app">
@@ -53,6 +53,7 @@
         <div><span class="dot threat-path"></span>נתיב איום</div>
         <div><span class="dot target"></span>יעד אסטרטגי</div>
         <div><span class="dot mountain"></span>רכס הר (חוסם LOS)</div>
+        <div class="version-line">v20260519r</div>
       </div>
 
       <!-- Attack-mode battery legend -->
@@ -109,7 +110,7 @@
 
       <!-- Sheet header -->
       <header class="sheet-header">
-        <h1>פיקוד הגנה אווירית</h1>
+        <h1>פיקוד הגנה אווירית <span class="version-tag">v20260519r</span></h1>
         <div class="sheet-header-btns">
           <button id="open-tutorial" class="instructions-btn">📘 הוראות</button>
           <button id="open-start"    class="newgame-btn">🆕 חדש</button>
@@ -298,7 +299,7 @@
 
   <!-- Force mobile mode before app.js initialises -->
   <script>window.MOBILE_MODE = true;</script>
-  <script src="app.js?v=20260519q"></script>
+  <script src="app.js?v=20260519r"></script>
   <script>
     // Wire up the sheet close button (app.js only wires #mobile-menu-toggle and #mobile-backdrop)
     document.getElementById('sheet-close').addEventListener('click', function () {
