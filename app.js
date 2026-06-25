@@ -4983,6 +4983,57 @@ function generateDefenseRecommendations(r) {
     }
   }
 
+  // === Battery-threat altitude mismatch detection ===
+  // Flag batteries whose altitude envelope is structurally incompatible
+  // with EVERY threat type in this mission — e.g. David's Sling (5-30km)
+  // deployed against a UAV mission (UAV AGL = 2km, below the envelope
+  // floor), or Iron shield (0-9km) against fighters (AGL = 10km, above
+  // ceiling). Distinct from the 'altitude' miss reason (which fires
+  // per-intercept) — this is a deployment-quality call-out: the system
+  // had zero chance against the threat mix regardless of position/range.
+  const threatKeys = [...new Set(state.threats.map(t => t.key))];
+  const mismatched = {};
+  for (const d of state.defenses) {
+    const c = CATALOG[d.key];
+    if (c.kind !== 'battery') continue;
+    const blocked = [];
+    let coversAny = false;
+    for (const tk of threatKeys) {
+      const tc = CATALOG[tk];
+      if (tc.altitude >= c.minAlt && tc.altitude <= c.maxAlt) {
+        coversAny = true;
+      } else {
+        blocked.push({
+          name: tc.name,
+          altitude: tc.altitude,
+          why: tc.altitude > c.maxAlt ? 'מעל התקרה' : 'מתחת לרצפה'
+        });
+      }
+    }
+    if (!coversAny && blocked.length > 0) {
+      if (!mismatched[c.short]) {
+        mismatched[c.short] = {
+          short: c.short,
+          name: c.name,
+          envelope: `${c.minAlt}-${c.maxAlt} ק"מ`,
+          count: 0,
+          blocked
+        };
+      }
+      mismatched[c.short].count++;
+    }
+  }
+  const mismatchList = Object.values(mismatched);
+  if (mismatchList.length > 0) {
+    const lines = mismatchList.map(m => {
+      const blockedDesc = m.blocked
+        .map(b => `${b.name} (${b.altitude} ק"מ AGL — ${b.why})`)
+        .join(', ');
+      return `• <b>${m.count}× ${m.name} [${m.short}]</b> — מעטפת גובה ${m.envelope}; כל איומי המשימה מחוץ למעטפת: ${blockedDesc}`;
+    });
+    recs.push(`🚫 <b>אי התאמת סוללה לאיומים</b><br>פרסת סוללות שמעטפת הגובה שלהן לא מאפשרת לפגוע באף סוג איום בתרחיש הזה:<br>${lines.join('<br>')}<br><b>פתרון:</b> התאם את הסוללה לאיום — <u>Iron shield / SA-8</u> לגובה נמוך (UAV, הליקופטר); <u>Patriot / David's Sling</u> לגובה גבוה (מטוסי קרב); <u>Barak</u> מעטפה רחבה לכיסוי מעורב.`);
+  }
+
   if (counts['out-of-range'] > 0) {
     const tgts = [...new Set(targetsPerReason['out-of-range'])].join(', ');
     recs.push(`📍 <b>${counts['out-of-range']} איומים מחוץ לטווח הנומינלי</b> (יעדים: ${tgts}). אף סוללה בפריסה הנוכחית אינה מספיק קרובה לציר התקיפה גם בהנחת RCS מלא. <b>פתרון:</b> פרוס סוללה ארוכת-טווח (Patriot 160km / David's Sling 200km / Barak 100km) קרוב יותר לאזור החדירה.`);
