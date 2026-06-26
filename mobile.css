@@ -516,19 +516,20 @@ body.mobile #legend-overlay {
   padding: 5px 8px;
 }
 
-/* Always-visible version badge (independent of legend-overlay).
-   Pinned to the top-RIGHT corner of the map because:
-   - #banner-group claims top-left during active missions and would
-     visually hide a top-left badge
-   - top-right has no competing UI on the mobile layout
-   - corner placement keeps it out of the active game area
-   It survives challenge mode (which hides #legend-overlay to free
-   the bottom-left for the budget chips). */
-body.mobile #version-badge {
+/* Version tag — shown ONLY in the start (new-game) modal header on
+   mobile. The previous always-visible map badge obscured threats and
+   ammo pills; the start screen is the right place to surface the
+   build number because that's where players orient themselves before
+   each session. Pinned visually-left of the welcome heading. */
+body.mobile #start-modal .start-modal-header {
+  position: relative;
+}
+
+body.mobile #start-modal .start-modal-version {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 40;
+  top: 50%;
+  left: 10px;
+  transform: translateY(-50%);
   padding: 3px 8px;
   background: rgba(8, 14, 22, 0.85);
   border: 1px solid rgba(251,191,36,0.55);
@@ -538,8 +539,6 @@ body.mobile #version-badge {
   font-size: 11px;
   letter-spacing: 0.5px;
   color: #fbbf24;
-  pointer-events: none;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
 }
 
 /* ─── Backdrop ───────────────────────────────────────────── */
