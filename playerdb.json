@@ -1,13 +1,15 @@
 {
   "players": {
     "נמרוד": {
-      "xp": 0,
-      "games": 0,
+      "xp": 1,
+      "games": 1,
       "wins": 0,
       "bests": {},
-      "bestsXp": {},
+      "bestsXp": {
+        "defense-challenge-hard": 1
+      },
       "rank": "טוראי",
-      "updated": "2026-06-26T16:08:21.255Z"
+      "updated": "2026-06-26T16:09:32.691Z"
     }
   }
 }
