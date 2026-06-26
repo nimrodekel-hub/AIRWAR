@@ -706,12 +706,16 @@ const RANKS = [
 ];
 
 // Maximum XP a perfectly-played mission can yield, per difficulty.
-// The spread is intentionally wide so a perfect extreme run is worth
-// dozens of perfect easy runs.
-const XP_MAX_BY_DIFF = { easy: 25, medium: 100, hard: 320, extreme: 900 };
-// v2 — bumped after the global score wipe, so every device starts fresh
-// instead of restoring stale XP from its localStorage cache.
-const PROFILE_KEY = 'airwar-profile-v2';
+// The spread is intentionally steep so easy missions read as low-value
+// even on perfect play: a flawless extreme run is worth ~110× a flawless
+// easy run. This is what the headline "ניקוד" in the results modal
+// shows — players should immediately see that hard difficulties are
+// the only way to earn meaningful points.
+const XP_MAX_BY_DIFF = { easy: 8, medium: 35, hard: 200, extreme: 900 };
+// v3 — bumped together with the scoring overhaul (headline number is
+// now XP earned, not 0–100 quality) so old per-mission bests stored
+// under v2 don't compete against the new XP-based bests.
+const PROFILE_KEY = 'airwar-profile-v3';
 
 let profile = loadProfile();
 
@@ -720,10 +724,13 @@ function loadProfile() {
     const raw = localStorage.getItem(PROFILE_KEY);
     if (raw) {
       const p = JSON.parse(raw);
-      if (typeof p.xp === 'number' && p.bests) return p;
+      if (typeof p.xp === 'number' && p.bests) {
+        if (!p.bestsXp) p.bestsXp = {};
+        return p;
+      }
     }
   } catch (e) { /* corrupt or blocked storage — start fresh */ }
-  return { xp: 0, games: 0, wins: 0, bests: {} };
+  return { xp: 0, games: 0, wins: 0, bests: {}, bestsXp: {} };
 }
 
 function saveProfile() {
@@ -776,12 +783,16 @@ function computeMissionScore(r) {
 
 // Award XP for a completed challenge run and persist bests/rank.
 // XP = (score/100)^1.4 × XP_MAX[difficulty] × objective-penalty.
-// The ^1.4 curve plus the wide per-difficulty cap means a perfect
-// 'easy' run earns ≈ 25 XP, a perfect 'extreme' run ≈ 900 XP, and
-// a partial easy ≈ 4-8 XP — exactly the spread the user asked for.
+// XP_MAX is intentionally steep (easy 8, medium 35, hard 200, extreme
+// 900) so a perfect easy ≈ 8 XP, a perfect extreme ≈ 900 XP — the
+// headline number in the modal is this XP gain, which makes the
+// difficulty value gap visible at a glance.
+// Per-mission bests are tracked in profile.bestsXp keyed by
+// `${mode}-${diff}` so they live next to (and not on top of) the
+// legacy v2 score-based profile.bests dict.
 function awardMission(score) {
   const diff = state.challengeDifficulty || 'medium';
-  const xpMax = XP_MAX_BY_DIFF[diff] || 100;
+  const xpMax = XP_MAX_BY_DIFF[diff] || 35;
   const won = !!(state.results && state.results.objectiveMet);
   const qualityFactor = Math.pow(score / 100, 1.4);
   const objectiveFactor = won ? 1 : 0.25;
@@ -791,10 +802,11 @@ function awardMission(score) {
   profile.xp += xpGain;
   profile.games += 1;
   if (won) profile.wins += 1;
+  if (!profile.bestsXp) profile.bestsXp = {};
   const bestKey = `${state.challengeMode}-${diff}`;
-  const prevBest = profile.bests[bestKey] || 0;
-  const isNewBest = score > prevBest;
-  if (isNewBest) profile.bests[bestKey] = score;
+  const prevBest = profile.bestsXp[bestKey] || 0;
+  const isNewBest = xpGain > prevBest;
+  if (isNewBest) profile.bestsXp[bestKey] = xpGain;
   const newRank = rankForXp(profile.xp);
   saveProfile();
 
@@ -803,7 +815,7 @@ function awardMission(score) {
     oldRank, newRank,
     rankedUp: newRank !== oldRank,
     isNewBest,
-    best: profile.bests[bestKey]
+    best: profile.bestsXp[bestKey]
   };
 
   syncRemoteProfile();   // fire-and-forget: push the updated record to GitHub
@@ -914,6 +926,13 @@ function mergeRemoteIntoLocal() {
       changed = true;
     }
   }
+  if (!profile.bestsXp) profile.bestsXp = {};
+  for (const k of Object.keys(rec.bestsXp || {})) {
+    if ((rec.bestsXp[k] || 0) > (profile.bestsXp[k] || 0)) {
+      profile.bestsXp[k] = rec.bestsXp[k];
+      changed = true;
+    }
+  }
   if (changed) saveProfile();
 }
 
@@ -931,7 +950,8 @@ async function syncRemoteProfile(retry = true, snap = null) {
     xp: profile.xp,
     games: profile.games,
     wins: profile.wins,
-    bests: { ...profile.bests }
+    bests: { ...profile.bests },
+    bestsXp: { ...(profile.bestsXp || {}) }
   };
   if (!me.callsign) return;
   remoteSyncState = 'loading';
@@ -956,6 +976,7 @@ async function syncRemoteProfile(retry = true, snap = null) {
       games: me.games,
       wins: me.wins,
       bests: me.bests,
+      bestsXp: me.bestsXp || {},
       rank: rankForXp(me.xp).name,
       updated: new Date().toISOString()
     };
@@ -1477,7 +1498,7 @@ function switchPlayerTo(name) {
   // Skipping the no-op flush avoids a misleading "sync error" state when
   // a fresh tab has no progress to upload yet.
   if (profile.callsign && profile.games > 0) syncRemoteProfile();
-  profile = { xp: 0, games: 0, wins: 0, bests: {}, callsign: name };
+  profile = { xp: 0, games: 0, wins: 0, bests: {}, bestsXp: {}, callsign: name };
   saveProfile();
   mergeRemoteIntoLocal();   // adopt this callsign's existing stats, if any
   saveProfile();
@@ -4884,18 +4905,26 @@ function showResultsModal() {
     const span = next ? next.minXp - cur.minXp : 1;
     const into = next ? profile.xp - cur.minXp : 1;
     const pct = next ? Math.round(100 * into / span) : 100;
+    // Per-difficulty headline cap so the player can immediately tell how
+    // much room there is to grow at this difficulty (e.g. "12 / 35" on
+    // a medium mission makes it obvious that medium tops out at 35).
+    const diffCap = XP_MAX_BY_DIFF[state.challengeDifficulty] || 35;
+    const diffLabel = {
+      easy: 'קל', medium: 'בינוני', hard: 'קשה', extreme: 'קשה במיוחד'
+    }[state.challengeDifficulty] || '';
     awardHtml = `
       <div class="award-block">
         <div class="award-score">
-          <div class="award-score-num">${a.score}</div>
-          <div class="award-score-label">ציון משימה</div>
+          <div class="award-score-num">+${a.xp}</div>
+          <div class="award-score-label">נקודות (XP) במשימה</div>
+          <div class="award-score-sub">תקרה ל${diffLabel}: ${diffCap} • איכות ביצוע: ${a.score}/100</div>
           ${a.isNewBest ? '<div class="award-newbest">🏅 שיא אישי חדש!</div>'
-                        : `<div class="award-prevbest">שיא אישי: ${a.best}</div>`}
+                        : `<div class="award-prevbest">שיא אישי לרמה זו: +${a.best} XP</div>`}
         </div>
         <div class="award-rank">
           <div class="award-rank-row">
             <span class="award-rank-name">🎖 ${cur.name}</span>
-            <span class="award-xp">+${a.xp} XP</span>
+            <span class="award-xp-total">${profile.xp} XP סך הכל</span>
           </div>
           <div class="award-bar"><div class="award-bar-fill" style="width:${pct}%"></div></div>
           <div class="award-rank-next">${next ? `עוד ${next.minXp - profile.xp} XP לדרגת ${next.name}` : 'הדרגה הגבוהה ביותר!'}</div>
