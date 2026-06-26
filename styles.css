@@ -1969,6 +1969,39 @@ html, body {
 
 .recommendations li b { color: #fbbf24; }
 
+/* "Iterate on this scenario" call-out at the bottom of the results modal.
+   Many players close the summary thinking the scenario is over; this
+   block teaches them that dragging deployed entities + pressing ▶ runs
+   the same threats again with the new layout. Distinct accent (cyan)
+   so it reads as a hint, not a recommendation. */
+.iterate-hint {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: linear-gradient(180deg, rgba(6,182,212,0.12) 0%, rgba(6,182,212,0.05) 100%);
+  border: 1px solid rgba(6,182,212,0.35);
+  border-left: 3px solid #06b6d4;
+  border-radius: 5px;
+}
+
+.iterate-hint-title {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  color: #5fe7f3;
+  letter-spacing: 0.4px;
+  margin-bottom: 6px;
+}
+
+.iterate-hint-body {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #c6d6e6;
+}
+
+.iterate-hint-body b {
+  color: #5fe7f3;
+}
+
 .benchmark-grid {
   display: flex;
   flex-direction: column;

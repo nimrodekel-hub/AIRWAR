@@ -4734,7 +4734,7 @@ function finishSim() {
     if (breachRate >= 0.5) showBanner(`התקפה הצליחה: ${state.results.survived} איומים פרצו`, 'failure');
     else showBanner(`הגנה החזיקה: ${state.results.killed}/${state.results.total} יורטו`, 'success');
   }
-  setStatus('סימולציה הסתיימה');
+  setStatus('סימולציה הסתיימה — אפשר לדייק את הפריסה וללחוץ ▶ שוב');
   showResultsModal();
 }
 
@@ -4941,6 +4941,16 @@ function showResultsModal() {
 
     <div class="results-section-title" style="color:#fbbf24">💡 ${recsTitle}</div>
     <ul class="recommendations">${recsHtml}</ul>
+
+    <div class="iterate-hint">
+      <div class="iterate-hint-title">🔄 הסימולציה הסתיימה — אבל המשחק עוד לא נסגר</div>
+      <div class="iterate-hint-body">
+        סגור את הסיכום הזה (×), <b>${isAttack
+          ? 'גרור נקודות מוצא של האיומים לזוויות תקיפה אחרות'
+          : 'גרור סוללות ומכ"מים למיקומים מדויקים יותר'}</b>,
+        ואז לחץ <b>▶ הפעל סימולציה</b> בשנית. הטופוגרפיה, היעדים והאיומים נשמרים זהים — שינוי קטן בפריסה יכול לשנות את התוצאה. אפשר לחזור על זה כמה פעמים שצריך עד שהציון משביע רצון.
+      </div>
+    </div>
   `;
   modal.classList.add('visible');
 }
@@ -5184,8 +5194,15 @@ function generateAttackRecommendations(r) {
 function hideModal() {
   document.getElementById('modal').classList.remove('visible');
   // After the results modal closes, surface a 'Start new game' CTA on the
-  // map so the player has a clear next step on mobile.
-  if (state.results) showNewGameCta();
+  // map so the player has a clear next step on mobile. Also reinforce the
+  // iteration option in the status line — many players don't realise that
+  // closing the summary doesn't end the scenario; they can drag the
+  // existing batteries and re-run the same simulation to improve.
+  if (state.results) {
+    showNewGameCta();
+    const role = state.challengeMode === 'attack-challenge' ? 'נקודות מוצא' : 'סוללות';
+    setStatus(`💡 גרור ${role} למיקום אחר ולחץ ▶ כדי לנסות שוב על אותו תרחיש`);
+  }
 }
 
 function showNewGameCta() {
