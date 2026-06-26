@@ -22,14 +22,15 @@
       "updated": "2026-06-26T15:22:50.507Z"
     },
     "ליבי": {
-      "xp": 42,
-      "games": 2,
+      "xp": 44,
+      "games": 3,
       "wins": 2,
       "bests": {
-        "defense-challenge-easy": 100
+        "defense-challenge-easy": 100,
+        "attack-challenge-easy": 40
       },
       "rank": "טוראי",
-      "updated": "2026-06-26T15:30:19.829Z"
+      "updated": "2026-06-26T15:34:15.360Z"
     }
   }
 }
