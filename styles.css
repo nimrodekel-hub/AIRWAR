@@ -1668,6 +1668,17 @@ html, body {
   letter-spacing: 1px;
 }
 
+/* Secondary line below the big XP number — shows the per-difficulty
+   cap and the 0-100 quality score, so the player understands the
+   ceiling they're playing against. */
+.award-score-sub {
+  font-size: 10px;
+  color: rgba(143,180,201,0.62);
+  margin-top: 4px;
+  font-family: 'Share Tech Mono', 'Courier New', monospace;
+  letter-spacing: 0.2px;
+}
+
 .award-newbest {
   margin-top: 4px;
   font-size: 11px;
@@ -1707,6 +1718,16 @@ html, body {
   font-size: 13px;
   color: #86efac;
   font-weight: 700;
+}
+
+/* Lifetime XP counter shown next to the rank name — replaces the
+   per-mission XP gain in that row (the gain is now the big headline
+   number on the left). */
+.award-xp-total {
+  font-family: 'Share Tech Mono', 'Courier New', monospace;
+  font-size: 11px;
+  color: rgba(143,180,201,0.7);
+  font-weight: 600;
 }
 
 .award-bar {
