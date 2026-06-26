@@ -4908,6 +4908,16 @@ function showResultsModal() {
     ${awardHtml}
     <div class="modal-verdict ${verdictCls}">${verdictText}</div>
 
+    <div class="iterate-hint pulse">
+      <div class="iterate-hint-title">🔄 לא חייבים לעצור כאן — אפשר לדייק ולשפר!</div>
+      <div class="iterate-hint-body">
+        סגור את הסיכום (×), <b>${isAttack
+          ? 'גרור נקודות מוצא של האיומים לזוויות תקיפה אחרות'
+          : 'גרור סוללות ומכ"מים למיקומים מדויקים יותר'}</b>,
+        ואז לחץ <b>▶ הפעל סימולציה</b> שוב. הטופוגרפיה, היעדים והאיומים נשארים זהים — שינוי קטן בפריסה יכול לשנות את התוצאה. נסה כמה פעמים שצריך עד שהציון משביע רצון.
+      </div>
+    </div>
+
     <div class="results-section-title" style="color:${isAttack ? '#dc2626' : '#5fa8d3'}">🎯 יעדים אסטרטגיים</div>
     <div class="targets-status">${hitTargetsHtml}</div>
 
@@ -4941,16 +4951,6 @@ function showResultsModal() {
 
     <div class="results-section-title" style="color:#fbbf24">💡 ${recsTitle}</div>
     <ul class="recommendations">${recsHtml}</ul>
-
-    <div class="iterate-hint">
-      <div class="iterate-hint-title">🔄 הסימולציה הסתיימה — אבל המשחק עוד לא נסגר</div>
-      <div class="iterate-hint-body">
-        סגור את הסיכום הזה (×), <b>${isAttack
-          ? 'גרור נקודות מוצא של האיומים לזוויות תקיפה אחרות'
-          : 'גרור סוללות ומכ"מים למיקומים מדויקים יותר'}</b>,
-        ואז לחץ <b>▶ הפעל סימולציה</b> בשנית. הטופוגרפיה, היעדים והאיומים נשמרים זהים — שינוי קטן בפריסה יכול לשנות את התוצאה. אפשר לחזור על זה כמה פעמים שצריך עד שהציון משביע רצון.
-      </div>
-    </div>
   `;
   modal.classList.add('visible');
 }
