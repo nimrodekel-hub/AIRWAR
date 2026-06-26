@@ -7,8 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20260519v">
-  <link rel="stylesheet" href="mobile.css?v=20260519v">
+  <link rel="stylesheet" href="styles.css?v=20260519w">
+  <link rel="stylesheet" href="mobile.css?v=20260519w">
 </head>
 <body class="mobile">
   <div id="app">
@@ -55,8 +55,6 @@
         <div><span class="dot mountain"></span>רכס הר (חוסם LOS)</div>
       </div>
 
-      <!-- Always-visible version tag (independent of legend visibility) -->
-      <div id="version-badge">v20260519v</div>
 
       <!-- Attack-mode battery legend -->
       <div id="battery-legend" style="display:none">
@@ -112,7 +110,7 @@
 
       <!-- Sheet header -->
       <header class="sheet-header">
-        <h1>פיקוד הגנה אווירית <span class="version-tag">v20260519v</span></h1>
+        <h1>פיקוד הגנה אווירית</h1>
         <div class="sheet-header-btns">
           <button id="open-tutorial" class="instructions-btn">📘 הוראות</button>
           <button id="open-start"    class="newgame-btn">🆕 חדש</button>
@@ -244,7 +242,8 @@
   <!-- New-game start modal -->
   <div id="start-modal" class="modal">
     <div class="modal-content start-content">
-      <div class="modal-header">
+      <div class="modal-header start-modal-header">
+        <span class="start-modal-version">v20260519w</span>
         <h2>🎯 ברוך הבא לסימולטור הגנה אווירית</h2>
       </div>
       <div id="start-body">
@@ -301,7 +300,7 @@
 
   <!-- Force mobile mode before app.js initialises -->
   <script>window.MOBILE_MODE = true;</script>
-  <script src="app.js?v=20260519v"></script>
+  <script src="app.js?v=20260519w"></script>
   <script>
     // Wire up the sheet close button (app.js only wires #mobile-menu-toggle and #mobile-backdrop)
     document.getElementById('sheet-close').addEventListener('click', function () {
