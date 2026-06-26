@@ -706,16 +706,15 @@ const RANKS = [
 ];
 
 // Maximum XP a perfectly-played mission can yield, per difficulty.
-// The spread is intentionally steep so easy missions read as low-value
-// even on perfect play: a flawless extreme run is worth ~110× a flawless
-// easy run. This is what the headline "ניקוד" in the results modal
-// shows — players should immediately see that hard difficulties are
-// the only way to earn meaningful points.
-const XP_MAX_BY_DIFF = { easy: 8, medium: 35, hard: 200, extreme: 900 };
-// v3 — bumped together with the scoring overhaul (headline number is
-// now XP earned, not 0–100 quality) so old per-mission bests stored
-// under v2 don't compete against the new XP-based bests.
-const PROFILE_KEY = 'airwar-profile-v3';
+// Easy and medium are intentionally tiny so the only way to climb the
+// leaderboard is to win on hard / extreme. A flawless extreme run is
+// worth ~300× a flawless easy run. This is what the headline "ניקוד"
+// in the results modal shows.
+const XP_MAX_BY_DIFF = { easy: 3, medium: 15, hard: 200, extreme: 900 };
+// v4 — bumped together with the reset of the global playerdb on
+// gh-pages, so every device starts fresh and never restores stale XP
+// from an older scoring scale.
+const PROFILE_KEY = 'airwar-profile-v4';
 
 let profile = loadProfile();
 
