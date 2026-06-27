@@ -689,20 +689,20 @@ let nextId = 1;
 // player can't shortcut to high ranks by spamming easy missions.
 const RANKS = [
   { name: 'טוראי',  minXp: 0 },
-  { name: 'רב"ט',   minXp: 80 },
-  { name: 'סמל',    minXp: 250 },
-  { name: 'סמ"ר',   minXp: 600 },
-  { name: 'רס"ל',   minXp: 1200 },
-  { name: 'רס"ר',   minXp: 2200 },
-  { name: 'סג"מ',   minXp: 4000 },
-  { name: 'סגן',    minXp: 6800 },
-  { name: 'סרן',    minXp: 11000 },
-  { name: 'רס"ן',   minXp: 17000 },
-  { name: 'סא"ל',   minXp: 25000 },
-  { name: 'אל"מ',   minXp: 36000 },
-  { name: 'תא"ל',   minXp: 50000 },
-  { name: 'אלוף',   minXp: 70000 },
-  { name: 'רמטכ"ל', minXp: 100000 }
+  { name: 'רב"ט',   minXp: 200 },
+  { name: 'סמל',    minXp: 500 },
+  { name: 'סמ"ר',   minXp: 1100 },
+  { name: 'רס"ל',   minXp: 2200 },
+  { name: 'רס"ר',   minXp: 4000 },
+  { name: 'סג"מ',   minXp: 7000 },
+  { name: 'סגן',    minXp: 12000 },
+  { name: 'סרן',    minXp: 20000 },
+  { name: 'רס"ן',   minXp: 32000 },
+  { name: 'סא"ל',   minXp: 50000 },
+  { name: 'אל"מ',   minXp: 75000 },
+  { name: 'תא"ל',   minXp: 110000 },
+  { name: 'אלוף',   minXp: 160000 },
+  { name: 'רמטכ"ל', minXp: 230000 }
 ];
 
 // Maximum XP a perfectly-played mission can yield, per difficulty.
@@ -710,11 +710,11 @@ const RANKS = [
 // leaderboard is to win on hard / extreme. A flawless extreme run is
 // worth ~300× a flawless easy run. This is what the headline "ניקוד"
 // in the results modal shows.
-const XP_MAX_BY_DIFF = { easy: 3, medium: 15, hard: 200, extreme: 900 };
-// v4 — bumped together with the reset of the global playerdb on
-// gh-pages, so every device starts fresh and never restores stale XP
-// from an older scoring scale.
-const PROFILE_KEY = 'airwar-profile-v4';
+const XP_MAX_BY_DIFF = { easy: 3, medium: 15, hard: 100, extreme: 200 };
+// v5 — reduced hard cap 200→100 and extreme cap 900→200; removed ammo
+// efficiency from defense score; removed objective-factor from XP award;
+// steepened RANKS ladder (first promotion now at 200 XP).
+const PROFILE_KEY = 'airwar-profile-v5';
 
 let profile = loadProfile();
 
@@ -763,39 +763,23 @@ function computeMissionScore(r) {
   } else {
     const protectedRatio = r.protectedValue / r.totalValue;
     const killRatio = r.total ? r.killed / r.total : 0;
-    let spent = 0;
-    for (const d of state.defenses) {
-      const c = CATALOG[d.key];
-      if (c.kind === 'battery') spent += (d.initialAmmo !== undefined ? d.initialAmmo : c.ammo) - d.ammo;
-    }
-    const efficiency = spent > 0 ? Math.min(1, r.killed / spent) : 0;
-    score = 70 * Math.pow(protectedRatio, 1.8)
-          + 20 * Math.pow(killRatio, 1.5)
-          + 10 * efficiency;
+    score = 80 * Math.pow(protectedRatio, 1.8)
+          + 20 * Math.pow(killRatio, 1.5);
   }
-  // Objective gate: meeting it inflates the score a touch (a perfect
-  // execution can hit 100); missing it deflates it sharply.
-  if (r.objectiveMet) score *= 1.05;
-  else score *= 0.4;
   return Math.max(0, Math.min(100, Math.round(score)));
 }
 
 // Award XP for a completed challenge run and persist bests/rank.
-// XP = (score/100)^1.4 × XP_MAX[difficulty] × objective-penalty.
-// XP_MAX is intentionally steep (easy 8, medium 35, hard 200, extreme
-// 900) so a perfect easy ≈ 8 XP, a perfect extreme ≈ 900 XP — the
-// headline number in the modal is this XP gain, which makes the
-// difficulty value gap visible at a glance.
+// XP = (score/100)^1.4 × XP_MAX[difficulty].
+// XP_MAX: easy 3, medium 15, hard 100, extreme 200.
 // Per-mission bests are tracked in profile.bestsXp keyed by
-// `${mode}-${diff}` so they live next to (and not on top of) the
-// legacy v2 score-based profile.bests dict.
+// `${mode}-${diff}`.
 function awardMission(score) {
   const diff = state.challengeDifficulty || 'medium';
   const xpMax = XP_MAX_BY_DIFF[diff] || 35;
   const won = !!(state.results && state.results.objectiveMet);
   const qualityFactor = Math.pow(score / 100, 1.4);
-  const objectiveFactor = won ? 1 : 0.25;
-  const xpGain = Math.round(xpMax * qualityFactor * objectiveFactor);
+  const xpGain = Math.round(xpMax * qualityFactor);
 
   const oldRank = rankForXp(profile.xp);
   profile.xp += xpGain;
