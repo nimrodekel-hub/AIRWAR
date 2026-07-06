@@ -197,7 +197,63 @@ function rectEdgeOf(x, y) {
   if (y >= 799.5) return 2;
   return 3;
 }
-const RECT_CORNERS = { '01': [1200, 0], '12': [1200, 800], '23': [0, 800], '30': [0, 0] };
+
+// Perimeter coordinate of a point on the map-rect boundary, measured
+// clockwise from the top-left corner (matches increasing vertex angle).
+const RECT_PERIM = 4000;   // 2*(1200+800)
+function rectPerimU(x, y) {
+  const e = rectEdgeOf(x, y);
+  if (e === 0) return x;                    // top: left→right
+  if (e === 1) return 1200 + y;             // right: top→bottom
+  if (e === 2) return 2000 + (1200 - x);    // bottom: right→left
+  return 3200 + (800 - y);                  // left: bottom→top
+}
+const RECT_CORNER_US = [[0, [0, 0]], [1200, [1200, 0]], [2000, [1200, 800]], [3200, [0, 800]]];
+
+// Map-rect corners passed when walking the boundary from perimeter
+// coordinate ua to ub in the DECREASING-u direction, in walk order.
+function rectCornersBetween(ua, ub) {
+  let span = ua - ub;
+  while (span <= 0) span += RECT_PERIM;
+  const hits = [];
+  for (const [uc, pt] of RECT_CORNER_US) {
+    let dlt = ua - uc;
+    while (dlt < 0) dlt += RECT_PERIM;
+    dlt %= RECT_PERIM;
+    if (dlt > 1e-6 && dlt < span - 1e-6) hits.push([dlt, pt]);
+  }
+  hits.sort((a, b) => a[0] - b[0]);
+  return hits.map(h => h[1].slice());
+}
+
+// Jagged inter-country border: a fractal polyline from a home-boundary
+// vertex out to the map edge. Real borders are never straight lines —
+// a damped random walk with an end-pinned envelope gives them the
+// wandering look of negotiated frontiers. Each polyline is built once
+// per boundary and shared by both adjacent territories so their
+// borders coincide exactly.
+function makeSideBorder(vx, vy, cx, cy) {
+  const dx = vx - cx, dy = vy - cy;
+  const d = Math.hypot(dx, dy) || 1;
+  const [ex, ey] = rayToRect(cx, cy, dx / d, dy / d);
+  const len = Math.hypot(ex - vx, ey - vy);
+  const steps = Math.max(6, Math.round(len / 30));
+  const px = -(ey - vy) / (len || 1);   // unit perpendicular
+  const py =  (ex - vx) / (len || 1);
+  const pts = [[vx, vy]];
+  let off = 0;
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    off = off * 0.8 + (Math.random() - 0.5) * 26;
+    const env = Math.sin(Math.PI * t);   // pinned to zero at both ends
+    pts.push([
+      vx + (ex - vx) * t + px * off * env,
+      vy + (ey - vy) * t + py * off * env
+    ]);
+  }
+  pts.push([ex, ey]);
+  return pts;
+}
 
 function shuffleInPlace(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -281,25 +337,33 @@ function regenerateAdvancedWorld(difficulty) {
   const cy = 360 + Math.random() * 80;
   WORLD.center = { x: cx, y: cy };
 
-  // -- Home country: radial blob with low-frequency radius variation --
-  const NV = 48;
+  // -- Home country: low-frequency shape + fine fractal detail --
+  // Real borders are never smooth curves: large harmonics give the
+  // country its overall silhouette, a smoothed per-vertex noise layer
+  // adds the small-scale crinkle of a real frontier.
+  const NV = 96;
   const R0 = 235 + Math.random() * 45;
   WORLD.R0 = R0;
   const harm = [];
-  for (let k = 1; k <= 4; k++) {
+  for (let k = 1; k <= 5; k++) {
     harm.push({ k, amp: (0.05 + Math.random() * 0.09) / Math.sqrt(k), ph: Math.random() * Math.PI * 2 });
   }
+  const rawNoise = [];
+  for (let i = 0; i < NV; i++) rawNoise.push(Math.random() - 0.5);
+  const fine = [];
+  for (let i = 0; i < NV; i++) {
+    // one circular smoothing pass keeps the crinkle from becoming spikes
+    fine.push((rawNoise[(i + NV - 1) % NV] + 2 * rawNoise[i] + rawNoise[(i + 1) % NV]) / 4);
+  }
   LAND_POLYGON.length = 0;
-  const vertAngles = [];
   for (let i = 0; i < NV; i++) {
     const th = i / NV * Math.PI * 2;
     let f = 1;
     for (const h of harm) f += h.amp * Math.cos(h.k * th + h.ph);
-    let r = R0 * f;
+    let r = R0 * f + fine[i] * 30;
     // keep the blob inside the frame with room for the neighbours
     const [ex, ey] = rayToRect(cx, cy, Math.cos(th), Math.sin(th));
     r = Math.min(r, Math.hypot(ex - cx, ey - cy) - 65);
-    vertAngles.push(th);
     LAND_POLYGON.push([Math.round(cx + Math.cos(th) * r), Math.round(cy + Math.sin(th) * r)]);
   }
 
@@ -313,6 +377,19 @@ function regenerateAdvancedWorld(difficulty) {
   const rot = Math.random() * Math.PI * 2;
   const namePool = shuffleInPlace(NEIGHBOR_NAMES.slice());
 
+  // Jagged side borders are built once per segment boundary and shared
+  // by the two adjacent territories, so neighbouring countries meet on
+  // exactly the same wandering line (like real map borders).
+  const sideBorders = {};
+  const sideBorderAt = (idx) => {
+    const vi = ((idx % NV) + NV) % NV;
+    if (!sideBorders[vi]) {
+      const [vx, vy] = LAND_POLYGON[vi];
+      sideBorders[vi] = makeSideBorder(vx, vy, cx, cy);
+    }
+    return sideBorders[vi];
+  };
+
   WORLD.neighbors = [];
   let acc = 0;
   for (let s = 0; s < segTypes.length; s++) {
@@ -325,32 +402,21 @@ function regenerateAdvancedWorld(difficulty) {
     // read modulo NV so a segment can wrap around 0).
     const i0 = Math.round(a0 / (Math.PI * 2) * NV);
     const i1 = Math.round(a1 / (Math.PI * 2) * NV);
-    const inner = [], outer = [];
+
+    // Polygon loop: home-boundary arc forward (i0→i1), jagged border out
+    // to the map edge, map edge back toward i0's angle (inserting rect
+    // corners), then i0's jagged border reversed back to the start.
+    const b0 = sideBorderAt(i0);
+    const b1 = sideBorderAt(i1);
+    const poly = [];
     for (let i = i0; i <= i1; i++) {
       const vi = ((i % NV) + NV) % NV;
-      const [vx, vy] = LAND_POLYGON[vi];
-      inner.push([vx, vy]);
-      const dx = vx - cx, dy = vy - cy;
-      const d = Math.hypot(dx, dy) || 1;
-      outer.push(rayToRect(cx, cy, dx / d, dy / d));
+      poly.push(LAND_POLYGON[vi].slice());
     }
-    // Polygon: inner arc forward, outer arc backward, with map-rect corners
-    // inserted where consecutive outer points sit on different edges.
-    const poly = inner.slice();
-    for (let i = outer.length - 1; i >= 0; i--) {
-      const cur = outer[i];
-      const prevInPoly = poly[poly.length - 1];
-      if (poly.length > inner.length) {
-        const eA = rectEdgeOf(prevInPoly[0], prevInPoly[1]);
-        const eB = rectEdgeOf(cur[0], cur[1]);
-        if (eA !== eB) {
-          const key = '' + Math.min(eA, eB) + Math.max(eA, eB);
-          const corner = RECT_CORNERS[key === '03' ? '30' : key];
-          if (corner) poly.push(corner.slice());
-        }
-      }
-      poly.push(cur);
-    }
+    for (let i = 1; i < b1.length; i++) poly.push(b1[i].slice());
+    const e1 = b1[b1.length - 1], e0 = b0[b0.length - 1];
+    poly.push(...rectCornersBetween(rectPerimU(e1[0], e1[1]), rectPerimU(e0[0], e0[1])));
+    for (let i = b0.length - 1; i >= 1; i--) poly.push(b0[i].slice());
 
     const arcMid = (a0 + a1) / 2;
     // Label anchored between the home border and the map edge along arcMid
@@ -382,9 +448,9 @@ function regenerateAdvancedWorld(difficulty) {
       const lr = 22 + Math.random() * 20;
       const poly = [];
       let ok = true;
-      for (let i = 0; i < 14; i++) {
-        const th = i / 14 * Math.PI * 2;
-        const rr = lr * (0.8 + Math.random() * 0.4);
+      for (let i = 0; i < 16; i++) {
+        const th = i / 16 * Math.PI * 2;
+        const rr = lr * (0.65 + Math.random() * 0.7);
         const px = lcx + Math.cos(th) * rr;
         const py = lcy + Math.sin(th) * rr * 0.75;   // slightly flattened
         if (!pointInPolygon(px, py, LAND_POLYGON)) { ok = false; break; }
@@ -3676,7 +3742,7 @@ function drawNeighbors() {
   for (const nb of WORLD.neighbors) {
     // Territory fill
     tracePoly(nb.poly);
-    ctx.fillStyle = nb.hostile ? 'rgba(140, 26, 26, 0.13)' : 'rgba(88, 104, 96, 0.11)';
+    ctx.fillStyle = nb.hostile ? 'rgba(140, 26, 26, 0.15)' : 'rgba(96, 116, 102, 0.17)';
     ctx.fill();
 
     if (nb.hostile) {
