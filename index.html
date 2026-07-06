@@ -7,14 +7,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20260627a">
+  <link rel="stylesheet" href="styles.css?v=20260706a">
 </head>
 <body>
   <div id="app">
     <aside id="sidebar">
       <header>
         <h1>פיקוד הגנה אווירית</h1>
-        <div class="subtitle">משחק מלחמה: כחול נגד אדום <span class="version-tag">v20260627a</span></div>
+        <div class="subtitle">משחק מלחמה: כחול נגד אדום <span class="version-tag">v20260706a</span></div>
         <button id="open-tutorial" class="instructions-btn">📘 הוראות המשחק</button>
         <button id="open-start" class="newgame-btn">🆕 משחק חדש</button>
         <div class="side-toggle" id="side-toggle">
@@ -56,7 +56,7 @@
               1️⃣ בחר רמת קושי - <b>קל</b> (הגנה דלילה, 40 איומים), <b>בינוני</b> (הגנה בינונית, 30 איומים), <b>קשה</b> (הגנה צפופה, 20 איומים), <b>🕶 קשה במיוחד</b> (כמו קשה אבל פריסת ההגנה <u>נסתרת</u> — מתאר ללא מודיעין).<br>
               2️⃣ פרוס כל איום ב-<b>3 לחיצות</b>:<br>
               &nbsp;&nbsp;א. בחר סוג איום מתפריט "🔴 איומים אוויריים".<br>
-              &nbsp;&nbsp;ב. לחץ על המפה <u>מחוץ לגבולות המדינה</u> - נקודת מוצא.<br>
+              &nbsp;&nbsp;ב. לחץ על המפה בנקודת המוצא - <u>באזור האדום</u> (יסודות) או <u>בשטח מדינה עוינת</u> (מתקדם).<br>
               &nbsp;&nbsp;ג. לחץ על אחד מהיעדים האסטרטגיים שאליו האיום יתקוף.<br>
               3️⃣ לחץ "הפעל סימולציה" וראה כמה איומים פרצו את ההגנה.
             </div>
@@ -189,7 +189,11 @@
       <div id="start-body">
         <div id="profile-strip"></div>
         <div id="leaderboard"></div>
-        <p class="start-intro">איזה משחק תרצה לשחק?<br>בחר מצב משחק ורמת קושי כדי להתחיל.</p>
+        <p class="start-intro">איזה משחק תרצה לשחק?<br>בחר סוג משחק, מצב ורמת קושי כדי להתחיל.</p>
+        <div class="worldmode-row">
+          <button class="worldmode-btn active" data-worldmode="classic">🧭 משחק יסודות<span>חזית אחת ממערב — המפה הקלאסית</span></button>
+          <button class="worldmode-btn" data-worldmode="advanced">🌍 משחק מתקדם<span>מפה אקראית: 4 שכנות, 2 חזיתות אויב, ימים ואגמים</span></button>
+        </div>
         <div class="start-grid">
           <div class="start-section defense">
             <div class="start-section-title">🛡 משחק הגנה</div>
@@ -237,6 +241,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260627a"></script>
+  <script src="app.js?v=20260706a"></script>
 </body>
 </html>

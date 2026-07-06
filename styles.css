@@ -1777,6 +1777,46 @@ html, body {
   margin-bottom: 16px;
 }
 
+/* Game-type selector (classic basics / advanced procedural world) */
+.worldmode-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.worldmode-btn {
+  flex: 1;
+  padding: 10px 12px;
+  background: rgba(8,12,22,0.8);
+  border: 1px solid rgba(42,53,80,0.9);
+  border-radius: 6px;
+  color: #8fa3c4;
+  cursor: pointer;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  transition: border-color .15s, background .15s, box-shadow .15s;
+}
+
+.worldmode-btn span {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: #6b7a96;
+  margin-top: 3px;
+}
+
+.worldmode-btn:hover { border-color: #4a6b9c; }
+
+.worldmode-btn.active {
+  border-color: #5fa8d3;
+  color: #e8f1fb;
+  background: rgba(26,39,64,0.9);
+  box-shadow: 0 0 12px rgba(95,168,211,0.22);
+}
+
+.worldmode-btn.active span { color: #9db4d4; }
+
 .start-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

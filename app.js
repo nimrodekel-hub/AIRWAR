@@ -113,6 +113,22 @@ const LAND_POLYGON = [];
 const MOUNTAINS = [];
 const HILLS = [];       // broad low mounds — visual texture + mild terrain-following
 
+// ---- World structure (game-type layer) ----
+// 'classic'  — the original single-front game: fixed red strip in the west,
+//              hand-tuned country template with jitter.
+// 'advanced' — fully procedural world: random home-country shape, four
+//              neighbouring countries around it (two of them hostile, drawn
+//              at random each game), bordering seas and inland lakes.
+//              Threats can arrive from every hostile border.
+const WORLD = {
+  mode: 'classic',
+  neighbors: [],   // [{name, hostile, poly, bbox, centroid, arcMid, labelX, labelY}]
+  lakes: [],       // [{poly, cx, cy}]
+  center: { x: 620, y: 400 },
+  R0: 250          // home-country base radius (advanced mode)
+};
+const NEIGHBOR_NAMES = ['Vorenia', 'Kastria', 'Ardunia', 'Meridia', 'Zephyra', 'Novaria', 'Tyrrenia', 'Cerulia'];
+
 // Sampled heightfield: analytic gaussians are baked into a grid once per
 // map regen, so getTerrainAlt is O(1) in hot loops (LOS raycasts) and the
 // same data drives the hillshade/contour overlay — visuals and gameplay
@@ -158,6 +174,331 @@ function regenerateTargets() {
     }
     TARGETS.push(placed);
   }
+}
+
+// =============================================================
+// Advanced world generation (procedural geography)
+// =============================================================
+
+// Intersect a ray from (cx,cy) along (dx,dy) with the world rect 1200×800.
+function rayToRect(cx, cy, dx, dy) {
+  let t = Infinity;
+  if (dx > 0) t = Math.min(t, (1200 - cx) / dx);
+  if (dx < 0) t = Math.min(t, -cx / dx);
+  if (dy > 0) t = Math.min(t, (800 - cy) / dy);
+  if (dy < 0) t = Math.min(t, -cy / dy);
+  return [cx + dx * t, cy + dy * t];
+}
+
+// Which rect edge a boundary point sits on (0 top, 1 right, 2 bottom, 3 left)
+function rectEdgeOf(x, y) {
+  if (y <= 0.5) return 0;
+  if (x >= 1199.5) return 1;
+  if (y >= 799.5) return 2;
+  return 3;
+}
+const RECT_CORNERS = { '01': [1200, 0], '12': [1200, 800], '23': [0, 800], '30': [0, 0] };
+
+function shuffleInPlace(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function polyBBox(poly) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [x, y] of poly) {
+    if (x < x0) x0 = x; if (x > x1) x1 = x;
+    if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  return { x0, y0, x1, y1 };
+}
+
+// Random point inside the home country (bbox rejection sampling).
+// margin > 0 keeps the point away from the border by requiring a
+// cross of probe points around it to also be inside.
+function randomPointInCountry(margin = 0) {
+  const bb = polyBBox(LAND_POLYGON);
+  for (let i = 0; i < 400; i++) {
+    const x = bb.x0 + Math.random() * (bb.x1 - bb.x0);
+    const y = bb.y0 + Math.random() * (bb.y1 - bb.y0);
+    if (!isInsideCountry(x, y)) continue;
+    if (margin > 0 && !(isInsideCountry(x + margin, y) && isInsideCountry(x - margin, y) &&
+                        isInsideCountry(x, y + margin) && isInsideCountry(x, y - margin))) continue;
+    return { x, y };
+  }
+  return { ...WORLD.center };
+}
+
+function isInLake(x, y) {
+  for (const lk of WORLD.lakes) {
+    if (pointInPolygon(x, y, lk.poly)) return true;
+  }
+  return false;
+}
+
+function hostileNeighbors() {
+  return WORLD.neighbors.filter(nb => nb.hostile);
+}
+
+function hostileNames() {
+  return hostileNeighbors().map(nb => nb.name).join(' + ');
+}
+
+// Random launch point inside one of the hostile neighbouring countries.
+function randomHostilePoint() {
+  const hs = hostileNeighbors();
+  if (!hs.length) return { x: 50 + Math.random() * 300, y: 50 + Math.random() * 700 };
+  const nb = hs[Math.floor(Math.random() * hs.length)];
+  for (let i = 0; i < 400; i++) {
+    const x = nb.bbox.x0 + Math.random() * (nb.bbox.x1 - nb.bbox.x0);
+    const y = nb.bbox.y0 + Math.random() * (nb.bbox.y1 - nb.bbox.y0);
+    if (x < 8 || x > 1192 || y < 8 || y > 792) continue;
+    if (pointInPolygon(x, y, nb.poly)) return { x, y };
+  }
+  return { ...nb.centroid };
+}
+
+// Pull a point that landed outside the country (anchor offset overshoot,
+// lake, neighbour territory) back inside, stepping toward the centre.
+function clampInsideCountry(x, y) {
+  if (isInsideCountry(x, y)) return { x, y };
+  const c = WORLD.mode === 'advanced' ? WORLD.center : getCountryCenter();
+  for (let f = 0.1; f <= 1; f += 0.1) {
+    const nx = x + (c.x - x) * f;
+    const ny = y + (c.y - y) * f;
+    if (isInsideCountry(nx, ny)) return { x: nx, y: ny };
+  }
+  return { x: c.x, y: c.y };
+}
+
+// Builds the full advanced world: home blob, 4 neighbours (2 hostile),
+// bordering sea gaps, inland lakes, and procedural target placement.
+function regenerateAdvancedWorld(difficulty) {
+  const cx = 560 + Math.random() * 120;
+  const cy = 360 + Math.random() * 80;
+  WORLD.center = { x: cx, y: cy };
+
+  // -- Home country: radial blob with low-frequency radius variation --
+  const NV = 48;
+  const R0 = 235 + Math.random() * 45;
+  WORLD.R0 = R0;
+  const harm = [];
+  for (let k = 1; k <= 4; k++) {
+    harm.push({ k, amp: (0.05 + Math.random() * 0.09) / Math.sqrt(k), ph: Math.random() * Math.PI * 2 });
+  }
+  LAND_POLYGON.length = 0;
+  const vertAngles = [];
+  for (let i = 0; i < NV; i++) {
+    const th = i / NV * Math.PI * 2;
+    let f = 1;
+    for (const h of harm) f += h.amp * Math.cos(h.k * th + h.ph);
+    let r = R0 * f;
+    // keep the blob inside the frame with room for the neighbours
+    const [ex, ey] = rayToRect(cx, cy, Math.cos(th), Math.sin(th));
+    r = Math.min(r, Math.hypot(ex - cx, ey - cy) - 65);
+    vertAngles.push(th);
+    LAND_POLYGON.push([Math.round(cx + Math.cos(th) * r), Math.round(cy + Math.sin(th) * r)]);
+  }
+
+  // -- Perimeter split: 4 neighbouring countries + 1-2 sea gaps --
+  const segTypes = ['country', 'country', 'country', 'country'];
+  const nSeas = Math.random() < 0.5 ? 1 : 2;
+  for (let i = 0; i < nSeas; i++) segTypes.push('sea');
+  shuffleInPlace(segTypes);
+  const widths = segTypes.map(t => t === 'sea' ? 0.45 + Math.random() * 0.4 : 0.8 + Math.random() * 0.7);
+  const wSum = widths.reduce((a, b) => a + b, 0);
+  const rot = Math.random() * Math.PI * 2;
+  const namePool = shuffleInPlace(NEIGHBOR_NAMES.slice());
+
+  WORLD.neighbors = [];
+  let acc = 0;
+  for (let s = 0; s < segTypes.length; s++) {
+    const a0 = rot + acc / wSum * Math.PI * 2;
+    acc += widths[s];
+    const a1 = rot + acc / wSum * Math.PI * 2;
+    if (segTypes[s] !== 'country') continue;
+
+    // Home-boundary vertex range covering [a0, a1] (indices continue past NV,
+    // read modulo NV so a segment can wrap around 0).
+    const i0 = Math.round(a0 / (Math.PI * 2) * NV);
+    const i1 = Math.round(a1 / (Math.PI * 2) * NV);
+    const inner = [], outer = [];
+    for (let i = i0; i <= i1; i++) {
+      const vi = ((i % NV) + NV) % NV;
+      const [vx, vy] = LAND_POLYGON[vi];
+      inner.push([vx, vy]);
+      const dx = vx - cx, dy = vy - cy;
+      const d = Math.hypot(dx, dy) || 1;
+      outer.push(rayToRect(cx, cy, dx / d, dy / d));
+    }
+    // Polygon: inner arc forward, outer arc backward, with map-rect corners
+    // inserted where consecutive outer points sit on different edges.
+    const poly = inner.slice();
+    for (let i = outer.length - 1; i >= 0; i--) {
+      const cur = outer[i];
+      const prevInPoly = poly[poly.length - 1];
+      if (poly.length > inner.length) {
+        const eA = rectEdgeOf(prevInPoly[0], prevInPoly[1]);
+        const eB = rectEdgeOf(cur[0], cur[1]);
+        if (eA !== eB) {
+          const key = '' + Math.min(eA, eB) + Math.max(eA, eB);
+          const corner = RECT_CORNERS[key === '03' ? '30' : key];
+          if (corner) poly.push(corner.slice());
+        }
+      }
+      poly.push(cur);
+    }
+
+    const arcMid = (a0 + a1) / 2;
+    // Label anchored between the home border and the map edge along arcMid
+    const [lx, ly] = rayToRect(cx, cy, Math.cos(arcMid), Math.sin(arcMid));
+    const rHome = R0;   // approximation is fine for a label
+    const labelX = cx + Math.cos(arcMid) * (rHome + Math.hypot(lx - cx, ly - cy)) / 2;
+    const labelY = cy + Math.sin(arcMid) * (rHome + Math.hypot(ly - cy, lx - cx)) / 2;
+
+    WORLD.neighbors.push({
+      name: namePool.pop(), hostile: false,
+      poly, bbox: polyBBox(poly), arcMid,
+      centroid: { x: (WORLD_CLAMP(labelX)), y: WORLD_CLAMP_Y(labelY) },
+      labelX: WORLD_CLAMP(labelX), labelY: WORLD_CLAMP_Y(labelY)
+    });
+  }
+
+  // -- Pick the two hostile neighbours (front layout scales with difficulty) --
+  markHostiles(difficulty);
+
+  // -- Inland lakes: 0-2 blobs fully inside the home country --
+  WORLD.lakes = [];
+  const nLakes = Math.random() < 0.25 ? 0 : (Math.random() < 0.6 ? 1 : 2);
+  for (let li = 0; li < nLakes; li++) {
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const ang = Math.random() * Math.PI * 2;
+      const d = Math.random() * R0 * 0.45;
+      const lcx = cx + Math.cos(ang) * d;
+      const lcy = cy + Math.sin(ang) * d;
+      const lr = 22 + Math.random() * 20;
+      const poly = [];
+      let ok = true;
+      for (let i = 0; i < 14; i++) {
+        const th = i / 14 * Math.PI * 2;
+        const rr = lr * (0.8 + Math.random() * 0.4);
+        const px = lcx + Math.cos(th) * rr;
+        const py = lcy + Math.sin(th) * rr * 0.75;   // slightly flattened
+        if (!pointInPolygon(px, py, LAND_POLYGON)) { ok = false; break; }
+        poly.push([px, py]);
+      }
+      if (!ok) continue;
+      // don't let two lakes overlap
+      let clash = false;
+      for (const other of WORLD.lakes) {
+        if (Math.hypot(other.cx - lcx, other.cy - lcy) < lr + 70) { clash = true; break; }
+      }
+      if (clash) continue;
+      WORLD.lakes.push({ poly, cx: lcx, cy: lcy });
+      break;
+    }
+  }
+
+  // -- Targets: procedural placement inside the new country --
+  regenerateTargetsAdvanced();
+}
+
+function WORLD_CLAMP(x)   { return Math.max(30, Math.min(1170, x)); }
+function WORLD_CLAMP_Y(y) { return Math.max(24, Math.min(776, y)); }
+
+// Angular distance between two arc midpoints (0..π)
+function arcSeparation(a, b) {
+  let d = Math.abs(a - b) % (Math.PI * 2);
+  if (d > Math.PI) d = Math.PI * 2 - d;
+  return d;
+}
+
+// Difficulty shapes the strategic layout of the two hostile fronts:
+//   easy          — the closest pair of neighbours (one broad front)
+//   medium        — a random pair
+//   hard/extreme  — the most separated pair (a genuine two-front war)
+function markHostiles(difficulty) {
+  const n = WORLD.neighbors.length;
+  if (n < 2) { WORLD.neighbors.forEach(nb => nb.hostile = true); return; }
+  let pick;
+  if (difficulty === 'easy' || difficulty === 'hard' || difficulty === 'extreme') {
+    let best = null, bestSep = null;
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const sep = arcSeparation(WORLD.neighbors[i].arcMid, WORLD.neighbors[j].arcMid);
+        const better = bestSep === null ||
+          (difficulty === 'easy' ? sep < bestSep : sep > bestSep);
+        if (better) { bestSep = sep; best = [i, j]; }
+      }
+    }
+    pick = best;
+  } else {
+    const a = Math.floor(Math.random() * n);
+    let b; do { b = Math.floor(Math.random() * n); } while (b === a);
+    pick = [a, b];
+  }
+  WORLD.neighbors.forEach((nb, i) => nb.hostile = pick.includes(i));
+}
+
+// Procedural strategic-target placement for the advanced world:
+// capital near the centre, the rest spread with minimum spacing,
+// away from borders and never inside a lake.
+function regenerateTargetsAdvanced() {
+  TARGETS.length = 0;
+  const { x: cx, y: cy } = WORLD.center;
+  for (const tpl of BASE_TARGETS) {
+    let placed = null;
+    for (let i = 0; i < 300; i++) {
+      let x, y;
+      if (tpl.capital) {
+        x = cx + (Math.random() - 0.5) * 130;
+        y = cy + (Math.random() - 0.5) * 110;
+      } else {
+        const p = randomPointInCountry(45);
+        x = p.x; y = p.y;
+      }
+      if (!isInsideCountry(x, y)) continue;
+      if (!(isInsideCountry(x + 40, y) && isInsideCountry(x - 40, y) &&
+            isInsideCountry(x, y + 40) && isInsideCountry(x, y - 40))) continue;
+      let tooClose = false;
+      for (const t of TARGETS) {
+        if (Math.hypot(t.x - x, t.y - y) < 115) { tooClose = true; break; }
+      }
+      if (tooClose) continue;
+      placed = {
+        name: tpl.name, value: tpl.value,
+        capital: tpl.capital, airbase: tpl.airbase,
+        x: Math.round(x), y: Math.round(y)
+      };
+      break;
+    }
+    if (!placed) {
+      const p = randomPointInCountry(20);
+      placed = {
+        name: tpl.name, value: tpl.value,
+        capital: tpl.capital, airbase: tpl.airbase,
+        x: Math.round(p.x), y: Math.round(p.y)
+      };
+    }
+    TARGETS.push(placed);
+  }
+}
+
+// Single entry point: regenerates the whole geography for the active
+// game type (land, neighbours, lakes, targets, terrain).
+function regenerateGeography(difficulty) {
+  if (WORLD.mode === 'advanced') {
+    regenerateAdvancedWorld(difficulty);
+  } else {
+    WORLD.neighbors = [];
+    WORLD.lakes = [];
+    regenerateLand();
+    regenerateTargets();
+  }
+  regenerateMountains(difficulty);
 }
 
 function distToSegment(px, py, x1, y1, x2, y2) {
@@ -342,7 +683,35 @@ const PEAK_LABELS = [];   // [{x, y, alt}] — highest point of each ridge, labe
 function regenerateMountains(difficulty) {
   const prof = TERRAIN_PROFILES[difficulty] || TERRAIN_PROFILES.medium;
   MOUNTAINS.length = 0;
+  HILLS.length = 0;
 
+  if (WORLD.mode === 'advanced') {
+    regenerateMountainsAdvanced(prof);
+  } else {
+    regenerateMountainsClassic(prof);
+  }
+
+  // Bake the heightfield + pre-render the hypsometric overlay
+  buildTerrainGrid();
+  buildTerrainOverlay();
+
+  // Locate each ridge's true summit (max of the combined field along
+  // the ridge line) for the elevation labels.
+  PEAK_LABELS.length = 0;
+  for (const m of MOUNTAINS) {
+    let best = { x: m.x1, y: m.y1, alt: 0 };
+    for (let i = 0; i <= 12; i++) {
+      const f = i / 12;
+      const x = m.x1 + (m.x2 - m.x1) * f;
+      const y = m.y1 + (m.y2 - m.y1) * f;
+      const alt = getTerrainAlt(x, y);
+      if (alt > best.alt) best = { x, y, alt };
+    }
+    PEAK_LABELS.push(best);
+  }
+}
+
+function regenerateMountainsClassic(prof) {
   // Western blocking ridges — between the red zone (x≤380) and the
   // west-most strategic targets (~560), roughly north-south so they
   // present a wide face to the W→E threat axis.
@@ -384,7 +753,6 @@ function regenerateMountains(difficulty) {
   }
 
   // Broad low hills — gentle relief everywhere
-  HILLS.length = 0;
   let hillsPlaced = 0;
   for (let attempt = 0; attempt < 300 && hillsPlaced < prof.hills; attempt++) {
     const x = 430 + Math.random() * 600;
@@ -397,24 +765,76 @@ function regenerateMountains(difficulty) {
     });
     hillsPlaced++;
   }
+}
 
-  // Bake the heightfield + pre-render the hypsometric overlay
-  buildTerrainGrid();
-  buildTerrainOverlay();
+// Advanced-world terrain: blocking ridges face each hostile border
+// (perpendicular to that front's threat axis), interior ridges and
+// hills spread anywhere in the country.
+function regenerateMountainsAdvanced(prof) {
+  const { x: cx, y: cy } = WORLD.center;
+  const R0 = WORLD.R0;
 
-  // Locate each ridge's true summit (max of the combined field along
-  // the ridge line) for the elevation labels.
-  PEAK_LABELS.length = 0;
-  for (const m of MOUNTAINS) {
-    let best = { x: m.x1, y: m.y1, alt: 0 };
-    for (let i = 0; i <= 12; i++) {
-      const f = i / 12;
-      const x = m.x1 + (m.x2 - m.x1) * f;
-      const y = m.y1 + (m.y2 - m.y1) * f;
-      const alt = getTerrainAlt(x, y);
-      if (alt > best.alt) best = { x, y, alt };
+  // Gaussians sum, so ridges that land too close stack into absurd
+  // super-peaks; keep ridge centres apart.
+  const farFromOtherRidges = (x, y) => {
+    for (const m of MOUNTAINS) {
+      if (Math.hypot((m.x1 + m.x2) / 2 - x, (m.y1 + m.y2) / 2 - y) < 90) return false;
     }
-    PEAK_LABELS.push(best);
+    return true;
+  };
+
+  // The advanced country is a compact blob — fewer ridges per front than
+  // the classic western wall, or the whole interior turns into mountains.
+  const perFront = Math.max(1, Math.round(prof.west * 0.6));
+  for (const nb of hostileNeighbors()) {
+    let placed = 0;
+    for (let attempt = 0; attempt < 200 && placed < perFront; attempt++) {
+      const th = nb.arcMid + (Math.random() - 0.5) * 0.9;
+      const d = R0 * (0.55 + Math.random() * 0.3);
+      const mx = cx + Math.cos(th) * d;
+      const my = cy + Math.sin(th) * d;
+      if (!isInsideCountry(mx, my) || !farFromOtherRidges(mx, my)) continue;
+      // ridge runs perpendicular to the threat axis from this front
+      const angle = th + Math.PI / 2 + (Math.random() - 0.5) * 0.5;
+      const len = 80 + Math.random() * 90;
+      MOUNTAINS.push({
+        x1: mx - Math.cos(angle) * len / 2,
+        y1: my - Math.sin(angle) * len / 2,
+        x2: mx + Math.cos(angle) * len / 2,
+        y2: my + Math.sin(angle) * len / 2,
+        peak: prof.peakMin + Math.random() * (prof.peakMax - prof.peakMin),
+        sigma: 15 + Math.random() * 17
+      });
+      placed++;
+    }
+  }
+
+  let interiorPlaced = 0;
+  for (let attempt = 0; attempt < 200 && interiorPlaced < prof.interior; attempt++) {
+    const p = randomPointInCountry(30);
+    if (!isInsideCountry(p.x, p.y) || !farFromOtherRidges(p.x, p.y)) continue;
+    const angle = Math.random() * Math.PI;
+    const len = 70 + Math.random() * 90;
+    MOUNTAINS.push({
+      x1: p.x - Math.cos(angle) * len / 2,
+      y1: p.y - Math.sin(angle) * len / 2,
+      x2: p.x + Math.cos(angle) * len / 2,
+      y2: p.y + Math.sin(angle) * len / 2,
+      peak: (prof.peakMin + Math.random() * (prof.peakMax - prof.peakMin)) * 0.6,
+      sigma: 14 + Math.random() * 14
+    });
+    interiorPlaced++;
+  }
+
+  let hillsPlaced = 0;
+  for (let attempt = 0; attempt < 300 && hillsPlaced < prof.hills; attempt++) {
+    const p = randomPointInCountry(15);
+    HILLS.push({
+      x: p.x, y: p.y,
+      peak: 0.25 + Math.random() * 0.5,
+      sigma: 35 + Math.random() * 55
+    });
+    hillsPlaced++;
   }
 }
 
@@ -615,12 +1035,21 @@ function pointInPolygon(x, y, poly) {
 }
 
 function isInsideCountry(x, y) {
-  return pointInPolygon(x, y, LAND_POLYGON);
+  if (!pointInPolygon(x, y, LAND_POLYGON)) return false;
+  // Lakes are sovereign territory but you can't build on water
+  return !isInLake(x, y);
 }
 
 // Red zone — the only valid origin for hostile aircraft.
-// World 1200×800; red strip is x∈[0,380].
+// Classic: fixed western strip x∈[0,380] of the 1200×800 world.
+// Advanced: the territory of either hostile neighbouring country.
 function isInsideRedZone(x, y) {
+  if (WORLD.mode === 'advanced') {
+    for (const nb of WORLD.neighbors) {
+      if (nb.hostile && pointInPolygon(x, y, nb.poly)) return true;
+    }
+    return false;
+  }
   return x >= 0 && x <= 380 && y >= 0 && y <= 800;
 }
 
@@ -1085,9 +1514,10 @@ window.addEventListener('DOMContentLoaded', () => {
     window.visualViewport.addEventListener('resize', reflow);
   }
   placeScrubberForViewport();
-  regenerateLand();
-  regenerateTargets();
-  regenerateMountains();
+  try {
+    if (localStorage.getItem('airwar_world_mode') === 'advanced') WORLD.mode = 'advanced';
+  } catch (e) { /* private browsing */ }
+  regenerateGeography();
   buildButtons();
   bindControls();
   initSimButtons();
@@ -1388,6 +1818,12 @@ function bindControls() {
     });
   });
 
+  // Game-type selector (classic "basics" vs advanced procedural world)
+  document.querySelectorAll('.worldmode-btn').forEach(btn => {
+    btn.addEventListener('click', () => setWorldMode(btn.dataset.worldmode));
+  });
+  syncWorldModeButtons();
+
   // Show the mode-selection modal as the entry point on every load
   setTimeout(showStartModal, 200);
 }
@@ -1396,6 +1832,23 @@ function showStartModal() {
   renderProfileStrip();
   renderBestBadges();
   document.getElementById('start-modal').classList.add('visible');
+}
+
+// ---- Game-type (world mode) selection ----
+function setWorldMode(mode) {
+  if (mode !== 'classic' && mode !== 'advanced') return;
+  if (WORLD.mode === mode) return;
+  WORLD.mode = mode;
+  try { localStorage.setItem('airwar_world_mode', mode); } catch (e) { /* private browsing */ }
+  syncWorldModeButtons();
+  // Rebuild the visible map immediately so the choice is tangible
+  regenerateGeography();
+  resetView();
+}
+
+function syncWorldModeButtons() {
+  document.querySelectorAll('.worldmode-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.worldmode === WORLD.mode));
 }
 
 // Player rank / XP summary at the top of the start modal.
@@ -1521,6 +1974,11 @@ const TUTORIAL_STEPS = [
     title: '🎯 ברוך הבא לסימולטור הגנה אווירית',
     html: () => `
       <p>זהו סימולטור משחק מלחמה אסטרטגי בין <b style="color:#5fa8d3">צד כחול (מגן)</b> לבין <b style="color:#dc2626">צד אדום (תוקף)</b> שמתרחש במדינה הבדיונית "רפובליקת טליאריה".</p>
+      <h4>שני סוגי משחק (נבחרים במסך הפתיחה):</h4>
+      <ul>
+        <li>🧭 <b>משחק יסודות</b> — המפה הקלאסית: כל האיומים מגיעים מ<b>חזית אחת במערב</b> (האזור האדום). מומלץ ללמידת המערכות והטקטיקות.</li>
+        <li>🌍 <b>משחק מתקדם</b> — עולם אקראי לגמרי: צורת המדינה מוגרלת בכל משחק, מוקפת <b>4 מדינות שכנות</b> ששתיים מהן עוינות, עם ימים גובלים ואגמים פנימיים. איומים מגיעים <b>מכמה כיוונים בו-זמנית</b>.</li>
+      </ul>
       <h4>שני מצבי משחק עיקריים:</h4>
       <ul>
         <li>🛡 <b>אתגר הגנה</b> - אתה המגן. המערכת שולחת איומים, ואתה צריך לפרוס סוללות הגנה אווירית ומכ"מים כדי להגן על היעדים האסטרטגיים.</li>
@@ -1534,7 +1992,18 @@ const TUTORIAL_STEPS = [
   {
     title: '🗺 המפה והאזורים',
     html: () => `
-      <p>המסך מציג את <b>רפובליקת טליאריה</b> במרכז (השטח המוגן בכחול-כהה), מוקפת מדינות אויב. מסביב לטליאריה <b style="color:#dc2626">אזור אדום</b> שממנו האיומים יכולים להתחיל.</p>
+      <p>המסך מציג את <b>רפובליקת טליאריה</b> במרכז (השטח המוגן בכחול-כהה). מהיכן מגיעים האיומים תלוי ב<b>סוג המשחק</b> שבחרת במסך הפתיחה:</p>
+      <h4>🧭 משחק יסודות — חזית אחת</h4>
+      <p>המפה הקלאסית: <b style="color:#dc2626">אזור אדום</b> קבוע במערב המפה, וכל האיומים מתחילים ממנו. ציר איום אחד, ברור וצפוי — אידיאלי ללמידה.</p>
+      <h4>🌍 משחק מתקדם — עולם אקראי ושתי חזיתות</h4>
+      <ul>
+        <li>🗺 <b>צורת המדינה מוגרלת</b> בכל משחק — פעם מוארכת, פעם מפורצת, תמיד שונה.</li>
+        <li>🏳 טליאריה גובלת ב-<b>4 מדינות שכנות</b> (שמות אקראיים): שתיים <b style="color:#dc2626">עוינות</b> (מסומנות בפסי אזהרה אדומים ובתווית HOSTILE) ושתיים ניטרליות.</li>
+        <li>⚔ <b>האיומים משוגרים משטח שתי המדינות העוינות</b> — כלומר מכיוונים שונים בו-זמנית. זהות המדינות העוינות מוגרלת בכל משחק!</li>
+        <li>🌊 <b>ימים גובלים</b>: חלק מהיקף המדינה הוא קו חוף פתוח — משם לא מגיעות התקפות.</li>
+        <li>💧 <b>אגמים פנימיים</b>: עד 2 אגמים בתוך המדינה. אי אפשר להציב עליהם סוללות או מכ"מים — אבל איומים חולפים מעליהם באין מפריע.</li>
+        <li>🎲 פריסת החזיתות תלויה בקושי: ב<b>קל</b> שתי העוינות צמודות (חזית רחבה אחת); ב<b>קשה ובקשה-במיוחד</b> הן בצדדים מנוגדים — מלחמה דו-חזיתית אמיתית שמפצלת את ההגנה שלך.</li>
+      </ul>
       <div class="tutorial-figure">
         <svg viewBox="0 0 460 220" xmlns="http://www.w3.org/2000/svg">
           <rect width="460" height="220" fill="#0a1628"/>
@@ -1560,7 +2029,7 @@ const TUTORIAL_STEPS = [
           <circle cx="245" cy="190" r="5" fill="#fcd34d" stroke="#0a0e14" stroke-width="1"/>
           <text x="245" y="208" text-anchor="middle" fill="#fde68a" font-size="9">Plaion</text>
         </svg>
-        <div class="caption">תצוגת המפה: אזור אדום במערב (מקור איומים), טליאריה במרכז, 5 יעדים אסטרטגיים עם הילה צהובה</div>
+        <div class="caption">תצוגת המפה במשחק יסודות: אזור אדום במערב (מקור איומים), טליאריה במרכז, 5 יעדים אסטרטגיים עם הילה צהובה. במשחק מתקדם האזורים האדומים הם שטחי שתי המדינות העוינות.</div>
       </div>
       <h4>5 יעדים אסטרטגיים פזורים בתוך המדינה:</h4>
       <ul>
@@ -1899,7 +2368,7 @@ const TUTORIAL_STEPS = [
       <h4>זרימת המשחק - 3 לחיצות לפריסת מטרה אווירית:</h4>
       <ul>
         <li><b>לחיצה 1:</b> בחר סוג איום מתפריט "🔴 איומים אוויריים" (UAV / Fighter / Helicopter).</li>
-        <li><b>לחיצה 2:</b> לחץ על המפה <b style="color:#dc2626">מחוץ לגבולות המדינה</b> - זו נקודת המוצא של האיום. גבול המדינה יזרח באדום מקווקו.</li>
+        <li><b>לחיצה 2:</b> לחץ על המפה בנקודת המוצא של האיום — במשחק <b>יסודות</b>: <b style="color:#dc2626">בתוך האזור האדום</b>; במשחק <b>מתקדם</b>: <b style="color:#dc2626">בתוך שטח אחת המדינות העוינות</b> (השטחים התקפים יזרחו באדום מקווקו).</li>
         <li><b>לחיצה 3:</b> לחץ על אחד מהיעדים האסטרטגיים שאליו האיום יתקוף. היעדים יזרחו באדום.</li>
       </ul>
       <div class="tutorial-figure">
@@ -2108,11 +2577,13 @@ function panBy(dx, dy) {
 
 function resetView() {
   const isMobile = window.MOBILE_MODE || window.matchMedia('(max-width: 768px)').matches;
-  const s  = isMobile ? 0.48 : 0.85;
-  // On mobile bias the view toward the LEFT two-thirds of the country
-  // so the western spawn region (where threats originate) is visible.
-  const cx = isMobile ? 600 : 720;
-  const cy = 410;
+  // Advanced world: threats can come from any direction, so frame the whole
+  // map around its centre (slightly zoomed out). Classic: on mobile bias the
+  // view toward the LEFT two-thirds so the western spawn region is visible.
+  const advanced = WORLD.mode === 'advanced';
+  const s  = isMobile ? (advanced ? 0.42 : 0.48) : (advanced ? 0.8 : 0.85);
+  const cx = advanced ? 600 : (isMobile ? 600 : 720);
+  const cy = advanced ? 400 : 410;
   state.viewport = {
     offsetX: W / 2 - cx * s,
     offsetY: H / 2 - cy * s,
@@ -2249,7 +2720,9 @@ function selectPlace(key) {
   if (state.attackChallenge && c.kind === 'threat') {
     state.placeStep = 'origin';
     state.placeOrigin = null;
-    setStatus(`${c.name} - לחץ על המפה מחוץ לגבולות המדינה (נקודת מוצא)`);
+    setStatus(WORLD.mode === 'advanced'
+      ? `${c.name} - לחץ בשטח מדינה עוינת (נקודת מוצא)`
+      : `${c.name} - לחץ על המפה מחוץ לגבולות המדינה (נקודת מוצא)`);
   } else {
     state.placeStep = null;
     setStatus(`מציב ${c.name} - לחץ על המפה`);
@@ -2340,7 +2813,9 @@ function onCanvasClick(ev) {
     if (state.attackChallenge && c.kind === 'threat') {
       if (state.placeStep === 'origin') {
         if (!isInsideRedZone(p.x, p.y)) {
-          flashStatus('⚠ נקודת המוצא חייבת להיות בתוך האזור האדום!', 'origin');
+          flashStatus(WORLD.mode === 'advanced'
+            ? '⚠ נקודת המוצא חייבת להיות בשטח מדינה עוינת!'
+            : '⚠ נקודת המוצא חייבת להיות בתוך האזור האדום!', 'origin');
           return;
         }
         state.placeOrigin = { x: p.x, y: p.y };
@@ -2404,7 +2879,9 @@ function flashStatus(msg, returnStep) {
   _flashTimer = setTimeout(() => {
     if (state.placeStep === 'origin') {
       const c = CATALOG[state.placeKey];
-      setStatus(`${c.name} - לחץ בתוך האזור האדום (נקודת מוצא)`);
+      setStatus(WORLD.mode === 'advanced'
+        ? `${c.name} - לחץ בשטח מדינה עוינת (נקודת מוצא)`
+        : `${c.name} - לחץ בתוך האזור האדום (נקודת מוצא)`);
     } else if (state.placeStep === 'target') {
       const c = CATALOG[state.placeKey];
       setStatus(`${c.name} - בחר יעד אסטרטגי`);
@@ -2627,7 +3104,9 @@ function placeAt(key, x, y) {
     state.threats.push(makeThreat(key, x, y, target.x, target.y, target.name));
   } else {
     if (!isInsideCountry(x, y)) {
-      flashStatus('⚠ לא ניתן להציב מחוץ לגבולות טליאריה');
+      flashStatus(pointInPolygon(x, y, LAND_POLYGON) && isInLake(x, y)
+        ? '⚠ לא ניתן להציב אמצעי הגנה בתוך אגם'
+        : '⚠ לא ניתן להציב מחוץ לגבולות טליאריה');
       return;
     }
     const initialAmmo = (state.autoAmmo && state.autoAmmo[key] !== undefined) ? state.autoAmmo[key] : c.ammo;
@@ -2718,10 +3197,8 @@ function resetAll() {
   state.placeOrigin = null;
   document.getElementById('scrubber-row').style.display = 'none';
   setScrubberActive(false);
-  // Regenerate the country borders and target locations so each game is fresh
-  regenerateLand();
-  regenerateTargets();
-  regenerateMountains();
+  // Regenerate the whole geography so each game is fresh
+  regenerateGeography();
   resetView();
   hideBanner();
   refreshButtonStates();
@@ -2970,7 +3447,8 @@ function drawPlacementGuide() {
   if (state.placeStep === 'origin') {
     drawValidityRing(state.mouseX, state.mouseY,
       isInsideRedZone(state.mouseX, state.mouseY),
-      '✓ נקודת מוצא תקינה', '✗ מחוץ לאזור האדום');
+      '✓ נקודת מוצא תקינה',
+      WORLD.mode === 'advanced' ? '✗ לא בשטח מדינה עוינת' : '✗ מחוץ לאזור האדום');
   } else if (state.placeStep === 'target' && state.placeOrigin) {
     const o = state.placeOrigin;
     // Origin marker
@@ -3074,37 +3552,41 @@ function drawBackground() {
     ctx.fillText(y, 30, y - 2);
   }
 
-  // Red zone - diagonal hazard stripe
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(0, 0, 380, WORLD_H);
-  ctx.clip();
-  ctx.fillStyle = 'rgba(180, 20, 20, 0.07)';
-  ctx.fillRect(0, 0, 380, WORLD_H);
-  ctx.strokeStyle = 'rgba(220, 38, 38, 0.07)';
-  ctx.lineWidth = 18;
-  for (let i = -WORLD_H; i < 380 + WORLD_H; i += 36) {
-    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i + WORLD_H, WORLD_H); ctx.stroke();
+  // Classic mode only: fixed western red zone.
+  // (The advanced world draws hostile-country territory instead.)
+  if (WORLD.mode !== 'advanced') {
+    // Red zone - diagonal hazard stripe
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, 380, WORLD_H);
+    ctx.clip();
+    ctx.fillStyle = 'rgba(180, 20, 20, 0.07)';
+    ctx.fillRect(0, 0, 380, WORLD_H);
+    ctx.strokeStyle = 'rgba(220, 38, 38, 0.07)';
+    ctx.lineWidth = 18;
+    for (let i = -WORLD_H; i < 380 + WORLD_H; i += 36) {
+      ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i + WORLD_H, WORLD_H); ctx.stroke();
+    }
+    ctx.restore();
+
+    // Red zone border
+    ctx.beginPath();
+    ctx.moveTo(380, 0); ctx.lineTo(380, WORLD_H);
+    ctx.strokeStyle = 'rgba(220, 38, 38, 0.22)';
+    ctx.setLineDash([8, 6]);
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Red zone labels
+    ctx.fillStyle = 'rgba(220, 38, 38, 0.52)';
+    ctx.font = 'bold 11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('RED ZONE', 190, 18);
+    ctx.fillStyle = 'rgba(220, 38, 38, 0.3)';
+    ctx.font = '9px monospace';
+    ctx.fillText('THREAT ORIGIN', 190, 30);
   }
-  ctx.restore();
-
-  // Red zone border
-  ctx.beginPath();
-  ctx.moveTo(380, 0); ctx.lineTo(380, WORLD_H);
-  ctx.strokeStyle = 'rgba(220, 38, 38, 0.22)';
-  ctx.setLineDash([8, 6]);
-  ctx.lineWidth = 1.2;
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  // Red zone labels
-  ctx.fillStyle = 'rgba(220, 38, 38, 0.52)';
-  ctx.font = 'bold 11px monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText('RED ZONE', 190, 18);
-  ctx.fillStyle = 'rgba(220, 38, 38, 0.3)';
-  ctx.font = '9px monospace';
-  ctx.fillText('THREAT ORIGIN', 190, 30);
 
   // ── Cartographic furniture: compass rose, scale bar, area labels ──
   // Compass rose (top-right, inside the frame)
@@ -3164,94 +3646,171 @@ function drawBackground() {
   ctx.fillText('100',    sbX + sbW / 2, sbY + 14);
   ctx.fillText('200 km', sbX + sbW, sbY + 14);
 
-  // Area labels — faint, letter-spaced, cartographic
-  ctx.font = '700 20px Rajdhani, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillStyle = GC + '0.09)';
-  ctx.fillText('N O R T H E R N   S E C T O R', 720, 52);
-  ctx.fillStyle = GC + '0.11)';
-  ctx.fillText('S O U T H E R N   A P P R O A C H', 700, 762);
-  ctx.save();
-  ctx.translate(1148, 420);
-  ctx.rotate(-Math.PI / 2);
-  ctx.fillStyle = GC + '0.10)';
-  ctx.fillText('O P E N   S E A', 0, 0);
-  ctx.restore();
+  // Area labels — faint, letter-spaced, cartographic (classic layout only;
+  // the advanced world labels its neighbours dynamically instead)
+  if (WORLD.mode !== 'advanced') {
+    ctx.font = '700 20px Rajdhani, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = GC + '0.09)';
+    ctx.fillText('N O R T H E R N   S E C T O R', 720, 52);
+    ctx.fillStyle = GC + '0.11)';
+    ctx.fillText('S O U T H E R N   A P P R O A C H', 700, 762);
+    ctx.save();
+    ctx.translate(1148, 420);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillStyle = GC + '0.10)';
+    ctx.fillText('O P E N   S E A', 0, 0);
+    ctx.restore();
+  }
+}
+
+// ---- Advanced world: neighbouring countries + lakes ----
+function tracePoly(poly) {
+  ctx.beginPath();
+  ctx.moveTo(poly[0][0], poly[0][1]);
+  for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i][0], poly[i][1]);
+  ctx.closePath();
+}
+
+function drawNeighbors() {
+  for (const nb of WORLD.neighbors) {
+    // Territory fill
+    tracePoly(nb.poly);
+    ctx.fillStyle = nb.hostile ? 'rgba(140, 26, 26, 0.13)' : 'rgba(88, 104, 96, 0.11)';
+    ctx.fill();
+
+    if (nb.hostile) {
+      // Diagonal hazard stripes clipped to the hostile territory
+      ctx.save();
+      tracePoly(nb.poly);
+      ctx.clip();
+      ctx.strokeStyle = 'rgba(220, 38, 38, 0.06)';
+      ctx.lineWidth = 16;
+      for (let i = -800; i < 2000; i += 40) {
+        ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i + 800, 800); ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // Border
+    tracePoly(nb.poly);
+    ctx.strokeStyle = nb.hostile ? 'rgba(220, 38, 38, 0.38)' : 'rgba(150, 168, 158, 0.26)';
+    ctx.setLineDash(nb.hostile ? [8, 6] : [3, 5]);
+    ctx.lineWidth = nb.hostile ? 1.4 : 1;
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Name + status label
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 19px serif';
+    ctx.fillStyle = nb.hostile ? 'rgba(248, 113, 113, 0.5)' : 'rgba(190, 205, 195, 0.34)';
+    ctx.fillText(nb.name, nb.labelX, nb.labelY);
+    ctx.font = '9px monospace';
+    ctx.fillStyle = nb.hostile ? 'rgba(220, 38, 38, 0.55)' : 'rgba(160, 178, 168, 0.3)';
+    ctx.fillText(nb.hostile ? '⚠ HOSTILE — THREAT ORIGIN' : 'NEUTRAL', nb.labelX, nb.labelY + 14);
+  }
+}
+
+function drawLakes() {
+  for (const lk of WORLD.lakes) {
+    tracePoly(lk.poly);
+    const g = ctx.createRadialGradient(lk.cx, lk.cy, 3, lk.cx, lk.cy, 45);
+    g.addColorStop(0, '#122440');
+    g.addColorStop(1, '#081222');
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(95, 168, 211, 0.35)';
+    ctx.lineWidth = 1.1;
+    ctx.stroke();
+  }
 }
 
 function drawCountry() {
   const land = LAND_POLYGON;
+  const advanced = WORLD.mode === 'advanced';
+
+  // Neighbouring countries sit under the home country so the home
+  // border and glow paint cleanly over the shared boundary.
+  if (advanced) drawNeighbors();
+
+  // Gradient anchors: fixed for the classic template, derived from the
+  // generated centre/radius in the advanced world.
+  const gcx = advanced ? WORLD.center.x : 720;
+  const gcy = advanced ? WORLD.center.y : 410;
+  const gr  = advanced ? WORLD.R0 * 1.45 : 370;
 
   // --- Terrain fill (clip to country border) ---
   ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(land[0][0], land[0][1]);
-  for (let i = 1; i < land.length; i++) ctx.lineTo(land[i][0], land[i][1]);
-  ctx.closePath();
+  tracePoly(land);
   ctx.clip();
 
   // Green terrain gradient - lit from upper-left
-  const tGrad = ctx.createRadialGradient(660, 330, 20, 740, 430, 370);
+  const tGrad = ctx.createRadialGradient(gcx - 60, gcy - 80, 20, gcx + 20, gcy + 20, gr);
   tGrad.addColorStop(0.0, '#234e38');   // bright highland green
   tGrad.addColorStop(0.3, '#1d4330');   // forest green
   tGrad.addColorStop(0.6, '#183a29');   // deeper forest
   tGrad.addColorStop(0.85,'#123021');   // shadowed valleys
   tGrad.addColorStop(1.0, '#0d2218');   // dark coast
   ctx.fillStyle = tGrad;
-  ctx.fillRect(350, 50, 800, 700);
+  ctx.fillRect(0, 0, 1200, 800);
 
   // Real topography: hillshade + hypsometric tint + contour lines,
   // pre-rendered from the same heightfield the LOS engine raycasts.
   if (TERRAIN_CANVAS) ctx.drawImage(TERRAIN_CANVAS, 0, 0);
 
   // Subtle coastal shading — darker strip near boundary
-  const coastGrad = ctx.createRadialGradient(720, 410, 240, 720, 410, 380);
+  const coastGrad = ctx.createRadialGradient(gcx, gcy, gr * 0.63, gcx, gcy, gr);
   coastGrad.addColorStop(0, 'rgba(0,0,0,0)');
   coastGrad.addColorStop(1, 'rgba(0,0,0,0.28)');
   ctx.fillStyle = coastGrad;
-  ctx.fillRect(350, 50, 800, 700);
+  ctx.fillRect(0, 0, 1200, 800);
+
+  // Inland lakes — inside the clip so their shores never cross the border
+  if (advanced) drawLakes();
 
   ctx.restore();
 
   // Outer glow border
-  ctx.beginPath();
-  ctx.moveTo(land[0][0], land[0][1]);
-  for (let i = 1; i < land.length; i++) ctx.lineTo(land[i][0], land[i][1]);
-  ctx.closePath();
+  tracePoly(land);
   ctx.strokeStyle = 'rgba(60, 140, 90, 0.14)';
   ctx.lineWidth = 7;
   ctx.stroke();
 
   // Main border
-  ctx.beginPath();
-  ctx.moveTo(land[0][0], land[0][1]);
-  for (let i = 1; i < land.length; i++) ctx.lineTo(land[i][0], land[i][1]);
-  ctx.closePath();
+  tracePoly(land);
   ctx.strokeStyle = 'rgba(70, 165, 115, 0.52)';
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Attack-challenge border highlight
+  // Attack-challenge origin highlight: classic — the home border glows red
+  // (launch is anywhere outside it); advanced — the valid hostile
+  // territories themselves glow.
   if (state.attackChallenge && state.placeStep === 'origin') {
-    ctx.beginPath();
-    ctx.moveTo(land[0][0], land[0][1]);
-    for (let i = 1; i < land.length; i++) ctx.lineTo(land[i][0], land[i][1]);
-    ctx.closePath();
     ctx.strokeStyle = 'rgba(220, 38, 38, 0.72)';
     ctx.setLineDash([6, 4]);
     ctx.lineWidth = 3;
-    ctx.stroke();
+    if (advanced) {
+      for (const nb of hostileNeighbors()) {
+        tracePoly(nb.poly);
+        ctx.stroke();
+      }
+    } else {
+      tracePoly(land);
+      ctx.stroke();
+    }
     ctx.setLineDash([]);
   }
 
   // Country name
+  const nameX = advanced ? WORLD.center.x : 720;
+  const nameY = advanced ? WORLD.center.y - WORLD.R0 * 0.52 : 162;
   ctx.fillStyle = 'rgba(160, 220, 180, 0.26)';
   ctx.font = 'bold 27px serif';
   ctx.textAlign = 'center';
-  ctx.fillText('Republic of Taliaria', 720, 162);
+  ctx.fillText('Republic of Taliaria', nameX, nameY);
   ctx.font = '10px monospace';
   ctx.fillStyle = 'rgba(110, 185, 140, 0.32)';
-  ctx.fillText('AIR DEFENSE COMMAND', 720, 176);
+  ctx.fillText('AIR DEFENSE COMMAND', nameX, nameY + 14);
 }
 
 // The terrain body itself is rendered by the hypsometric overlay
@@ -5464,7 +6023,10 @@ function startAttackChallenge(difficulty) {
   state.attackChallenge = true;
   state.challengeMode = 'attack-challenge';
   state.challengeDifficulty = difficulty;
-  regenerateMountains(difficulty);   // terrain complexity scales with difficulty
+  // Terrain complexity scales with difficulty; in the advanced world the
+  // hostile-front layout is difficulty-driven too, so regenerate it all.
+  if (WORLD.mode === 'advanced') regenerateGeography(difficulty);
+  else regenerateMountains(difficulty);
   state.threatBudget = { ...profile.threatBudget };
   state.objective = profile.objective;
   state.noIntel = !!profile.noIntel;
@@ -5474,7 +6036,10 @@ function startAttackChallenge(difficulty) {
   const numBatteries = profile.defenses.filter(d => CATALOG[d.key].kind === 'battery').length;
 
   for (const item of profile.defenses) {
-    const pos = resolveAnchor(item);
+    // Anchor offsets were tuned for the classic map; in the procedural
+    // world they can overshoot the border or land in a lake — pull back in.
+    const anchor = resolveAnchor(item);
+    const pos = clampInsideCountry(anchor.x, anchor.y);
     const ammo = calcAutoAmmo(item.key, total, numBatteries);
     state.defenses.push({
       id: nextId++, key: item.key, x: pos.x, y: pos.y,
@@ -5494,11 +6059,14 @@ function startAttackChallenge(difficulty) {
 
   const intelLine = state.noIntel
     ? `<span style="font-size:12px;font-weight:400;color:#ff7373"><b>🕶 ללא מודיעין:</b> פריסת ההגנה נסתרת — תיחשף רק כשתפעיל את הסימולציה. תקציב: ${total} איומים</span>`
-    : `<span style="font-size:12px;font-weight:400">תקציב: ${total} איומים | בחר סוג, לחץ מחוץ לגבולות, ואז על יעד</span>`;
+    : `<span style="font-size:12px;font-weight:400">תקציב: ${total} איומים | בחר סוג, לחץ ${WORLD.mode === 'advanced' ? 'בשטח מדינה עוינת' : 'מחוץ לגבולות'}, ואז על יעד</span>`;
+  const frontsLine = WORLD.mode === 'advanced'
+    ? `<br><span style="font-size:12px;font-weight:400;color:#ff9d9d">🚀 שגר מתוך: <b>${hostileNames()}</b></span>`
+    : '';
   showBanner(
     `🎯 <u>משימת התקפה - ${profile.label}</u>${state.noIntel ? ' 🕶' : ''}<br>` +
     `<span style="color:#fbbf24">תנאי ניצחון:</span> ${profile.objective.text}<br>` +
-    intelLine,
+    intelLine + frontsLine,
     ''
   );
   setStatus(`משימת התקפה ${profile.label}${state.noIntel ? ' (ללא מודיעין)' : ''} - בחר סוג איום מהתפריט`);
@@ -5545,10 +6113,12 @@ function generateAutoAttack() {
     if (i % 4 === 0) key = 'fighter';
     else if (i % 4 === 1) key = 'helicopter';
     else key = 'uav'; // saturation
-    // launch from west or north
+    // launch from hostile territory (classic: west or north edges)
     let sx, sy;
-    const fromNorth = Math.random() < 0.3;
-    if (fromNorth) {
+    if (WORLD.mode === 'advanced') {
+      const p = randomHostilePoint();
+      sx = p.x; sy = p.y;
+    } else if (Math.random() < 0.3) {
       sx = 200 + Math.random() * 600;
       sy = 20 + Math.random() * 40;
     } else {
@@ -5579,7 +6149,10 @@ function startDefenseChallenge(difficulty = 'medium') {
   resetAll();
   state.challengeMode = 'defense-challenge';
   state.challengeDifficulty = difficulty;
-  regenerateMountains(difficulty);   // terrain complexity scales with difficulty
+  // Terrain complexity scales with difficulty; in the advanced world the
+  // hostile-front layout is difficulty-driven too, so regenerate it all.
+  if (WORLD.mode === 'advanced') regenerateGeography(difficulty);
+  else regenerateMountains(difficulty);
   const profile = DEFENSE_DIFFICULTY[difficulty];
   if (!profile) return;
   state.objective = profile.objective;
@@ -5594,9 +6167,16 @@ function startDefenseChallenge(difficulty = 'medium') {
     else if (r < 0.4) key = 'helicopter';
     else key = 'uav';
     const tgt = TARGETS[Math.floor(Math.random() * TARGETS.length)];
-    // Spawn only from inside the red zone (x ∈ [10, 370], y ∈ [10, 790])
-    const sx = 10 + Math.random() * 360;
-    const sy = 10 + Math.random() * 780;
+    // Spawn from hostile territory: classic — the western red strip;
+    // advanced — anywhere inside either hostile neighbour.
+    let sx, sy;
+    if (WORLD.mode === 'advanced') {
+      const p = randomHostilePoint();
+      sx = p.x; sy = p.y;
+    } else {
+      sx = 10 + Math.random() * 360;
+      sy = 10 + Math.random() * 780;
+    }
     state.threats.push(makeThreat(
       key, sx, sy,
       tgt.x + (Math.random() - 0.5) * 30,
@@ -5619,10 +6199,13 @@ function startDefenseChallenge(difficulty = 'medium') {
   const intelLine = state.noIntel
     ? `<span style="font-size:12px;font-weight:400;color:#ff7373"><b>🕶 ללא מודיעין:</b> נתיבי האיומים יחשפו רק עם תחילת הסימולציה — תכנן הגנה רב-שכבתית!</span>`
     : `<span style="font-size:12px;font-weight:400">איומים מתקרבים: ${attackSize} | פרוס במסגרת התקציב</span>`;
+  const frontsLine = WORLD.mode === 'advanced'
+    ? `<br><span style="font-size:12px;font-weight:400;color:#ff9d9d">⚔ חזיתות אויב: <b>${hostileNames()}</b></span>`
+    : '';
   showBanner(
     `🛡 <u>משימת הגנה - ${profile.label}</u>${state.noIntel ? ' 🕶' : ''}<br>` +
     `<span style="color:#fbbf24">תנאי ניצחון:</span> ${profile.objective.text}<br>` +
-    intelLine,
+    intelLine + frontsLine,
     ''
   );
   renderBudget();
