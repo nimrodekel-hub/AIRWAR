@@ -327,7 +327,8 @@ function clampInsideCountry(x, y) {
     const ny = y + (c.y - y) * f;
     if (isInsideCountry(nx, ny)) return { x: nx, y: ny };
   }
-  return { x: c.x, y: c.y };
+  // The centre itself can sit inside a lake — fall back to any valid spot
+  return randomPointInCountry(10);
 }
 
 // Builds the full advanced world: home blob, 4 neighbours (2 hostile),
@@ -1115,9 +1116,52 @@ const DEFENSE_DIFFICULTY = {
   }
 };
 
+// ---- Advanced-world balance ----
+// Defending two fronts needs more systems than defending one western
+// axis, so the advanced defense challenge gets a budget supplement —
+// a minimal second-front kit, deliberately less than double, so the
+// mission stays harder than classic even with the extra hardware.
+const ADVANCED_DEFENSE_EXTRA = {
+  easy:    { ironDome: 1, sa8: 1, barak8: 1, patriot: 1, medRadar: 1, shortRadar: 1 },
+  medium:  { ironDome: 1, sa8: 1, barak8: 1, medRadar: 1, shortRadar: 1 },
+  hard:    { ironDome: 1, sa8: 1, medRadar: 1 },
+  extreme: { ironDome: 1, sa8: 1, medRadar: 1 }
+};
+
+// Attacking from two directions splits the auto-defense that was tuned
+// for a single axis — compensate with extra units posted toward each
+// hostile front so the advanced attack challenge stays challenging.
+const ADVANCED_ATTACK_EXTRA = {
+  easy:    [ { key: 'sa8', anchor: 'front0' }, { key: 'shortRadar', anchor: 'front0' } ],
+  medium:  [ { key: 'ironDome', anchor: 'front0' }, { key: 'sa8', anchor: 'front1' },
+             { key: 'shortRadar', anchor: 'front1' } ],
+  hard:    [ { key: 'sa8', anchor: 'front0' }, { key: 'barak8', anchor: 'front1' },
+             { key: 'medRadar', anchor: 'front0' } ],
+  extreme: [ { key: 'sa8', anchor: 'front0' }, { key: 'barak8', anchor: 'front1' },
+             { key: 'medRadar', anchor: 'front0' } ]
+};
+
+// Missions in the advanced world pay more XP for the same score.
+const ADVANCED_XP_FACTOR = 1.25;
+
 function resolveAnchor(item) {
   const dx = item.dx || 0, dy = item.dy || 0;
   if (item.anchor === 'center') {
+    const c = getCountryCenter();
+    return { x: c.x + dx, y: c.y + dy };
+  }
+  // 'front0' / 'front1' — a forward position facing the n-th hostile
+  // front (advanced world), ~60% of the way from centre to border.
+  if (item.anchor && item.anchor.startsWith('front')) {
+    const hs = hostileNeighbors();
+    const nb = hs[parseInt(item.anchor.slice(5), 10)] || hs[0];
+    if (nb) {
+      const p = clampInsideCountry(
+        WORLD.center.x + Math.cos(nb.arcMid) * WORLD.R0 * 0.6 + dx,
+        WORLD.center.y + Math.sin(nb.arcMid) * WORLD.R0 * 0.6 + dy
+      );
+      return p;
+    }
     const c = getCountryCenter();
     return { x: c.x + dx, y: c.y + dy };
   }
@@ -1314,7 +1358,10 @@ function awardMission(score) {
   const xpMax = XP_MAX_BY_DIFF[diff] || 35;
   const won = !!(state.results && state.results.objectiveMet);
   const qualityFactor = Math.pow(score / 100, 1.4);
-  const xpGain = Math.round(xpMax * qualityFactor);
+  // Advanced-world missions are inherently harder (two hostile fronts /
+  // reinforced auto-defense) and pay 25% more XP for the same score.
+  const worldFactor = WORLD.mode === 'advanced' ? ADVANCED_XP_FACTOR : 1;
+  const xpGain = Math.round(xpMax * qualityFactor * worldFactor);
 
   const oldRank = rankForXp(profile.xp);
   profile.xp += xpGain;
@@ -2109,6 +2156,7 @@ const TUTORIAL_STEPS = [
         <li>🌊 <b>ימים גובלים</b>: חלק מהיקף המדינה הוא קו חוף פתוח — משם לא מגיעות התקפות.</li>
         <li>💧 <b>אגמים פנימיים</b>: עד 2 אגמים בתוך המדינה. אי אפשר להציב עליהם סוללות או מכ"מים — אבל איומים חולפים מעליהם באין מפריע.</li>
         <li>🎲 פריסת החזיתות תלויה בקושי: ב<b>קל</b> שתי העוינות צמודות (חזית רחבה אחת); ב<b>קשה ובקשה-במיוחד</b> הן בצדדים מנוגדים — מלחמה דו-חזיתית אמיתית שמפצלת את ההגנה שלך.</li>
+        <li>⚖ <b>איזון</b>: בהגנה תקבל <b>תקציב מוגדל</b> (ערכת חזית-שנייה מינימלית — עדיין קשה יותר מיסודות); בהתקפה ההגנה האוטומטית <b>מתוגברת ביחידות שמוצבות מול כל חזית עוינת</b>. ובשני המצבים — <b>XP ×1.25</b> על אותו ציון.</li>
       </ul>
       <div class="tutorial-figure">
         <svg viewBox="0 0 460 220" xmlns="http://www.w3.org/2000/svg">
@@ -2577,8 +2625,9 @@ const TUTORIAL_STEPS = [
         <tr><td><b>קשה</b></td><td>100 XP</td></tr>
         <tr><td><b>🕶 קשה במיוחד</b></td><td>200 XP</td></tr>
       </table>
-      <p>הנוסחה: <code style="background:#0f1420;padding:2px 5px;border-radius:3px;color:#5fa86b">XP = XP_מקסימלי × (ציון÷100)^1.4</code></p>
+      <p>הנוסחה: <code style="background:#0f1420;padding:2px 5px;border-radius:3px;color:#5fa86b">XP = XP_מקסימלי × (ציון÷100)^1.4 × מקדם_עולם</code></p>
       <p>החזקה 1.4 על הציון מענישה ביצוע חלקי — ציון 50 מניב רק ~36% מה-XP המקסימלי, לא 50%.</p>
+      <p>🌍 <b>בונוס משחק מתקדם — מקדם_עולם = ×1.25</b>: משימות בעולם המתקדם קשות יותר מטבען (שתי חזיתות אויב בהגנה, הגנה אוטומטית מתוגברת בהתקפה) ולכן משלמות 25% יותר XP על אותו ציון. במשחק יסודות המקדם הוא ×1.</p>
 
       <h4>🎖 דרגות צבאיות (15 שלבים)</h4>
       <p>ה-XP המצטבר קובע את הדרגה. <b>קידום ראשון דורש 200 XP</b> — ניצחון מושלם אחד בקשה, או כמה משחקים טובים. הסולם מתלקח מהר — דרגת רמטכ"ל מצריכה מאות ניצחונות בקשה במיוחד.</p>
@@ -5553,16 +5602,18 @@ function showResultsModal() {
     // Per-difficulty headline cap so the player can immediately tell how
     // much room there is to grow at this difficulty (e.g. "12 / 35" on
     // a medium mission makes it obvious that medium tops out at 35).
-    const diffCap = XP_MAX_BY_DIFF[state.challengeDifficulty] || 35;
+    const worldFactor = WORLD.mode === 'advanced' ? ADVANCED_XP_FACTOR : 1;
+    const diffCap = Math.round((XP_MAX_BY_DIFF[state.challengeDifficulty] || 35) * worldFactor);
     const diffLabel = {
       easy: 'קל', medium: 'בינוני', hard: 'קשה', extreme: 'קשה במיוחד'
     }[state.challengeDifficulty] || '';
+    const advLabel = WORLD.mode === 'advanced' ? ' 🌍 (מתקדם ×1.25)' : '';
     awardHtml = `
       <div class="award-block">
         <div class="award-score">
           <div class="award-score-num">+${a.xp}</div>
           <div class="award-score-label">נקודות (XP) במשימה</div>
-          <div class="award-score-sub">תקרה ל${diffLabel}: ${diffCap} • איכות ביצוע: ${a.score}/100</div>
+          <div class="award-score-sub">תקרה ל${diffLabel}${advLabel}: ${diffCap} • איכות ביצוע: ${a.score}/100</div>
           ${a.isNewBest ? '<div class="award-newbest">🏅 שיא אישי חדש!</div>'
                         : `<div class="award-prevbest">שיא אישי לרמה זו: +${a.best} XP</div>`}
         </div>
@@ -6140,9 +6191,16 @@ function startAttackChallenge(difficulty) {
   state.intelRevealed = !state.noIntel;
 
   const total = profile.threatBudget.uav + profile.threatBudget.fighter + profile.threatBudget.helicopter;
-  const numBatteries = profile.defenses.filter(d => CATALOG[d.key].kind === 'battery').length;
 
-  for (const item of profile.defenses) {
+  // Advanced world: post extra defense units toward each hostile front —
+  // a multi-directional attack must not be cheaper than the classic axis.
+  let missionDefenses = profile.defenses;
+  if (WORLD.mode === 'advanced') {
+    missionDefenses = profile.defenses.concat(ADVANCED_ATTACK_EXTRA[difficulty] || []);
+  }
+  const numBatteries = missionDefenses.filter(d => CATALOG[d.key].kind === 'battery').length;
+
+  for (const item of missionDefenses) {
     // Anchor offsets were tuned for the classic map; in the procedural
     // world they can overshoot the border or land in a lake — pull back in.
     const anchor = resolveAnchor(item);
@@ -6292,12 +6350,20 @@ function startDefenseChallenge(difficulty = 'medium') {
     ));
   }
 
+  // Advanced world: supplement the budget for the second front
+  let missionBudget = profile.budget;
+  if (WORLD.mode === 'advanced') {
+    const extra = ADVANCED_DEFENSE_EXTRA[difficulty] || {};
+    missionBudget = { ...profile.budget };
+    for (const k in extra) missionBudget[k] = (missionBudget[k] || 0) + extra[k];
+  }
+
   let numBudgetBatteries = 0;
-  for (const k of BATTERY_KEYS) numBudgetBatteries += (profile.budget[k] || 0);
+  for (const k of BATTERY_KEYS) numBudgetBatteries += (missionBudget[k] || 0);
   state.autoAmmo = {};
   for (const k of BATTERY_KEYS) state.autoAmmo[k] = calcAutoAmmo(k, attackSize, numBudgetBatteries);
 
-  state.budget = profile.budget;
+  state.budget = missionBudget;
   switchSide('blue');
   const statusMsg = state.noIntel
     ? `משימת הגנה ${profile.label} (ללא מודיעין) - תכנן הגנה רב-שכבתית`
