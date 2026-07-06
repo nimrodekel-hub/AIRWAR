@@ -7,8 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20260706c">
-  <link rel="stylesheet" href="mobile.css?v=20260706c">
+  <link rel="stylesheet" href="styles.css?v=20260706d">
+  <link rel="stylesheet" href="mobile.css?v=20260706d">
 </head>
 <body class="mobile">
   <div id="app">
@@ -18,6 +18,7 @@
          ═══════════════════════════════════════════════════════ -->
     <main id="map-container">
       <canvas id="map"></canvas>
+      <button id="map-new-game" class="map-new-game-btn">🆕 משחק חדש</button>
       <div id="tooltip"></div>
 
       <!-- Mission banner + step guide -->
@@ -243,18 +244,30 @@
   <div id="start-modal" class="modal">
     <div class="modal-content start-content">
       <div class="modal-header start-modal-header">
-        <span class="start-modal-version">v20260706c</span>
+        <span class="start-modal-version">v20260706d</span>
         <h2>🎯 ברוך הבא לסימולטור הגנה אווירית</h2>
+        <button id="start-close" aria-label="סגור">×</button>
       </div>
       <div id="start-body">
         <div id="profile-strip"></div>
         <div id="leaderboard"></div>
-        <p class="start-intro">איזה משחק תרצה לשחק?<br>בחר סוג משחק, מצב ורמת קושי כדי להתחיל.</p>
+        <p class="start-intro">שלב 1: בחר מסלול משחק • שלב 2: בחר משימה ורמת קושי</p>
         <div class="worldmode-row">
-          <button class="worldmode-btn active" data-worldmode="classic">🧭 משחק יסודות<span>חזית אחת ממערב — המפה הקלאסית</span></button>
-          <button class="worldmode-btn" data-worldmode="advanced">🌍 משחק מתקדם<span>מפה אקראית: 4 שכנות, 2 חזיתות אויב, ימים ואגמים</span></button>
+          <button class="worldmode-btn wm-classic active" data-worldmode="classic">
+            <span class="wm-icon">🧭</span>
+            <span class="wm-name">משחק יסודות</span>
+            <span class="wm-desc">חזית אחת ממערב — המפה הקלאסית</span>
+            <span class="wm-check">✓ המסלול הנבחר</span>
+          </button>
+          <button class="worldmode-btn wm-advanced" data-worldmode="advanced">
+            <span class="wm-icon">🌍</span>
+            <span class="wm-name">משחק מתקדם</span>
+            <span class="wm-desc">מפה אקראית • 2 חזיתות אויב • XP ×1.25</span>
+            <span class="wm-check">✓ המסלול הנבחר</span>
+          </button>
         </div>
-        <div class="start-grid">
+        <div id="track-indicator" class="track-indicator cls"></div>
+        <div class="start-grid" id="start-grid">
           <div class="start-section defense">
             <div class="start-section-title">🛡 משחק הגנה</div>
             <div class="start-section-sub">אתה המגן - פרוס סוללות נגד גלי איומים אוויריים</div>
@@ -304,7 +317,7 @@
 
   <!-- Force mobile mode before app.js initialises -->
   <script>window.MOBILE_MODE = true;</script>
-  <script src="app.js?v=20260706c"></script>
+  <script src="app.js?v=20260706d"></script>
   <script>
     // Wire up the sheet close button (app.js only wires #mobile-menu-toggle and #mobile-backdrop)
     document.getElementById('sheet-close').addEventListener('click', function () {

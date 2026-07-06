@@ -1977,6 +1977,18 @@ function bindControls() {
   });
   syncWorldModeButtons();
 
+  // Start modal can be dismissed without losing an active game —
+  // starting a mission is what resets, not opening the picker.
+  const startClose = document.getElementById('start-close');
+  if (startClose) startClose.addEventListener('click', hideStartModal);
+  document.getElementById('start-modal').addEventListener('click', (ev) => {
+    if (ev.target.id === 'start-modal') hideStartModal();
+  });
+
+  // Always-visible floating "new game" button on the map
+  const mapNewGame = document.getElementById('map-new-game');
+  if (mapNewGame) mapNewGame.addEventListener('click', showStartModal);
+
   // Show the mode-selection modal as the entry point on every load
   setTimeout(showStartModal, 200);
 }
@@ -2000,8 +2012,22 @@ function setWorldMode(mode) {
 }
 
 function syncWorldModeButtons() {
+  const adv = WORLD.mode === 'advanced';
   document.querySelectorAll('.worldmode-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.worldmode === WORLD.mode));
+  // Colour-code the mission grid to the selected track
+  const grid = document.getElementById('start-grid');
+  if (grid) {
+    grid.classList.toggle('track-classic', !adv);
+    grid.classList.toggle('track-advanced', adv);
+  }
+  const ind = document.getElementById('track-indicator');
+  if (ind) {
+    ind.className = 'track-indicator ' + (adv ? 'adv' : 'cls');
+    ind.innerHTML = adv
+      ? '🌍 המסלול הנבחר: <b>משחק מתקדם</b> — עכשיו בחר משימה ורמת קושי ↓'
+      : '🧭 המסלול הנבחר: <b>משחק יסודות</b> — עכשיו בחר משימה ורמת קושי ↓';
+  }
 }
 
 // Player rank / XP summary at the top of the start modal.
@@ -2140,6 +2166,7 @@ const TUTORIAL_STEPS = [
       <p>שני המצבים תומכים ב<b>ארבע רמות קושי</b> (קל / בינוני / קשה / 🕶 קשה במיוחד) שמשפיעות על מספר האיומים, פיזור הסוללות, והיעדים.</p>
       <div class="tip" style="background:rgba(88,28,135,0.18);border-color:rgba(168,85,247,0.55);color:#e9d5ff">🕶 <b>קשה במיוחד — מתאר ללא מודיעין</b>: רמת קושי חדשה שמדמה תכנון ללא מודיעין מקדים. בהגנה — לא תראה את האיומים המתקרבים בזמן הפריסה. בהתקפה — לא תראה את פריסת ההגנה בזמן תכנון הנתיבים. הצד הנגדי נחשף רק כשלוחצים ▶ ומתחילה הסימולציה.</div>
       <div class="tip">💡 <b>טיפ:</b> בכל פעם שתאפס את המפה - גבולות המדינה ומיקומי היעדים האסטרטגיים יוגרלו מחדש, כך שכל משחק הוא אתגר חדש.</div>
+      <div class="tip">🆕 <b>משחק חדש בכל שלב:</b> כפתור "משחק חדש" צף בפינת המפה תמיד — לחיצה פותחת את מסך בחירת המשחק. סגירת המסך (✕) מחזירה אותך למשחק הנוכחי בלי לאבד כלום; רק בחירת משימה חדשה מאפסת.</div>
     `
   },
   {
