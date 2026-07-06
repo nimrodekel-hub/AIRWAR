@@ -761,6 +761,12 @@ function regenerateMountains(difficulty) {
   buildTerrainGrid();
   buildTerrainOverlay();
 
+  // Capitals and airbases are built on plains, not on mountainsides —
+  // if the freshly baked terrain put one on high ground, move it to
+  // the nearest low spot. (Terrain is generated after the targets, so
+  // this fixup runs on every map in both game types.)
+  relocateTargetsOffMountains();
+
   // Locate each ridge's true summit (max of the combined field along
   // the ridge line) for the elevation labels.
   PEAK_LABELS.length = 0;
@@ -774,6 +780,40 @@ function regenerateMountains(difficulty) {
       if (alt > best.alt) best = { x, y, alt };
     }
     PEAK_LABELS.push(best);
+  }
+}
+
+// A city can sit on a low hill, but the capital and the airbase must
+// never end up on a mountain. Searches outward in growing rings for
+// the nearest flat ground that stays inside the country, off lakes,
+// and keeps spacing from the other strategic targets.
+const TARGET_MAX_ALT = 0.5;   // km — anything above this reads as a mountain
+function relocateTargetsOffMountains() {
+  for (const t of TARGETS) {
+    if (!t.capital && !t.airbase) continue;
+    if (getTerrainAlt(t.x, t.y) <= TARGET_MAX_ALT) continue;
+    let found = false;
+    for (let r = 30; r <= 330 && !found; r += 30) {
+      const startK = Math.floor(Math.random() * 16);
+      for (let k = 0; k < 16; k++) {
+        const a = (startK + k) / 16 * Math.PI * 2;
+        const x = t.x + Math.cos(a) * r;
+        const y = t.y + Math.sin(a) * r;
+        if (!isInsideCountry(x, y)) continue;
+        // accept slightly below the limit so integer rounding of the
+        // final coordinates can't drift the spot back over it
+        if (getTerrainAlt(x, y) > TARGET_MAX_ALT * 0.85) continue;
+        let tooClose = false;
+        for (const o of TARGETS) {
+          if (o !== t && Math.hypot(o.x - x, o.y - y) < 100) { tooClose = true; break; }
+        }
+        if (tooClose) continue;
+        t.x = Math.round(x);
+        t.y = Math.round(y);
+        found = true;
+        break;
+      }
+    }
   }
 }
 
@@ -2105,6 +2145,7 @@ const TUTORIAL_STEPS = [
         <li>🏛 <b>Plaion</b> - עיר (ערך 2)</li>
       </ul>
       <p>היעדים מסומנים עם <b>הילה צהובה בולטת</b> כדי שיהיה קל לראות אותם גם מתחת לסוללות.</p>
+      <p>🏔 <b>הבירה ובסיס חיל האוויר ממוקמים תמיד בשטח מישורי</b> — לעולם לא על הר (ערים אחרות עשויות לשבת על גבעות נמוכות).</p>
       <h4>⛰ טופוגרפיה אמיתית — שדה גבהים מצויר ומחושב</h4>
       <p>המפה מציגה <b>טופוגרפיה אמיתית</b>: רשת גבהים נאפית בכל יצירת מפה, ושני דברים נגזרים ממנה <u>מאותו מקור</u> — הוויזואל וההיגיון של המשחק. מה שאתה רואה הוא בדיוק מה שהמשחק מחשב.</p>
       <ul>
