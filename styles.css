@@ -1777,45 +1777,121 @@ html, body {
   margin-bottom: 16px;
 }
 
-/* Game-type selector (classic basics / advanced procedural world) */
+/* ── Game-type selector: two colour-coded track cards ──
+   classic (יסודות) = cyan, advanced (מתקדם) = amber. The active track's
+   colour carries down to the indicator strip and the mission grid so
+   the hierarchy (track → mission → difficulty) reads at a glance. */
 .worldmode-row {
   display: flex;
   gap: 10px;
-  margin-bottom: 14px;
+  margin-bottom: 8px;
 }
 
 .worldmode-btn {
   flex: 1;
-  padding: 10px 12px;
-  background: rgba(8,12,22,0.8);
-  border: 1px solid rgba(42,53,80,0.9);
-  border-radius: 6px;
-  color: #8fa3c4;
+  padding: 10px 12px 8px;
+  background: rgba(8,12,22,0.85);
+  border: 2px solid rgba(42,53,80,0.75);
+  border-radius: 8px;
+  color: #7788a6;
   cursor: pointer;
   font-family: 'Rajdhani', sans-serif;
-  font-size: 16px;
-  font-weight: 700;
-  transition: border-color .15s, background .15s, box-shadow .15s;
+  text-align: center;
+  opacity: 0.75;
+  transition: border-color .15s, background .15s, box-shadow .15s, opacity .15s;
 }
 
-.worldmode-btn span {
+.worldmode-btn .wm-icon  { display: block; font-size: 22px; line-height: 1.1; }
+.worldmode-btn .wm-name  { display: block; font-size: 17px; font-weight: 700; margin-top: 2px; }
+.worldmode-btn .wm-desc  { display: block; font-size: 11px; font-weight: 500; color: #6b7a96; margin-top: 2px; }
+.worldmode-btn .wm-check {
   display: block;
   font-size: 11px;
-  font-weight: 500;
-  color: #6b7a96;
-  margin-top: 3px;
+  font-weight: 700;
+  margin-top: 5px;
+  visibility: hidden;
 }
 
-.worldmode-btn:hover { border-color: #4a6b9c; }
+.worldmode-btn:hover { opacity: 1; }
 
-.worldmode-btn.active {
-  border-color: #5fa8d3;
-  color: #e8f1fb;
-  background: rgba(26,39,64,0.9);
-  box-shadow: 0 0 12px rgba(95,168,211,0.22);
+.worldmode-btn.active { opacity: 1; }
+.worldmode-btn.active .wm-check { visibility: visible; }
+
+.worldmode-btn.wm-classic.active {
+  border-color: #38bdf8;
+  background: rgba(14,42,64,0.9);
+  box-shadow: 0 0 14px rgba(56,189,248,0.28);
+  color: #d9f0fc;
+}
+.worldmode-btn.wm-classic.active .wm-check { color: #38bdf8; }
+.worldmode-btn.wm-classic.active .wm-desc  { color: #8ecbe8; }
+
+.worldmode-btn.wm-advanced.active {
+  border-color: #fbbf24;
+  background: rgba(56,42,10,0.85);
+  box-shadow: 0 0 14px rgba(251,191,36,0.26);
+  color: #fdf1d2;
+}
+.worldmode-btn.wm-advanced.active .wm-check { color: #fbbf24; }
+.worldmode-btn.wm-advanced.active .wm-desc  { color: #e0c37a; }
+
+/* Indicator strip: bridges the selected track to the mission grid */
+.track-indicator {
+  text-align: center;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 13px;
+  padding: 5px 10px;
+  border-radius: 5px;
+  margin-bottom: 8px;
+}
+.track-indicator.cls {
+  color: #8ecbe8;
+  background: rgba(56,189,248,0.09);
+  border: 1px solid rgba(56,189,248,0.35);
+}
+.track-indicator.adv {
+  color: #e8cd8a;
+  background: rgba(251,191,36,0.08);
+  border: 1px solid rgba(251,191,36,0.35);
 }
 
-.worldmode-btn.active span { color: #9db4d4; }
+/* The mission grid inherits the track colour on its frame */
+.start-grid.track-classic  { border: 1px solid rgba(56,189,248,0.3);  border-radius: 8px; padding: 8px; }
+.start-grid.track-advanced { border: 1px solid rgba(251,191,36,0.3); border-radius: 8px; padding: 8px; }
+
+/* Start-modal close (keeps the current game) */
+#start-close {
+  background: none;
+  border: none;
+  color: #8fa3c4;
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 6px;
+}
+#start-close:hover { color: #e8f1fb; }
+
+/* Always-visible floating new-game button on the map */
+.map-new-game-btn {
+  position: absolute;
+  top: 64px;             /* below the TACSIT status box */
+  right: 12px;
+  z-index: 40;
+  background: linear-gradient(180deg, #1c2c4a, #142138);
+  border: 1px solid #5fa8d3;
+  color: #d6e0f0;
+  padding: 7px 14px;
+  border-radius: 6px;
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.45);
+}
+.map-new-game-btn:hover {
+  border-color: #8fc7e8;
+  background: linear-gradient(180deg, #223760, #1a2c4c);
+}
 
 .start-grid {
   display: grid;

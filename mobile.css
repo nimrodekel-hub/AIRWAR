@@ -525,10 +525,18 @@ body.mobile #start-modal .start-modal-header {
   position: relative;
 }
 
+body.mobile #start-modal #start-close {
+  position: absolute;
+  top: 50%;
+  left: 6px;
+  transform: translateY(-50%);
+  z-index: 2;
+}
+
 body.mobile #start-modal .start-modal-version {
   position: absolute;
   top: 50%;
-  left: 10px;
+  left: 42px;   /* clear of the close button */
   transform: translateY(-50%);
   padding: 3px 8px;
   background: rgba(8, 14, 22, 0.85);
