@@ -528,9 +528,26 @@ function distToHostileBorder(x, y) {
   return best;
 }
 
+// Distance from a point to the home-country border itself (any
+// neighbour or coastline). The probe-cross checks miss diagonal
+// crinkles of the fractal border, so measure the real distance.
+function distToHomeBorder(x, y) {
+  let best = Infinity;
+  for (let i = 0; i < LAND_POLYGON.length; i++) {
+    const [x1, y1] = LAND_POLYGON[i];
+    const [x2, y2] = LAND_POLYGON[(i + 1) % LAND_POLYGON.length];
+    const d = distToSegment(x, y, x1, y1, x2, y2);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
 // Minimum strategic depth: targets must sit this far (km) from any
-// hostile border so the defense has room to engage incoming threats.
+// hostile border so the defense has room to engage incoming threats,
+// and this far from ANY border (neutral/coast) so cities don't hug
+// the frontier visually.
 const TARGET_HOSTILE_STANDOFF = 115;
+const TARGET_BORDER_MARGIN = 50;
 
 // Procedural strategic-target placement for the advanced world:
 // capital near the centre, the rest spread with minimum spacing,
@@ -551,8 +568,9 @@ function regenerateTargetsAdvanced() {
         x = p.x; y = p.y;
       }
       if (!isInsideCountry(x, y)) continue;
-      if (!(isInsideCountry(x + 40, y) && isInsideCountry(x - 40, y) &&
-            isInsideCountry(x, y + 40) && isInsideCountry(x, y - 40))) continue;
+      // True distance from every border — the fractal coastline can cut
+      // diagonally between probe points, so measure, don't probe.
+      if (distToHomeBorder(x, y) < TARGET_BORDER_MARGIN) continue;
       // Strategic depth from hostile frontiers; if the country shape
       // leaves too little room, progressively relax rather than fail.
       const standoff = i < 200 ? TARGET_HOSTILE_STANDOFF : (i < 320 ? 90 : 65);
@@ -571,11 +589,12 @@ function regenerateTargetsAdvanced() {
     }
     if (!placed) {
       // Last resort: of 50 random candidates, take the one deepest
-      // from the hostile borders (maximin) rather than a blind pick.
+      // from the borders (hostile depth weighted double) rather than
+      // a blind pick.
       let best = null, bestDepth = -1;
       for (let i = 0; i < 50; i++) {
         const p = randomPointInCountry(20);
-        const depth = distToHostileBorder(p.x, p.y);
+        const depth = Math.min(distToHostileBorder(p.x, p.y), 2 * distToHomeBorder(p.x, p.y));
         if (depth > bestDepth) { bestDepth = depth; best = p; }
       }
       placed = {
@@ -840,6 +859,8 @@ function relocateTargetsOffMountains() {
           const x = t.x + Math.cos(a) * r;
           const y = t.y + Math.sin(a) * r;
           if (!isInsideCountry(x, y)) continue;
+          // never park a relocated capital/airbase on the border
+          if (distToHomeBorder(x, y) < 45) continue;
           // accept slightly below the limit so integer rounding of the
           // final coordinates can't drift the spot back over it
           if (getTerrainAlt(x, y) > TARGET_MAX_ALT * 0.85) continue;
@@ -856,6 +877,28 @@ function relocateTargetsOffMountains() {
         }
       }
       if (found) break;
+    }
+    if (!found) {
+      // Global fallback: the ring search can fail on heavily mountainous
+      // maps once border margins are enforced. Scan the whole country
+      // for any flat spot, preferring the deepest one available —
+      // off-the-mountain is guaranteed if a flat spot exists at all.
+      let best = null, bestScore = -1;
+      for (let i = 0; i < 400; i++) {
+        const p = randomPointInCountry(10);
+        if (getTerrainAlt(p.x, p.y) > TARGET_MAX_ALT * 0.85) continue;
+        let tooClose = false;
+        for (const o of TARGETS) {
+          if (o !== t && Math.hypot(o.x - p.x, o.y - p.y) < 85) { tooClose = true; break; }
+        }
+        if (tooClose) continue;
+        const score = Math.min(distToHostileBorder(p.x, p.y), 2.5 * distToHomeBorder(p.x, p.y));
+        if (score > bestScore) { bestScore = score; best = p; }
+      }
+      if (best) {
+        t.x = Math.round(best.x);
+        t.y = Math.round(best.y);
+      }
     }
   }
 }
