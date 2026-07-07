@@ -217,14 +217,34 @@ body.mobile #sidebar.open {
 
 .sheet-header h1 {
   flex: 1;
+  min-width: 0;
   font-family: 'Rajdhani', sans-serif;
   font-size: 13px;
   font-weight: 700;
   color: #5fc8e8;
   letter-spacing: 1.5px;
   text-transform: uppercase;
-  white-space: nowrap;
+  /* wraps to a second line when the version chip needs the room,
+     instead of pushing the header buttons off-screen */
+  line-height: 1.5;
   text-shadow: 0 0 12px rgba(95,200,232,0.3);
+}
+
+/* Build-version chip inside the sheet title — always reachable via ☰,
+   without cluttering the map itself */
+.sheet-version {
+  font-family: 'Share Tech Mono', 'Courier New', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #fbbf24;
+  background: rgba(8, 14, 22, 0.85);
+  border: 1px solid rgba(251,191,36,0.55);
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin-right: 6px;
+  text-shadow: none;
+  vertical-align: middle;
 }
 
 .sheet-header-btns {
