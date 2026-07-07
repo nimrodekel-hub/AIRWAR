@@ -1331,6 +1331,7 @@ const state = {
   placeKey: null,
   placeStep: null,        // null | 'origin' | 'target'  (attack challenge 3-click flow)
   placeOrigin: null,      // {x, y} captured between origin click and target click
+  duel: null,             // PvP duel context: {stage:'create'|'attack'|'review', seed, difficulty, worldMode, ...}
   attackChallenge: false, // true when system-deployed defense + limited threat budget
   challengeDifficulty: null,
   noIntel: false,         // true on the "extreme" difficulty: hide the opposing side's deployment
@@ -1994,6 +1995,367 @@ function closeMobileSidebar() {
   toggleMobileSidebar(false);
 }
 
+// =============================================================
+// ⚔ דו-קרב (PvP) — level 1: link-exchange duel, no backend.
+// Defender deploys → challenge link → attacker plays it blind →
+// result link → defender reviews the official outcome.
+// The world is rebuilt identically on both machines from a shared
+// seed (Math.random is swapped for a seeded PRNG during generation).
+// =============================================================
+
+function mulberry32(seed) {
+  return function () {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+// Run fn with deterministic Math.random — generation code stays untouched
+function withSeed(seed, fn) {
+  const orig = Math.random;
+  Math.random = mulberry32(seed);
+  try { return fn(); } finally { Math.random = orig; }
+}
+
+const DUEL_UNIT_KEYS = [...BATTERY_KEYS, ...RADAR_KEYS];
+
+function encodeDuel(obj) {
+  const json = JSON.stringify(obj);
+  return btoa(unescape(encodeURIComponent(json)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function decodeDuel(str) {
+  const b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  return JSON.parse(decodeURIComponent(escape(atob(b64))));
+}
+
+// Small string hash — used to award duel XP only once per result link
+function duelHash(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36);
+}
+
+// Both duel scores from one battle summary (attacker formula + defender formula)
+function duelScores(r) {
+  const damageRatio = 1 - r.protectedValue / r.totalValue;
+  const breachRatio = r.total ? r.survived / r.total : 0;
+  const atk = Math.round(Math.max(0, Math.min(100,
+    70 * Math.pow(damageRatio, 1.8) + 30 * Math.pow(breachRatio, 1.5))));
+  const protectedRatio = r.protectedValue / r.totalValue;
+  const killRatio = r.total ? r.killed / r.total : 0;
+  const def = Math.round(Math.max(0, Math.min(100,
+    80 * Math.pow(protectedRatio, 1.8) + 20 * Math.pow(killRatio, 1.5))));
+  return { atk, def };
+}
+
+function setSimulateLabel(duelCreate) {
+  const btn = document.getElementById('simulate');
+  if (!btn) return;
+  btn.innerHTML = duelCreate
+    ? (window.MOBILE_MODE
+        ? '<span class="icn">🔗</span><span class="lbl">צור קישור</span>'
+        : '🔗 צור קישור אתגר')
+    : (window.MOBILE_MODE
+        ? '<span class="icn">▶</span><span class="lbl">הפעל</span>'
+        : '▶ הפעל סימולציה');
+}
+
+// ── Stage 1: the defender creates a challenge ──
+function startDuelCreate(difficulty) {
+  resetAll();
+  const seed = (Math.random() * 0xFFFFFFFF) >>> 0;
+  withSeed(seed, () => regenerateGeography(difficulty));
+  resetView();
+
+  state.duel = { stage: 'create', seed, difficulty, worldMode: WORLD.mode };
+  state.challengeMode = 'defense-challenge';   // reuse deployment UI/rules
+  state.challengeDifficulty = difficulty;
+  const profile = DEFENSE_DIFFICULTY[difficulty];
+
+  let missionBudget = profile.budget;
+  if (WORLD.mode === 'advanced') {
+    const extra = ADVANCED_DEFENSE_EXTRA[difficulty] || {};
+    missionBudget = { ...profile.budget };
+    for (const k in extra) missionBudget[k] = (missionBudget[k] || 0) + extra[k];
+  }
+  const atkBudget = ATTACK_DIFFICULTY[difficulty].threatBudget;
+  const totalThreats = atkBudget.uav + atkBudget.fighter + atkBudget.helicopter;
+  let numBudgetBatteries = 0;
+  for (const k of BATTERY_KEYS) numBudgetBatteries += (missionBudget[k] || 0);
+  state.autoAmmo = {};
+  for (const k of BATTERY_KEYS) state.autoAmmo[k] = calcAutoAmmo(k, totalThreats, numBudgetBatteries);
+  state.budget = missionBudget;
+
+  switchSide('blue');
+  setSimulateLabel(true);
+  showBanner(
+    `⚔ <u>דו-קרב — שלב 1: אתה המגן (${profile.label})</u><br>` +
+    `<span style="font-size:12px;font-weight:400">פרוס סוללות ומכ"מים במסגרת התקציב. היריב יתקוף עם ${totalThreats} איומים <b>בלי לראות את הפריסה שלך</b>.</span><br>` +
+    `<span style="font-size:12px;font-weight:400;color:#fbbf24">בסיום — לחץ "🔗 צור קישור אתגר" ושלח לחבר</span>`,
+    ''
+  );
+  setStatus('דו-קרב: פרוס הגנה ואז לחץ "🔗 צור קישור אתגר"');
+  renderBudget();
+  showBackButton();
+  updateStepGuide();
+  closeMobileSidebar();
+  armMenuAttention();
+}
+
+function makeChallengeLink() {
+  const batteries = state.defenses.filter(d => CATALOG[d.key].kind === 'battery');
+  if (!batteries.length) {
+    flashStatus('⚠ פרוס לפחות סוללה אחת לפני יצירת הקישור');
+    return;
+  }
+  const payload = {
+    v: 1, s: 'c',
+    m: state.duel.worldMode === 'advanced' ? 1 : 0,
+    d: state.duel.difficulty,
+    w: state.duel.seed,
+    D: state.defenses.map(x => [DUEL_UNIT_KEYS.indexOf(x.key), Math.round(x.x), Math.round(x.y)])
+  };
+  const url = location.origin + location.pathname + '#duel=' + encodeDuel(payload);
+  showDuelLinkModal(
+    '⚔ קישור האתגר מוכן!',
+    'שלח את הקישור לחבר (וואטסאפ, מייל...). כשיפתח אותו — הוא יתקוף את ההגנה שלך בלי לראות אותה, ובסיום ישלח לך קישור-תוצאה עם המנצח.',
+    url
+  );
+}
+
+// ── Stage 2: the attacker opens a challenge link ──
+function enterDuelAttack(p) {
+  resetAll();
+  WORLD.mode = p.m === 1 ? 'advanced' : 'classic';
+  syncWorldModeButtons();
+  withSeed(p.w, () => regenerateGeography(p.d));
+  resetView();
+
+  state.duel = { stage: 'attack', seed: p.w, difficulty: p.d, worldMode: WORLD.mode, defense: p.D };
+  state.attackChallenge = true;
+  state.challengeMode = 'attack-challenge';
+  state.challengeDifficulty = p.d;
+  const profile = ATTACK_DIFFICULTY[p.d];
+  state.threatBudget = { ...profile.threatBudget };
+  state.objective = profile.objective;
+  state.noIntel = true;          // the whole point: the defense is hidden
+  state.intelRevealed = false;
+
+  const total = profile.threatBudget.uav + profile.threatBudget.fighter + profile.threatBudget.helicopter;
+  const numBatteries = p.D.filter(u => CATALOG[DUEL_UNIT_KEYS[u[0]]].kind === 'battery').length;
+  for (const u of p.D) {
+    const key = DUEL_UNIT_KEYS[u[0]];
+    if (!key) continue;
+    const ammo = calcAutoAmmo(key, total, numBatteries);
+    state.defenses.push({
+      id: nextId++, key, x: u[1], y: u[2],
+      ammo, initialAmmo: ammo, cd: 0,
+      prepareTarget: null, prepareUntil: 0
+    });
+  }
+
+  switchSide('red');
+  refreshButtonStates();
+  renderBudget();
+  renderBatteryLegend();
+  showBanner(
+    `⚔ <u>דו-קרב — שלב 2: אתה התוקף! (${profile.label})</u> 🕶<br>` +
+    `<span style="color:#fbbf24">חבר פרס נגדך הגנה אמיתית — והיא נסתרת עד שתלחץ ▶</span><br>` +
+    `<span style="font-size:12px;font-weight:400">תקציב: ${total} איומים | בסיום הקרב שלח לו את קישור התוצאה</span>`,
+    ''
+  );
+  setStatus('דו-קרב: בחר סוג איום מהתפריט ותכנן את ההתקפה');
+  showBackButton();
+  updateStepGuide();
+  armMenuAttention();
+}
+
+function makeResultLink() {
+  if (!state.results || !state.duel) return;
+  const r = state.results;
+  const scores = duelScores(r);
+  const payload = {
+    v: 1, s: 'r',
+    m: state.duel.worldMode === 'advanced' ? 1 : 0,
+    d: state.duel.difficulty,
+    w: state.duel.seed,
+    D: state.duel.defense,
+    A: state.threats.map(t => [
+      THREAT_KEYS.indexOf(t.key),
+      Math.round(t.sx), Math.round(t.sy),
+      Math.round(t.tx), Math.round(t.ty),
+      TARGETS.findIndex(tg => tg.name === t.target),
+      t.status === 'reached' ? 1 : 0,
+      t.hitBy || ''
+    ]),
+    H: [...r.hitTargets].map(name => TARGETS.findIndex(tg => tg.name === name)).filter(i => i >= 0),
+    S: scores,
+    o: r.objectiveMet ? 1 : 0
+  };
+  const url = location.origin + location.pathname + '#duel=' + encodeDuel(payload);
+  const verdict = scores.atk > scores.def ? 'ניצחת את המגן!' : scores.def > scores.atk ? 'המגן ניצח הפעם' : 'תיקו!';
+  showDuelLinkModal(
+    `⚔ תוצאת הדו-קרב: ${scores.atk} - ${scores.def} — ${verdict}`,
+    'שלח את קישור התוצאה חזרה למגן — הוא יראה את מהלך הקרב, את הציונים ואת המנצח.',
+    url
+  );
+}
+
+// ── Stage 3: the defender opens a result link ──
+function enterDuelReview(p, rawPayload) {
+  resetAll();
+  WORLD.mode = p.m === 1 ? 'advanced' : 'classic';
+  syncWorldModeButtons();
+  withSeed(p.w, () => regenerateGeography(p.d));
+  resetView();
+
+  state.duel = { stage: 'review', seed: p.w, difficulty: p.d, worldMode: WORLD.mode };
+  state.challengeMode = 'defense-challenge';
+  state.challengeDifficulty = p.d;
+
+  // Rebuild the defense + the attack plan (with final outcomes) so the
+  // map shows the full after-action picture
+  const atkBudget = ATTACK_DIFFICULTY[p.d].threatBudget;
+  const totalThreats = atkBudget.uav + atkBudget.fighter + atkBudget.helicopter;
+  const numBatteries = p.D.filter(u => CATALOG[DUEL_UNIT_KEYS[u[0]]].kind === 'battery').length;
+  for (const u of p.D) {
+    const key = DUEL_UNIT_KEYS[u[0]];
+    if (!key) continue;
+    const ammo = calcAutoAmmo(key, totalThreats, numBatteries);
+    state.defenses.push({
+      id: nextId++, key, x: u[1], y: u[2],
+      ammo, initialAmmo: ammo, cd: 0,
+      prepareTarget: null, prepareUntil: 0
+    });
+  }
+  for (const a of p.A) {
+    const key = THREAT_KEYS[a[0]];
+    const tgt = TARGETS[a[5]];
+    if (!key) continue;
+    state.threats.push(makeThreat(key, a[1], a[2], a[3], a[4], tgt ? tgt.name : ''));
+  }
+  switchSide('blue');
+
+  const scores = p.S || { atk: 0, def: 0 };
+  const defWon = scores.def > scores.atk;
+  const tie = scores.def === scores.atk;
+
+  // Award defender XP once per unique result link
+  const seenKey = 'airwar_duel_seen_' + duelHash(rawPayload);
+  let awardedNow = false;
+  try {
+    if (!localStorage.getItem(seenKey)) {
+      localStorage.setItem(seenKey, '1');
+      state.results = { objectiveMet: defWon };
+      awardMission(scores.def);
+      awardedNow = true;
+    }
+  } catch (e) { /* private browsing */ }
+
+  showBanner(
+    (defWon ? `🏆 <u>ניצחת בדו-קרב!</u>` : tie ? `🤝 <u>תיקו בדו-קרב</u>` : `✗ <u>התוקף ניצח בדו-קרב</u>`) +
+    `<br><span style="font-size:13px">מגן ${scores.def} - ${scores.atk} תוקף</span>`,
+    defWon ? 'success' : 'failure'
+  );
+
+  // Review modal: the official outcome computed on the attacker's machine
+  const hitNames = (p.H || []).map(i => TARGETS[i] ? TARGETS[i].name : '?');
+  const killed = p.A.filter(a => a[6] === 0).length;
+  const reached = p.A.length - killed;
+  let rows = '';
+  for (const a of p.A) {
+    const c = CATALOG[THREAT_KEYS[a[0]]];
+    const tgt = TARGETS[a[5]];
+    const isHit = a[6] === 1;
+    rows += `<tr>
+      <td style="color:${c.color}">${c.short}</td>
+      <td>${tgt ? tgt.name : '?'}</td>
+      <td style="color:${isHit ? '#f87171' : '#5fa86b'};font-weight:700">${isHit ? '✗ חדר ופגע' : '✓ יורט'}</td>
+      <td>${isHit ? '-' : (a[7] || '-')}</td>
+    </tr>`;
+  }
+  const body = document.getElementById('modal-body');
+  body.innerHTML = `
+    <div class="modal-verdict ${defWon ? 'success' : tie ? 'partial' : 'failure'}">
+      ⚔ ${defWon ? '🏆 ניצחת בדו-קרב — ההגנה שלך החזיקה!' : tie ? '🤝 תיקו בדו-קרב' : '✗ התוקף ניצח — ההגנה נפרצה'}
+    </div>
+    <div style="display:flex;gap:10px;margin:12px 0;text-align:center">
+      <div class="stat" style="flex:1;border-color:#5fa8d3"><b style="font-size:22px">${scores.def}</b><br>הציון שלך (מגן)</div>
+      <div class="stat" style="flex:1;border-color:#dc2626"><b style="font-size:22px">${scores.atk}</b><br>ציון התוקף</div>
+    </div>
+    <p style="font-size:13px">🎯 <b>${reached}</b> איומים חדרו, <b>${killed}</b> יורטו (מתוך ${p.A.length}).
+    ${hitNames.length ? `יעדים שנפגעו: <b style="color:#f87171">${hitNames.join(', ')}</b>` : '<b style="color:#5fa86b">אף יעד לא נפגע!</b>'}</p>
+    ${awardedNow ? `<p style="font-size:12px;color:#fbbf24">⭐ קיבלת XP על הדו-קרב (מוענק פעם אחת לכל קרב)</p>` : ''}
+    <table style="width:100%;font-size:12px">
+      <tr><th>איום</th><th>יעד</th><th>תוצאה</th><th>יורט ע"י</th></tr>
+      ${rows}
+    </table>
+    <p style="font-size:12px;color:#7e91a8">המפה מציגה את פריסת ההגנה שלך ואת נתיבי ההתקפה של היריב. הציונים חושבו במכונת התוקף — זו התוצאה הרשמית.</p>
+  `;
+  document.getElementById('modal').classList.add('visible');
+  setStatus('דו-קרב הסתיים — לחץ "🆕 משחק חדש" כדי להתחיל אתגר חדש');
+}
+
+// Link-sharing modal (reuses the info modal shell on both layouts)
+function showDuelLinkModal(title, explain, url) {
+  const body = document.getElementById('info-body');
+  body.innerHTML = `
+    <div class="info-card" style="border-right-color:#fbbf24">
+      <h3 style="color:#fbbf24">${title}</h3>
+      <p style="font-size:13px">${explain}</p>
+      <textarea id="duel-link-text" readonly
+        style="width:100%;height:74px;background:#0a0e14;color:#8fc7e8;border:1px solid #2a3550;border-radius:5px;font-size:10px;padding:6px;direction:ltr;word-break:break-all">${url}</textarea>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button id="duel-copy-btn" style="flex:1;padding:9px;background:#2a4571;border:1px solid #4a6b9c;border-radius:5px;color:#d6e0f0;cursor:pointer;font-family:inherit;font-weight:700">📋 העתק קישור</button>
+        ${navigator.share ? '<button id="duel-share-btn" style="flex:1;padding:9px;background:#1c4a2e;border:1px solid #3c7a52;border-radius:5px;color:#d6f0dc;cursor:pointer;font-family:inherit;font-weight:700">📤 שתף...</button>' : ''}
+      </div>
+    </div>`;
+  document.getElementById('info-modal').classList.add('visible');
+  document.getElementById('duel-copy-btn').addEventListener('click', () => {
+    const ta = document.getElementById('duel-link-text');
+    ta.select();
+    const done = () => {
+      document.getElementById('duel-copy-btn').textContent = '✓ הועתק!';
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(done, () => { document.execCommand('copy'); done(); });
+    } else {
+      document.execCommand('copy');
+      done();
+    }
+  });
+  const shareBtn = document.getElementById('duel-share-btn');
+  if (shareBtn) {
+    shareBtn.addEventListener('click', () => {
+      navigator.share({ title: 'AIRWAR — דו-קרב', text: 'אני מזמין אותך לדו-קרב הגנה אווירית!', url }).catch(() => {});
+    });
+  }
+}
+
+// Route incoming duel links (runs once at startup)
+function handleDuelHash() {
+  if (!location.hash.startsWith('#duel=')) return false;
+  const raw = location.hash.slice(6);
+  let p;
+  try { p = decodeDuel(raw); } catch (e) { p = null; }
+  // Clear the hash so refresh/new-game doesn't re-trigger the duel
+  try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+  if (!p || p.v !== 1) {
+    setStatus('⚠ קישור דו-קרב לא תקין');
+    return false;
+  }
+  if (p.s === 'c') { enterDuelAttack(p); return true; }
+  if (p.s === 'r') { enterDuelReview(p, raw); return true; }
+  return false;
+}
+
 function bindControls() {
   document.getElementById('mobile-menu-toggle').addEventListener('click', () => toggleMobileSidebar());
   document.getElementById('mobile-backdrop').addEventListener('click', closeMobileSidebar);
@@ -2088,8 +2450,19 @@ function bindControls() {
   const mapNewGame = document.getElementById('map-new-game');
   if (mapNewGame) mapNewGame.addEventListener('click', showStartModal);
 
-  // Show the mode-selection modal as the entry point on every load
-  setTimeout(showStartModal, 200);
+  // Duel buttons (defender creates a challenge at the chosen difficulty)
+  document.querySelectorAll('#start-body button[data-duel]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      hideStartModal();
+      startDuelCreate(btn.dataset.duel);
+    });
+  });
+
+  // Show the mode-selection modal as the entry point on every load —
+  // unless the page was opened from a duel link, which takes over.
+  if (!handleDuelHash()) {
+    setTimeout(showStartModal, 200);
+  }
 }
 
 function showStartModal() {
@@ -2722,6 +3095,22 @@ const TUTORIAL_STEPS = [
         <li>ⓘ <b>כפתורי מידע</b> - ליד כל סוללה/מכ"ם/איום בתפריט, לקבלת פרטים מלאים.</li>
       </ul>
       <div class="tip">💡 <b>בהצלחה!</b> אפשר לפתוח את המדריך הזה שוב בכל זמן ע"י לחיצה על הכפתור <span class="key">📘 הוראות המשחק</span> מתחת לכותרת. אפשר גם להתחיל משחק חדש דרך הכפתור <span class="key">🆕 משחק חדש</span>.</div>
+    `
+  },
+  {
+    title: '⚔ דו-קרב — שחקן נגד שחקן',
+    html: () => `
+      <p>מצב <b>דו-קרב</b> מאפשר לשחק נגד <b>חבר אמיתי</b> במקום נגד המחשב — בשני מכשירים שונים, בלי שרת, דרך החלפת קישורים.</p>
+      <h4>📱 איך משחקים דו-קרב? (3 שלבים)</h4>
+      <ul>
+        <li>1️⃣ <b>אתה המגן:</b> במסך הפתיחה בחר "⚔ דו-קרב" ורמת קושי. פרוס סוללות ומכ"מים במסגרת התקציב, ואז לחץ <b>"🔗 צור קישור אתגר"</b>. העתק את הקישור ושלח לחבר (וואטסאפ, מייל, כל דרך).</li>
+        <li>2️⃣ <b>החבר הוא התוקף:</b> כשהוא פותח את הקישור, המשחק נטען אצלו עם <u>בדיוק אותה מפה</u> — אבל <b>ההגנה שלך נסתרת ממנו</b> 🕶. הוא מתכנן התקפה במסגרת תקציב איומים, לוחץ ▶ וצופה בקרב. בסיום מופיע לו כפתור <b>"🔗 שלח קישור תוצאה למגן"</b>.</li>
+        <li>3️⃣ <b>אתה צופה בתוצאה:</b> כשתפתח את קישור-התוצאה תראה את המפה עם נתיבי ההתקפה, טבלת יירוטים/פגיעות, הציונים של שניכם — ואת <b>המנצח</b> 🏆.</li>
+      </ul>
+      <h4>🏆 מי מנצח?</h4>
+      <p>שני הצדדים מקבלים ציון 0-100 לפי נוסחאות הניקוד הרגילות (המגן — על ערך מוגן ויירוטים; התוקף — על נזק ופריצות). <b>הציון הגבוה מנצח.</b> שניכם מקבלים XP רגיל לפי הציון (למגן — פעם אחת לכל קרב).</p>
+      <div class="tip">🌍 הדו-קרב מכבד את <b>סוג המשחק</b> שנבחר אצל יוצר האתגר — יסודות או מתקדם — והמפה המדויקת (כולל טופוגרפיה, שכנות ואגמים) משוחזרת אצל שני השחקנים מאותו "זרע" אקראי.</div>
+      <div class="tip">💡 שימו לב: התוקף יכול לנסות שוב לפני שליחת התוצאה — סכמו ביניכם מראש אם מותר ניסיון אחד או כמה. הקישור ששולחים הוא התוצאה הקובעת.</div>
     `
   },
   {
@@ -3502,6 +3891,8 @@ function resetAll() {
   state.threatBudget = null;
   state.objective = null;
   state.autoAmmo = null;
+  state.duel = null;
+  setSimulateLabel(false);
   state.attackChallenge = false;
   state.challengeDifficulty = null;
   state.challengeMode = null;
@@ -5140,6 +5531,12 @@ function setSimButtons(mode) {
 }
 
 function startSim() {
+  // Duel creation stage: the ▶ button becomes "create challenge link" —
+  // the defender never runs a simulation, the attacker's machine does.
+  if (state.duel && state.duel.stage === 'create') {
+    makeChallengeLink();
+    return;
+  }
   if (state.threats.length === 0) {
     setStatus('אין איומים להפעיל - הוסף איומים בצד אדום');
     return;
@@ -5788,7 +6185,20 @@ function showResultsModal() {
       </div>`;
   }
 
+  // Duel attack stage: prepend the duel outcome + the "send result" button
+  let duelHtml = '';
+  if (state.duel && state.duel.stage === 'attack') {
+    const sc = duelScores(r);
+    const verdict = sc.atk > sc.def ? '🏆 ניצחת את המגן!' : sc.def > sc.atk ? '✗ המגן ניצח הפעם' : '🤝 תיקו!';
+    duelHtml = `
+      <div class="modal-verdict ${sc.atk > sc.def ? 'success' : sc.def > sc.atk ? 'failure' : 'partial'}" style="border-color:#fbbf24">
+        ⚔ דו-קרב: תוקף ${sc.atk} - ${sc.def} מגן — ${verdict}
+      </div>
+      <button id="duel-result-btn" style="width:100%;margin:8px 0;padding:11px;background:linear-gradient(180deg,#3d2f08,#2a2006);border:1px solid #fbbf24;border-radius:6px;color:#fde68a;cursor:pointer;font-family:inherit;font-weight:700;font-size:15px">🔗 שלח קישור תוצאה למגן</button>`;
+  }
+
   body.innerHTML = `
+    ${duelHtml}
     ${awardHtml}
     <div class="modal-verdict ${verdictCls}">${verdictText}</div>
 
@@ -5836,6 +6246,8 @@ function showResultsModal() {
     <div class="results-section-title" style="color:#fbbf24">💡 ${recsTitle}</div>
     <ul class="recommendations">${recsHtml}</ul>
   `;
+  const duelBtn = document.getElementById('duel-result-btn');
+  if (duelBtn) duelBtn.addEventListener('click', makeResultLink);
   modal.classList.add('visible');
 }
 
