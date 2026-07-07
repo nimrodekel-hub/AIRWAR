@@ -3097,7 +3097,7 @@ function onMouseDown(ev) {
   }
 
   if (ent) {
-    state.drag = { ent, ox: p.x - ent.x, oy: p.y - ent.y, moved: false };
+    state.drag = { ent, ox: p.x - ent.x, oy: p.y - ent.y, sx0: ent.x, sy0: ent.y, moved: false };
   } else if (ev.button === 0 || ev.button === 1 || ev.button === 2) {
     // Drag-to-pan on empty canvas (any mouse button)
     state.pan = {
@@ -3157,8 +3157,43 @@ function onMouseMove(ev) {
   }
 }
 
+// Validate a drag drop: defenses must stay inside the country (and off
+// lakes), attack-challenge threats must keep their origin in hostile
+// territory. Invalid drops snap the entity back to where the drag
+// started. Valid threat drops re-sync the recorded origin (sx/sy) so
+// the flight path and engagement math start from the new position.
+function endDrag() {
+  const d = state.drag;
+  if (!d) return;
+  state.drag = null;
+  if (!d.moved) return;
+  const ent = d.ent;
+  const c = CATALOG[ent.key];
+  if (c.kind === 'battery' || c.kind === 'radar') {
+    if (!isInsideCountry(ent.x, ent.y)) {
+      const inLake = pointInPolygon(ent.x, ent.y, LAND_POLYGON) && isInLake(ent.x, ent.y);
+      ent.x = d.sx0;
+      ent.y = d.sy0;
+      flashStatus(inLake
+        ? '⚠ לא ניתן להציב אמצעי הגנה בתוך אגם'
+        : '⚠ לא ניתן להציב מחוץ לגבולות טליאריה');
+    }
+  } else if (c.kind === 'threat') {
+    if (state.attackChallenge && !isInsideRedZone(ent.x, ent.y)) {
+      ent.x = d.sx0;
+      ent.y = d.sy0;
+      flashStatus(WORLD.mode === 'advanced'
+        ? '⚠ נקודת המוצא חייבת להיות בשטח מדינה עוינת!'
+        : '⚠ נקודת המוצא חייבת להיות בתוך האזור האדום!');
+    } else {
+      ent.sx = ent.x;
+      ent.sy = ent.y;
+    }
+  }
+}
+
 function onMouseUp() {
-  if (state.drag) state.drag = null;
+  endDrag();
   if (state.pan) {
     if (state.pan.moved) state._suppressNextClick = true;
     state.pan = null;
@@ -3186,7 +3221,7 @@ function _touchDist(t1, t2) {
 function onTouchStart(ev) {
   ev.preventDefault();
   if (ev.touches.length === 2) {
-    state.drag = null;
+    endDrag();
     if (state.pan) { state.pan = null; canvas.classList.remove('panning'); }
     const t1 = ev.touches[0], t2 = ev.touches[1];
     const r = canvas.getBoundingClientRect();
@@ -3231,7 +3266,7 @@ function onTouchEnd(ev) {
     if (ev.touches.length < 2) {
       _touchState.pinch = null;
       _touchState.suppressClick = true;
-      state.drag = null;
+      endDrag();
       if (state.pan) { state.pan = null; canvas.classList.remove('panning'); }
     }
     return;
@@ -3251,7 +3286,7 @@ function onTouchEnd(ev) {
 
 function onTouchCancel() {
   _touchState.pinch = null;
-  state.drag = null;
+  endDrag();
   if (state.pan) { state.pan = null; canvas.classList.remove('panning'); }
   canvas.classList.remove('dragging');
   tooltip.style.display = 'none';
