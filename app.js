@@ -510,15 +510,38 @@ function markHostiles(difficulty) {
   WORLD.neighbors.forEach((nb, i) => nb.hostile = pick.includes(i));
 }
 
+// Distance from a point to the nearest hostile-territory border edge.
+// From inside the home country the nearest edge of a hostile polygon
+// is the shared frontier — this measures the strategic depth a threat
+// must cross before reaching the point.
+function distToHostileBorder(x, y) {
+  let best = Infinity;
+  for (const nb of hostileNeighbors()) {
+    const poly = nb.poly;
+    for (let i = 0; i < poly.length; i++) {
+      const [x1, y1] = poly[i];
+      const [x2, y2] = poly[(i + 1) % poly.length];
+      const d = distToSegment(x, y, x1, y1, x2, y2);
+      if (d < best) best = d;
+    }
+  }
+  return best;
+}
+
+// Minimum strategic depth: targets must sit this far (km) from any
+// hostile border so the defense has room to engage incoming threats.
+const TARGET_HOSTILE_STANDOFF = 115;
+
 // Procedural strategic-target placement for the advanced world:
 // capital near the centre, the rest spread with minimum spacing,
-// away from borders and never inside a lake.
+// away from borders (with real standoff from hostile frontiers)
+// and never inside a lake.
 function regenerateTargetsAdvanced() {
   TARGETS.length = 0;
   const { x: cx, y: cy } = WORLD.center;
   for (const tpl of BASE_TARGETS) {
     let placed = null;
-    for (let i = 0; i < 300; i++) {
+    for (let i = 0; i < 400; i++) {
       let x, y;
       if (tpl.capital) {
         x = cx + (Math.random() - 0.5) * 130;
@@ -530,6 +553,10 @@ function regenerateTargetsAdvanced() {
       if (!isInsideCountry(x, y)) continue;
       if (!(isInsideCountry(x + 40, y) && isInsideCountry(x - 40, y) &&
             isInsideCountry(x, y + 40) && isInsideCountry(x, y - 40))) continue;
+      // Strategic depth from hostile frontiers; if the country shape
+      // leaves too little room, progressively relax rather than fail.
+      const standoff = i < 200 ? TARGET_HOSTILE_STANDOFF : (i < 320 ? 90 : 65);
+      if (distToHostileBorder(x, y) < standoff) continue;
       let tooClose = false;
       for (const t of TARGETS) {
         if (Math.hypot(t.x - x, t.y - y) < 115) { tooClose = true; break; }
@@ -543,11 +570,18 @@ function regenerateTargetsAdvanced() {
       break;
     }
     if (!placed) {
-      const p = randomPointInCountry(20);
+      // Last resort: of 50 random candidates, take the one deepest
+      // from the hostile borders (maximin) rather than a blind pick.
+      let best = null, bestDepth = -1;
+      for (let i = 0; i < 50; i++) {
+        const p = randomPointInCountry(20);
+        const depth = distToHostileBorder(p.x, p.y);
+        if (depth > bestDepth) { bestDepth = depth; best = p; }
+      }
       placed = {
         name: tpl.name, value: tpl.value,
         capital: tpl.capital, airbase: tpl.airbase,
-        x: Math.round(p.x), y: Math.round(p.y)
+        x: Math.round(best.x), y: Math.round(best.y)
       };
     }
     TARGETS.push(placed);
@@ -793,27 +827,35 @@ function relocateTargetsOffMountains() {
   for (const t of TARGETS) {
     if (!t.capital && !t.airbase) continue;
     if (getTerrainAlt(t.x, t.y) <= TARGET_MAX_ALT) continue;
+    // Two passes: first insist on strategic depth from hostile borders,
+    // then drop that requirement — being off the mountain is the hard
+    // rule, depth is best-effort. (Depth check is a no-op in classic
+    // mode, where there are no hostile neighbours.)
     let found = false;
-    for (let r = 30; r <= 330 && !found; r += 30) {
-      const startK = Math.floor(Math.random() * 16);
-      for (let k = 0; k < 16; k++) {
-        const a = (startK + k) / 16 * Math.PI * 2;
-        const x = t.x + Math.cos(a) * r;
-        const y = t.y + Math.sin(a) * r;
-        if (!isInsideCountry(x, y)) continue;
-        // accept slightly below the limit so integer rounding of the
-        // final coordinates can't drift the spot back over it
-        if (getTerrainAlt(x, y) > TARGET_MAX_ALT * 0.85) continue;
-        let tooClose = false;
-        for (const o of TARGETS) {
-          if (o !== t && Math.hypot(o.x - x, o.y - y) < 100) { tooClose = true; break; }
+    for (const standoff of [90, 60, 30, 0]) {
+      for (let r = 30; r <= 330 && !found; r += 30) {
+        const startK = Math.floor(Math.random() * 16);
+        for (let k = 0; k < 16; k++) {
+          const a = (startK + k) / 16 * Math.PI * 2;
+          const x = t.x + Math.cos(a) * r;
+          const y = t.y + Math.sin(a) * r;
+          if (!isInsideCountry(x, y)) continue;
+          // accept slightly below the limit so integer rounding of the
+          // final coordinates can't drift the spot back over it
+          if (getTerrainAlt(x, y) > TARGET_MAX_ALT * 0.85) continue;
+          if (standoff && distToHostileBorder(x, y) < standoff) continue;
+          let tooClose = false;
+          for (const o of TARGETS) {
+            if (o !== t && Math.hypot(o.x - x, o.y - y) < 100) { tooClose = true; break; }
+          }
+          if (tooClose) continue;
+          t.x = Math.round(x);
+          t.y = Math.round(y);
+          found = true;
+          break;
         }
-        if (tooClose) continue;
-        t.x = Math.round(x);
-        t.y = Math.round(y);
-        found = true;
-        break;
       }
+      if (found) break;
     }
   }
 }
