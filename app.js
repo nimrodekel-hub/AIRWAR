@@ -1997,14 +1997,6 @@ function closeMobileSidebar() {
 function bindControls() {
   document.getElementById('mobile-menu-toggle').addEventListener('click', () => toggleMobileSidebar());
   document.getElementById('mobile-backdrop').addEventListener('click', closeMobileSidebar);
-  const newGameCta = document.getElementById('mobile-new-game-cta');
-  if (newGameCta) {
-    newGameCta.addEventListener('click', () => {
-      hideNewGameCta();
-      resetAll();
-      showStartModal();
-    });
-  }
   document.getElementById('mission-expand-btn').addEventListener('click', () => {
     const group = document.getElementById('banner-group');
     const expanded = group.classList.toggle('expanded');
@@ -3506,7 +3498,6 @@ function resetAll() {
   state.scrubTime = null;
   state.serialCounters = {};
   state.results = null;
-  hideNewGameCta();
   state.budget = null;
   state.threatBudget = null;
   state.objective = null;
@@ -5160,7 +5151,6 @@ function startSim() {
   state.history = [];
   state.scrubTime = null;
   state.endLinger = null;
-  hideNewGameCta();
   document.getElementById('scrubber-row').style.display = 'none';
   setScrubberActive(false);
   // reset threats and defenses
@@ -6087,27 +6077,15 @@ function generateAttackRecommendations(r) {
 
 function hideModal() {
   document.getElementById('modal').classList.remove('visible');
-  // After the results modal closes, surface a 'Start new game' CTA on the
-  // map so the player has a clear next step on mobile. Also reinforce the
-  // iteration option in the status line — many players don't realise that
-  // closing the summary doesn't end the scenario; they can drag the
-  // existing batteries and re-run the same simulation to improve.
+  // After the results modal closes, reinforce the iteration option in the
+  // status line — many players don't realise that closing the summary
+  // doesn't end the scenario; they can drag the existing batteries and
+  // re-run the same simulation to improve. (Starting a fresh mission is
+  // covered by the always-visible 🆕 floating button on the map.)
   if (state.results) {
-    showNewGameCta();
     const role = state.challengeMode === 'attack-challenge' ? 'נקודות מוצא' : 'סוללות';
     setStatus(`💡 גרור ${role} למיקום אחר ולחץ ▶ כדי לנסות שוב על אותו תרחיש`);
   }
-}
-
-function showNewGameCta() {
-  if (!window.MOBILE_MODE) return;
-  const btn = document.getElementById('mobile-new-game-cta');
-  if (btn) btn.style.display = '';
-}
-
-function hideNewGameCta() {
-  const btn = document.getElementById('mobile-new-game-cta');
-  if (btn) btn.style.display = 'none';
 }
 
 // Theoretical best result with the current placement: every viable engagement succeeds.
@@ -6408,7 +6386,6 @@ function startAttackChallenge(difficulty) {
   updateStepGuide();
   closeMobileSidebar();
   armMenuAttention();
-  hideNewGameCta();
 }
 
 // =============================================================
@@ -6555,7 +6532,6 @@ function startDefenseChallenge(difficulty = 'medium') {
   updateStepGuide();
   closeMobileSidebar();
   armMenuAttention();
-  hideNewGameCta();
 }
 
 function renderBudget() {
