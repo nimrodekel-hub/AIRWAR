@@ -499,36 +499,6 @@ body.mobile #map-container.scrubber-active #mobile-budget-pill {
   display: none;
 }
 
-/* ─── Floating "Start new game" CTA after sim ends ──────── */
-#mobile-new-game-cta {
-  position: absolute;
-  top: 50px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 35;
-  background: linear-gradient(180deg, rgba(95,168,107,0.95) 0%, rgba(60,120,75,0.95) 100%);
-  border: 1px solid rgba(134,239,172,0.7);
-  border-radius: 6px;
-  padding: 9px 16px;
-  font-family: 'Rajdhani', sans-serif;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.6px;
-  color: #fff;
-  cursor: pointer;
-  box-shadow: 0 4px 18px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.4), 0 0 22px rgba(95,168,107,0.35);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  text-shadow: 0 1px 2px rgba(0,0,0,0.45);
-  animation: newGameCtaPop 0.35s ease-out;
-}
-#mobile-new-game-cta:active {
-  transform: translateX(-50%) scale(0.97);
-}
-@keyframes newGameCtaPop {
-  0%   { opacity: 0; transform: translateX(-50%) translateY(-8px); }
-  100% { opacity: 1; transform: translateX(-50%) translateY(0); }
-}
 
 /* ─── Legend overlay: compact ────────────────────────────── */
 body.mobile #legend-overlay {
