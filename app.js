@@ -547,7 +547,7 @@ function distToHomeBorder(x, y) {
 // and this far from ANY border (neutral/coast) so cities don't hug
 // the frontier visually.
 const TARGET_HOSTILE_STANDOFF = 115;
-const TARGET_BORDER_MARGIN = 50;
+const TARGET_BORDER_MARGIN = 80;
 
 // Procedural strategic-target placement for the advanced world:
 // capital near the centre, the rest spread with minimum spacing,
@@ -570,14 +570,16 @@ function regenerateTargetsAdvanced() {
       if (!isInsideCountry(x, y)) continue;
       // True distance from every border — the fractal coastline can cut
       // diagonally between probe points, so measure, don't probe.
-      if (distToHomeBorder(x, y) < TARGET_BORDER_MARGIN) continue;
-      // Strategic depth from hostile frontiers; if the country shape
-      // leaves too little room, progressively relax rather than fail.
+      // Both margins relax progressively when the drawn country shape
+      // leaves too little interior room, rather than failing outright.
+      const borderMargin = i < 200 ? TARGET_BORDER_MARGIN : (i < 320 ? 62 : 48);
+      if (distToHomeBorder(x, y) < borderMargin) continue;
       const standoff = i < 200 ? TARGET_HOSTILE_STANDOFF : (i < 320 ? 90 : 65);
       if (distToHostileBorder(x, y) < standoff) continue;
+      const spacing = i < 320 ? 115 : 95;
       let tooClose = false;
       for (const t of TARGETS) {
-        if (Math.hypot(t.x - x, t.y - y) < 115) { tooClose = true; break; }
+        if (Math.hypot(t.x - x, t.y - y) < spacing) { tooClose = true; break; }
       }
       if (tooClose) continue;
       placed = {
@@ -859,8 +861,9 @@ function relocateTargetsOffMountains() {
           const x = t.x + Math.cos(a) * r;
           const y = t.y + Math.sin(a) * r;
           if (!isInsideCountry(x, y)) continue;
-          // never park a relocated capital/airbase on the border
-          if (distToHomeBorder(x, y) < 45) continue;
+          // never park a relocated capital/airbase near the border;
+          // the margin relaxes together with the hostile standoff
+          if (distToHomeBorder(x, y) < (standoff >= 60 ? 70 : 45)) continue;
           // accept slightly below the limit so integer rounding of the
           // final coordinates can't drift the spot back over it
           if (getTerrainAlt(x, y) > TARGET_MAX_ALT * 0.85) continue;
@@ -975,6 +978,18 @@ function regenerateMountainsAdvanced(prof) {
     return true;
   };
 
+  // Mountains are generated after the targets, so keep ridge lines away
+  // from the capital and the airbase — otherwise the off-mountain
+  // relocation kicks in and, on cramped maps, shoves them toward the
+  // border. 75km clears even the widest ridge's 0.5km contour.
+  const clearOfKeyTargets = (x1, y1, x2, y2) => {
+    for (const t of TARGETS) {
+      if (!t.capital && !t.airbase) continue;
+      if (distToSegment(t.x, t.y, x1, y1, x2, y2) < 75) return false;
+    }
+    return true;
+  };
+
   // The advanced country is a compact blob — fewer ridges per front than
   // the classic western wall, or the whole interior turns into mountains.
   const perFront = Math.max(1, Math.round(prof.west * 0.6));
@@ -989,11 +1004,13 @@ function regenerateMountainsAdvanced(prof) {
       // ridge runs perpendicular to the threat axis from this front
       const angle = th + Math.PI / 2 + (Math.random() - 0.5) * 0.5;
       const len = 80 + Math.random() * 90;
+      const x1 = mx - Math.cos(angle) * len / 2;
+      const y1 = my - Math.sin(angle) * len / 2;
+      const x2 = mx + Math.cos(angle) * len / 2;
+      const y2 = my + Math.sin(angle) * len / 2;
+      if (!clearOfKeyTargets(x1, y1, x2, y2)) continue;
       MOUNTAINS.push({
-        x1: mx - Math.cos(angle) * len / 2,
-        y1: my - Math.sin(angle) * len / 2,
-        x2: mx + Math.cos(angle) * len / 2,
-        y2: my + Math.sin(angle) * len / 2,
+        x1, y1, x2, y2,
         peak: prof.peakMin + Math.random() * (prof.peakMax - prof.peakMin),
         sigma: 15 + Math.random() * 17
       });
@@ -1007,11 +1024,13 @@ function regenerateMountainsAdvanced(prof) {
     if (!isInsideCountry(p.x, p.y) || !farFromOtherRidges(p.x, p.y)) continue;
     const angle = Math.random() * Math.PI;
     const len = 70 + Math.random() * 90;
+    const x1 = p.x - Math.cos(angle) * len / 2;
+    const y1 = p.y - Math.sin(angle) * len / 2;
+    const x2 = p.x + Math.cos(angle) * len / 2;
+    const y2 = p.y + Math.sin(angle) * len / 2;
+    if (!clearOfKeyTargets(x1, y1, x2, y2)) continue;
     MOUNTAINS.push({
-      x1: p.x - Math.cos(angle) * len / 2,
-      y1: p.y - Math.sin(angle) * len / 2,
-      x2: p.x + Math.cos(angle) * len / 2,
-      y2: p.y + Math.sin(angle) * len / 2,
+      x1, y1, x2, y2,
       peak: (prof.peakMin + Math.random() * (prof.peakMax - prof.peakMin)) * 0.6,
       sigma: 14 + Math.random() * 14
     });
@@ -1021,6 +1040,9 @@ function regenerateMountainsAdvanced(prof) {
   let hillsPlaced = 0;
   for (let attempt = 0; attempt < 300 && hillsPlaced < prof.hills; attempt++) {
     const p = randomPointInCountry(15);
+    // tall wide hills can also push a capital/airbase over the 0.5km
+    // limit — keep their centres off the key targets too
+    if (!clearOfKeyTargets(p.x, p.y, p.x, p.y)) continue;
     HILLS.push({
       x: p.x, y: p.y,
       peak: 0.25 + Math.random() * 0.5,
