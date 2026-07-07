@@ -1766,7 +1766,7 @@ html, body {
 /* ─── Start modal ─────────────────────────────────────────── */
 .modal-content.start-content { max-width: 760px; }
 
-#start-body { padding: 18px 22px 16px; }
+#start-body { padding: 18px 22px 16px; overflow-y: auto; }
 
 .start-intro {
   text-align: center;
@@ -1915,6 +1915,19 @@ html, body {
 
 .start-section.defense { border-right: 3px solid rgba(95,168,211,0.55); }
 .start-section.attack  { border-right: 3px solid rgba(220,38,38,0.55); }
+
+/* PvP duel: spans the full width under the two solo missions */
+.start-section.duel {
+  grid-column: 1 / -1;
+  border-right: 3px solid rgba(251,191,36,0.6);
+  background: linear-gradient(180deg, rgba(56,42,10,0.25), rgba(8,12,22,0.8));
+}
+.start-section.duel .start-section-title { color: #fbbf24; }
+.duel-how {
+  background: rgba(251,191,36,0.07);
+  border-color: rgba(251,191,36,0.35);
+  color: #e8cd8a;
+}
 
 .start-section-title {
   font-family: 'Rajdhani', sans-serif;
