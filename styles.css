@@ -1835,6 +1835,15 @@ html, body {
 .worldmode-btn.wm-advanced.active .wm-check { color: #fbbf24; }
 .worldmode-btn.wm-advanced.active .wm-desc  { color: #e0c37a; }
 
+.worldmode-btn.wm-real.active {
+  border-color: #34d399;
+  background: rgba(6,50,36,0.85);
+  box-shadow: 0 0 14px rgba(52,211,153,0.26);
+  color: #d9fbe9;
+}
+.worldmode-btn.wm-real.active .wm-check { color: #34d399; }
+.worldmode-btn.wm-real.active .wm-desc  { color: #7fd6ae; }
+
 /* Indicator strip: bridges the selected track to the mission grid */
 .track-indicator {
   text-align: center;
@@ -1854,10 +1863,16 @@ html, body {
   background: rgba(251,191,36,0.08);
   border: 1px solid rgba(251,191,36,0.35);
 }
+.track-indicator.real {
+  color: #8fe2bb;
+  background: rgba(52,211,153,0.08);
+  border: 1px solid rgba(52,211,153,0.35);
+}
 
 /* The mission grid inherits the track colour on its frame */
 .start-grid.track-classic  { border: 1px solid rgba(56,189,248,0.3);  border-radius: 8px; padding: 8px; }
 .start-grid.track-advanced { border: 1px solid rgba(251,191,36,0.3); border-radius: 8px; padding: 8px; }
+.start-grid.track-real     { border: 1px solid rgba(52,211,153,0.3); border-radius: 8px; padding: 8px; }
 
 /* Start-modal close (keeps the current game) */
 #start-close {

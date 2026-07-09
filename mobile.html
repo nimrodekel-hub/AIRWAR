@@ -7,8 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20260706k">
-  <link rel="stylesheet" href="mobile.css?v=20260706k">
+  <link rel="stylesheet" href="styles.css?v=20260707a">
+  <link rel="stylesheet" href="mobile.css?v=20260707a">
 </head>
 <body class="mobile">
   <div id="app">
@@ -106,7 +106,7 @@
 
       <!-- Sheet header -->
       <header class="sheet-header">
-        <h1>פיקוד הגנה אווירית <span class="sheet-version">v20260706k</span></h1>
+        <h1>פיקוד הגנה אווירית <span class="sheet-version">v20260707a</span></h1>
         <div class="sheet-header-btns">
           <button id="open-tutorial" class="instructions-btn">📘 הוראות</button>
           <button id="open-start"    class="newgame-btn">🆕 חדש</button>
@@ -239,7 +239,7 @@
   <div id="start-modal" class="modal">
     <div class="modal-content start-content">
       <div class="modal-header start-modal-header">
-        <span class="start-modal-version">v20260706k</span>
+        <span class="start-modal-version">v20260707a</span>
         <h2>🎯 ברוך הבא לסימולטור הגנה אווירית</h2>
         <button id="start-close" aria-label="סגור">×</button>
       </div>
@@ -258,6 +258,12 @@
             <span class="wm-icon">🌍</span>
             <span class="wm-name">משחק מתקדם</span>
             <span class="wm-desc">מפה אקראית • 2 חזיתות אויב • XP ×1.25</span>
+            <span class="wm-check">✓ המסלול הנבחר</span>
+          </button>
+          <button class="worldmode-btn wm-real" data-worldmode="real">
+            <span class="wm-icon">🌐</span>
+            <span class="wm-name">מבצעי: ישראל</span>
+            <span class="wm-desc">מפה אמיתית • טופוגרפיה אמיתית • XP ×1.25</span>
             <span class="wm-check">✓ המסלול הנבחר</span>
           </button>
         </div>
@@ -325,7 +331,8 @@
 
   <!-- Force mobile mode before app.js initialises -->
   <script>window.MOBILE_MODE = true;</script>
-  <script src="app.js?v=20260706k"></script>
+  <script src="countries/il.js?v=20260707a"></script>
+  <script src="app.js?v=20260707a"></script>
   <script>
     // Wire up the sheet close button (app.js only wires #mobile-menu-toggle and #mobile-backdrop)
     document.getElementById('sheet-close').addEventListener('click', function () {

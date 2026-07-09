@@ -300,7 +300,7 @@ function hostileNeighbors() {
 }
 
 function hostileNames() {
-  return hostileNeighbors().map(nb => nb.name).join(' + ');
+  return [...new Set(hostileNeighbors().map(nb => nb.nameHe || nb.name))].join(' + ');
 }
 
 // Random launch point inside one of the hostile neighbouring countries.
@@ -321,7 +321,7 @@ function randomHostilePoint() {
 // lake, neighbour territory) back inside, stepping toward the centre.
 function clampInsideCountry(x, y) {
   if (isInsideCountry(x, y)) return { x, y };
-  const c = WORLD.mode === 'advanced' ? WORLD.center : getCountryCenter();
+  const c = WORLD.mode !== 'classic' ? WORLD.center : getCountryCenter();
   for (let f = 0.1; f <= 1; f += 0.1) {
     const nx = x + (c.x - x) * f;
     const ny = y + (c.y - y) * f;
@@ -612,6 +612,10 @@ function regenerateTargetsAdvanced() {
 // Single entry point: regenerates the whole geography for the active
 // game type (land, neighbours, lakes, targets, terrain).
 function regenerateGeography(difficulty) {
+  if (WORLD.mode === 'real') {
+    loadRealWorld(difficulty);
+    return;
+  }
   if (WORLD.mode === 'advanced') {
     regenerateAdvancedWorld(difficulty);
   } else {
@@ -621,6 +625,127 @@ function regenerateGeography(difficulty) {
     regenerateTargets();
   }
   regenerateMountains(difficulty);
+}
+
+// =============================================================
+// 🌐 Operational mode — real countries from pre-built data packs
+// (countries/*.js). Borders: Natural Earth; elevation: SRTM via
+// AWS Terrain Tiles; both fill the exact same structures the
+// procedural generator does, so the whole engine works unchanged.
+// =============================================================
+
+function shoelaceArea(poly) {
+  let a = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const [x1, y1] = poly[i], [x2, y2] = poly[(i + 1) % poly.length];
+    a += x1 * y2 - x2 * y1;
+  }
+  return Math.abs(a / 2);
+}
+
+// Pick the two hostile fronts among real neighbours flagged as eligible
+// in the pack. Same difficulty semantics as the procedural world:
+// easy = closest pair, hard/extreme = opposite pair, else random.
+function markHostilesReal(difficulty) {
+  const groups = {};
+  for (const nb of WORLD.neighbors) {
+    nb.hostile = false;
+    if (!nb.eligible) continue;
+    if (!groups[nb.name] || shoelaceArea(nb.poly) > shoelaceArea(groups[nb.name].poly)) {
+      groups[nb.name] = nb;
+    }
+  }
+  const names = Object.keys(groups);
+  if (names.length < 2) {
+    for (const nb of WORLD.neighbors) nb.hostile = !!nb.eligible;
+    return;
+  }
+  let pick;
+  if (difficulty === 'easy' || difficulty === 'hard' || difficulty === 'extreme') {
+    let best = null, bestSep = null;
+    for (let i = 0; i < names.length; i++) {
+      for (let j = i + 1; j < names.length; j++) {
+        const sep = arcSeparation(groups[names[i]].arcMid, groups[names[j]].arcMid);
+        const better = bestSep === null ||
+          (difficulty === 'easy' ? sep < bestSep : sep > bestSep);
+        if (better) { bestSep = sep; best = [names[i], names[j]]; }
+      }
+    }
+    pick = best;
+  } else {
+    const a = Math.floor(Math.random() * names.length);
+    let b; do { b = Math.floor(Math.random() * names.length); } while (b === a);
+    pick = [names[a], names[b]];
+  }
+  const chosen = new Set(pick);
+  for (const nb of WORLD.neighbors) nb.hostile = chosen.has(nb.name);
+}
+
+function loadRealWorld(difficulty) {
+  const pack = (window.COUNTRY_PACKS || {})[WORLD.countryId || 'il'];
+  if (!pack) {
+    console.error('country pack missing — falling back to advanced world');
+    WORLD.mode = 'advanced';
+    regenerateGeography(difficulty);
+    return;
+  }
+  WORLD.homeName = pack.name.toUpperCase();
+
+  // Home polygon + derived centre/radius (used by anchors, clamps, labels)
+  LAND_POLYGON.length = 0;
+  for (const p of pack.home) LAND_POLYGON.push([p[0], p[1]]);
+  let cx = 0, cy = 0;
+  for (const [x, y] of LAND_POLYGON) { cx += x; cy += y; }
+  WORLD.center = { x: cx / LAND_POLYGON.length, y: cy / LAND_POLYGON.length };
+  WORLD.R0 = Math.sqrt(shoelaceArea(LAND_POLYGON) / Math.PI);
+
+  // Real neighbours: one entry per clipped ring, grouped by country name
+  // so a country split by the frame is marked hostile as one unit.
+  WORLD.neighbors = [];
+  for (const n of pack.neighbors) {
+    const rings = n.polys.slice().sort((a, b) => shoelaceArea(b) - shoelaceArea(a));
+    rings.forEach((poly, idx) => {
+      let lx = 0, ly = 0;
+      for (const [x, y] of poly) { lx += x; ly += y; }
+      lx /= poly.length; ly /= poly.length;
+      WORLD.neighbors.push({
+        name: n.name, nameHe: n.nameHe, eligible: !!n.eligible, hostile: false,
+        poly, bbox: polyBBox(poly),
+        arcMid: Math.atan2(ly - WORLD.center.y, lx - WORLD.center.x),
+        centroid: { x: lx, y: ly },
+        labelX: WORLD_CLAMP(lx), labelY: WORLD_CLAMP_Y(ly),
+        showLabel: idx === 0
+      });
+    });
+  }
+  markHostilesReal(difficulty);
+
+  WORLD.lakes = pack.lakes.map(l => ({ poly: l.poly, cx: l.cx, cy: l.cy }));
+
+  // Real strategic targets (Hebrew names on the map)
+  TARGETS.length = 0;
+  for (const t of pack.targets) {
+    TARGETS.push({
+      name: t.nameHe || t.name, value: t.value,
+      capital: !!t.capital, airbase: !!t.airbase,
+      x: t.x, y: t.y
+    });
+  }
+
+  // Real terrain: decode the pack heightmap straight into the LOS grid
+  MOUNTAINS.length = 0;
+  HILLS.length = 0;
+  const hm = pack.heights;
+  const bin = atob(hm.b64);
+  const g = TERRAIN_GRID;
+  g.cell = hm.cell; g.w = hm.w; g.h = hm.h;
+  g.data = new Float32Array(hm.w * hm.h);
+  const kScale = hm.scaleM / 1000;
+  for (let i = 0; i < g.data.length; i++) g.data[i] = bin.charCodeAt(i) * kScale;
+  buildTerrainOverlay();
+
+  PEAK_LABELS.length = 0;
+  for (const p of pack.peaks) PEAK_LABELS.push({ x: p.x, y: p.y, alt: p.alt });
 }
 
 function distToSegment(px, py, x1, y1, x2, y2) {
@@ -1086,8 +1211,8 @@ const ATTACK_DIFFICULTY = {
     label: 'קל',
     threatBudget: { uav: 24, fighter: 8, helicopter: 8 },  // 40 total
     objective: {
-      text: 'פגע ב<b>בירה (Arian)</b>',
-      check: (hits) => hits.has('Arian (Capital)')
+      text: 'פגע ב<b>בירה</b>',
+      check: (hits) => hits.has(capitalName())
     },
     defenses: [
       { key: 'ironDome',   anchor: 'Arian (Capital)', dy: 20 },
@@ -1116,7 +1241,7 @@ const ATTACK_DIFFICULTY = {
     threatBudget: { uav: 12, fighter: 4, helicopter: 4 },  // 20 total
     objective: {
       text: 'פגע ב-<b>4 יעדים אסטרטגיים שונים</b>, או ב<b>בירה + 2 יעדים נוספים</b>',
-      check: (hits) => hits.size >= 4 || (hits.has('Arian (Capital)') && hits.size >= 3)
+      check: (hits) => hits.size >= 4 || (hits.has(capitalName()) && hits.size >= 3)
     },
     defenses: [
       { key: 'ironDome',   anchor: 'Arian (Capital)' },
@@ -1143,7 +1268,7 @@ const ATTACK_DIFFICULTY = {
     threatBudget: { uav: 12, fighter: 4, helicopter: 4 },  // 20 total
     objective: {
       text: 'פגע ב-<b>4 יעדים שונים</b>, או ב<b>בירה + 2 נוספים</b> — <span style="color:#dc2626">ההגנה נסתרת!</span>',
-      check: (hits) => hits.size >= 4 || (hits.has('Arian (Capital)') && hits.size >= 3)
+      check: (hits) => hits.size >= 4 || (hits.has(capitalName()) && hits.size >= 3)
     },
     defenses: [
       { key: 'ironDome',   anchor: 'Arian (Capital)' },
@@ -1167,9 +1292,17 @@ const ATTACK_DIFFICULTY = {
 // System generates an attack; user places defense within a budget.
 // Each profile carries an explicit win condition (`objective`).
 // Capital is mandatory in all difficulties; secondary-target tolerance shrinks.
+// The capital's display name differs per world (procedural template vs
+// real country packs) — always resolve it from the live target list.
+function capitalName() {
+  const t = TARGETS.find(t => t.capital);
+  return t ? t.name : 'Arian (Capital)';
+}
+
 function nonCapitalHits(hits) {
   let n = 0;
-  for (const name of hits) if (name !== 'Arian (Capital)') n++;
+  const cap = capitalName();
+  for (const name of hits) if (name !== cap) n++;
   return n;
 }
 const DEFENSE_DIFFICULTY = {
@@ -1180,8 +1313,8 @@ const DEFENSE_DIFFICULTY = {
     budget: { ironDome: 4, sa8: 3, barak8: 3, patriot: 2, davidsSling: 2,
               longRadar: 2, medRadar: 3, shortRadar: 3 },
     objective: {
-      text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר פגיעה ב-<b>3 יעדים אחרים או יותר</b>',
-      check: (hits) => !hits.has('Arian (Capital)') && nonCapitalHits(hits) < 3
+      text: 'הגן על <b>הבירה</b> ואל תאפשר פגיעה ב-<b>3 יעדים אחרים או יותר</b>',
+      check: (hits) => !hits.has(capitalName()) && nonCapitalHits(hits) < 3
     }
   },
   medium: {
@@ -1191,8 +1324,8 @@ const DEFENSE_DIFFICULTY = {
     budget: { ironDome: 3, sa8: 2, barak8: 2, patriot: 1, davidsSling: 1,
               longRadar: 1, medRadar: 2, shortRadar: 2 },
     objective: {
-      text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר פגיעה ב-<b>2 יעדים אחרים או יותר</b>',
-      check: (hits) => !hits.has('Arian (Capital)') && nonCapitalHits(hits) < 2
+      text: 'הגן על <b>הבירה</b> ואל תאפשר פגיעה ב-<b>2 יעדים אחרים או יותר</b>',
+      check: (hits) => !hits.has(capitalName()) && nonCapitalHits(hits) < 2
     }
   },
   hard: {
@@ -1202,8 +1335,8 @@ const DEFENSE_DIFFICULTY = {
     budget: { ironDome: 2, sa8: 1, barak8: 1, patriot: 1, davidsSling: 1,
               longRadar: 1, medRadar: 1, shortRadar: 1 },
     objective: {
-      text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר אף פגיעה ביעד נוסף',
-      check: (hits) => !hits.has('Arian (Capital)') && nonCapitalHits(hits) < 1
+      text: 'הגן על <b>הבירה</b> ואל תאפשר אף פגיעה ביעד נוסף',
+      check: (hits) => !hits.has(capitalName()) && nonCapitalHits(hits) < 1
     }
   },
   // ── "Extreme" — same dense attack as `hard`, but the user does NOT see
@@ -1217,8 +1350,8 @@ const DEFENSE_DIFFICULTY = {
     budget: { ironDome: 2, sa8: 1, barak8: 1, patriot: 1, davidsSling: 1,
               longRadar: 1, medRadar: 1, shortRadar: 1 },
     objective: {
-      text: 'הגן על <b>הבירה (Arian)</b> ואל תאפשר אף פגיעה ביעד נוסף — <span style="color:#dc2626">ההתקפה נסתרת!</span>',
-      check: (hits) => !hits.has('Arian (Capital)') && nonCapitalHits(hits) < 1
+      text: 'הגן על <b>הבירה</b> ואל תאפשר אף פגיעה ביעד נוסף — <span style="color:#dc2626">ההתקפה נסתרת!</span>',
+      check: (hits) => !hits.has(capitalName()) && nonCapitalHits(hits) < 1
     }
   }
 };
@@ -1273,7 +1406,17 @@ function resolveAnchor(item) {
     return { x: c.x + dx, y: c.y + dy };
   }
   if (item.anchor) {
-    const tgt = TARGETS.find(t => t.name === item.anchor);
+    let tgt = TARGETS.find(t => t.name === item.anchor);
+    if (!tgt) {
+      // Template anchor names resolve by ROLE in real-country packs
+      if (item.anchor === 'Arian (Capital)') tgt = TARGETS.find(t => t.capital);
+      else if (item.anchor === 'Eagle Airbase') tgt = TARGETS.find(t => t.airbase);
+      else {
+        const cities = TARGETS.filter(t => !t.capital && !t.airbase);
+        const idx = { 'Talos': 0, 'Miron': 1, 'Plaion': 2 }[item.anchor];
+        if (idx !== undefined && cities.length) tgt = cities[idx % cities.length];
+      }
+    }
     if (tgt) return { x: tgt.x + dx, y: tgt.y + dy };
   }
   return { x: item.x || 720, y: item.y || 410 };
@@ -1301,7 +1444,7 @@ function isInsideCountry(x, y) {
 // Classic: fixed western strip x∈[0,380] of the 1200×800 world.
 // Advanced: the territory of either hostile neighbouring country.
 function isInsideRedZone(x, y) {
-  if (WORLD.mode === 'advanced') {
+  if (WORLD.mode !== 'classic') {
     for (const nb of WORLD.neighbors) {
       if (nb.hostile && pointInPolygon(x, y, nb.poly)) return true;
     }
@@ -1468,7 +1611,7 @@ function awardMission(score) {
   const qualityFactor = Math.pow(score / 100, 1.4);
   // Advanced-world missions are inherently harder (two hostile fronts /
   // reinforced auto-defense) and pay 25% more XP for the same score.
-  const worldFactor = WORLD.mode === 'advanced' ? ADVANCED_XP_FACTOR : 1;
+  const worldFactor = WORLD.mode !== 'classic' ? ADVANCED_XP_FACTOR : 1;
   const xpGain = Math.round(xpMax * qualityFactor * worldFactor);
 
   const oldRank = rankForXp(profile.xp);
@@ -1776,7 +1919,8 @@ window.addEventListener('DOMContentLoaded', () => {
   }
   placeScrubberForViewport();
   try {
-    if (localStorage.getItem('airwar_world_mode') === 'advanced') WORLD.mode = 'advanced';
+    const saved = localStorage.getItem('airwar_world_mode');
+    if (saved === 'advanced' || saved === 'real') WORLD.mode = saved;
   } catch (e) { /* private browsing */ }
   regenerateGeography();
   buildButtons();
@@ -2080,7 +2224,7 @@ function startDuelCreate(difficulty) {
   const profile = DEFENSE_DIFFICULTY[difficulty];
 
   let missionBudget = profile.budget;
-  if (WORLD.mode === 'advanced') {
+  if (WORLD.mode !== 'classic') {
     const extra = ADVANCED_DEFENSE_EXTRA[difficulty] || {};
     missionBudget = { ...profile.budget };
     for (const k in extra) missionBudget[k] = (missionBudget[k] || 0) + extra[k];
@@ -2117,7 +2261,7 @@ function makeChallengeLink() {
   }
   const payload = {
     v: 1, s: 'c',
-    m: state.duel.worldMode === 'advanced' ? 1 : 0,
+    m: state.duel.worldMode === 'real' ? 2 : state.duel.worldMode === 'advanced' ? 1 : 0,
     d: state.duel.difficulty,
     w: state.duel.seed,
     D: state.defenses.map(x => [DUEL_UNIT_KEYS.indexOf(x.key), Math.round(x.x), Math.round(x.y)])
@@ -2133,7 +2277,7 @@ function makeChallengeLink() {
 // ── Stage 2: the attacker opens a challenge link ──
 function enterDuelAttack(p) {
   resetAll();
-  WORLD.mode = p.m === 1 ? 'advanced' : 'classic';
+  WORLD.mode = p.m === 2 ? 'real' : p.m === 1 ? 'advanced' : 'classic';
   syncWorldModeButtons();
   withSeed(p.w, () => regenerateGeography(p.d));
   resetView();
@@ -2183,7 +2327,7 @@ function makeResultLink() {
   const scores = duelScores(r);
   const payload = {
     v: 1, s: 'r',
-    m: state.duel.worldMode === 'advanced' ? 1 : 0,
+    m: state.duel.worldMode === 'real' ? 2 : state.duel.worldMode === 'advanced' ? 1 : 0,
     d: state.duel.difficulty,
     w: state.duel.seed,
     D: state.duel.defense,
@@ -2211,7 +2355,7 @@ function makeResultLink() {
 // ── Stage 3: the defender opens a result link ──
 function enterDuelReview(p, rawPayload) {
   resetAll();
-  WORLD.mode = p.m === 1 ? 'advanced' : 'classic';
+  WORLD.mode = p.m === 2 ? 'real' : p.m === 1 ? 'advanced' : 'classic';
   syncWorldModeButtons();
   withSeed(p.w, () => regenerateGeography(p.d));
   resetView();
@@ -2473,7 +2617,7 @@ function showStartModal() {
 
 // ---- Game-type (world mode) selection ----
 function setWorldMode(mode) {
-  if (mode !== 'classic' && mode !== 'advanced') return;
+  if (mode !== 'classic' && mode !== 'advanced' && mode !== 'real') return;
   if (WORLD.mode === mode) return;
   WORLD.mode = mode;
   try { localStorage.setItem('airwar_world_mode', mode); } catch (e) { /* private browsing */ }
@@ -2484,21 +2628,25 @@ function setWorldMode(mode) {
 }
 
 function syncWorldModeButtons() {
-  const adv = WORLD.mode === 'advanced';
   document.querySelectorAll('.worldmode-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.worldmode === WORLD.mode));
   // Colour-code the mission grid to the selected track
   const grid = document.getElementById('start-grid');
   if (grid) {
-    grid.classList.toggle('track-classic', !adv);
-    grid.classList.toggle('track-advanced', adv);
+    grid.classList.toggle('track-classic', WORLD.mode === 'classic');
+    grid.classList.toggle('track-advanced', WORLD.mode === 'advanced');
+    grid.classList.toggle('track-real', WORLD.mode === 'real');
   }
   const ind = document.getElementById('track-indicator');
   if (ind) {
-    ind.className = 'track-indicator ' + (adv ? 'adv' : 'cls');
-    ind.innerHTML = adv
-      ? '🌍 המסלול הנבחר: <b>משחק מתקדם</b> — עכשיו בחר משימה ורמת קושי ↓'
-      : '🧭 המסלול הנבחר: <b>משחק יסודות</b> — עכשיו בחר משימה ורמת קושי ↓';
+    const byMode = {
+      classic:  ['cls',  '🧭 המסלול הנבחר: <b>משחק יסודות</b> — עכשיו בחר משימה ורמת קושי ↓'],
+      advanced: ['adv',  '🌍 המסלול הנבחר: <b>משחק מתקדם</b> — עכשיו בחר משימה ורמת קושי ↓'],
+      real:     ['real', '🌐 המסלול הנבחר: <b>מבצעי — ישראל</b> — עכשיו בחר משימה ורמת קושי ↓']
+    };
+    const [cls, html] = byMode[WORLD.mode] || byMode.classic;
+    ind.className = 'track-indicator ' + cls;
+    ind.innerHTML = html;
   }
 }
 
@@ -2629,6 +2777,7 @@ const TUTORIAL_STEPS = [
       <ul>
         <li>🧭 <b>משחק יסודות</b> — המפה הקלאסית: כל האיומים מגיעים מ<b>חזית אחת במערב</b> (האזור האדום). מומלץ ללמידת המערכות והטקטיקות.</li>
         <li>🌍 <b>משחק מתקדם</b> — עולם אקראי לגמרי: צורת המדינה מוגרלת בכל משחק, מוקפת <b>4 מדינות שכנות</b> ששתיים מהן עוינות, עם ימים גובלים ואגמים פנימיים. איומים מגיעים <b>מכמה כיוונים בו-זמנית</b>.</li>
+        <li>🌐 <b>מבצעי: ישראל</b> — תרגול על <b>מפה אמיתית</b>: גבולות אמיתיים (Natural Earth), <b>טופוגרפיה אמיתית</b> (SRTM — הגולן, הרי יהודה, הנגב משפיעים על קו-ראייה כמו במציאות), הכנרת וים המלח, יעדים אמיתיים (ירושלים, תל אביב, חיפה, באר שבע, בסיס נבטים) ושכנות אמיתיות. שתי חזיתות עוינות מוגרלות מבין השכנות בכל משחק — טווחי הנשק הם ק"מ אמיתיים על המפה. XP ×1.25.</li>
       </ul>
       <h4>שני מצבי משחק עיקריים:</h4>
       <ul>
@@ -3060,7 +3209,7 @@ const TUTORIAL_STEPS = [
       <p>כמות הכלים האוויריים שתוכל להשתמש מוצגת בתג אדום על כפתורי האיומים. כל איום שתציב יוריד את הכמות שבידיך.</p>
       <h4>תנאי ניצחון לפי רמה:</h4>
       <ul>
-        <li>🟢 <b>קל</b>: פגע ב<b>בירה (Arian)</b>. לרשותך 40 כלים אוויריים.</li>
+        <li>🟢 <b>קל</b>: פגע ב<b>בירה</b>. לרשותך 40 כלים אוויריים.</li>
         <li>🟡 <b>בינוני</b>: פגע ב<b>3 יעדים אסטרטגיים שונים</b>. לרשותך 30 כלים אוויריים.</li>
         <li>🔴 <b>קשה</b>: פגע ב<b>4 יעדים שונים</b>, או ב<b>בירה + 2 נוספים</b>. לרשותך 20 כלים אוויריים.</li>
         <li>🕶 <b>קשה במיוחד (ללא מודיעין)</b>: כמו <b>קשה</b>, אבל <u>פריסת ההגנה נסתרת</u>. אתה לא רואה איפה ההגנה פרוסה — תכנן את נתיבי התקיפה לפי הנחות בלבד. ההגנה מתגלה רק כשתפעיל סימולציה.</li>
@@ -3249,12 +3398,15 @@ function panBy(dx, dy) {
 function resetView() {
   const isMobile = window.MOBILE_MODE || window.matchMedia('(max-width: 768px)').matches;
   // Advanced world: threats can come from any direction, so frame the whole
-  // map around its centre (slightly zoomed out). Classic: on mobile bias the
-  // view toward the LEFT two-thirds so the western spawn region is visible.
-  const advanced = WORLD.mode === 'advanced';
-  const s  = isMobile ? (advanced ? 0.42 : 0.48) : (advanced ? 0.8 : 0.85);
-  const cx = advanced ? 600 : (isMobile ? 600 : 720);
-  const cy = advanced ? 400 : 410;
+  // map around its centre (slightly zoomed out). Real mode: the country is
+  // small inside the 1200 km frame — start zoomed in on it. Classic: on
+  // mobile bias the view LEFT so the western spawn region is visible.
+  const real = WORLD.mode === 'real';
+  const advanced = WORLD.mode !== 'classic';
+  const s  = real ? (isMobile ? 0.62 : 1.05)
+           : isMobile ? (advanced ? 0.42 : 0.48) : (advanced ? 0.8 : 0.85);
+  const cx = real ? WORLD.center.x : advanced ? 600 : (isMobile ? 600 : 720);
+  const cy = real ? WORLD.center.y : advanced ? 400 : 410;
   state.viewport = {
     offsetX: W / 2 - cx * s,
     offsetY: H / 2 - cy * s,
@@ -3391,7 +3543,7 @@ function selectPlace(key) {
   if (state.attackChallenge && c.kind === 'threat') {
     state.placeStep = 'origin';
     state.placeOrigin = null;
-    setStatus(WORLD.mode === 'advanced'
+    setStatus(WORLD.mode !== 'classic'
       ? `${c.name} - לחץ בשטח מדינה עוינת (נקודת מוצא)`
       : `${c.name} - לחץ על המפה מחוץ לגבולות המדינה (נקודת מוצא)`);
   } else {
@@ -3484,7 +3636,7 @@ function onCanvasClick(ev) {
     if (state.attackChallenge && c.kind === 'threat') {
       if (state.placeStep === 'origin') {
         if (!isInsideRedZone(p.x, p.y)) {
-          flashStatus(WORLD.mode === 'advanced'
+          flashStatus(WORLD.mode !== 'classic'
             ? '⚠ נקודת המוצא חייבת להיות בשטח מדינה עוינת!'
             : '⚠ נקודת המוצא חייבת להיות בתוך האזור האדום!', 'origin');
           return;
@@ -3550,7 +3702,7 @@ function flashStatus(msg, returnStep) {
   _flashTimer = setTimeout(() => {
     if (state.placeStep === 'origin') {
       const c = CATALOG[state.placeKey];
-      setStatus(WORLD.mode === 'advanced'
+      setStatus(WORLD.mode !== 'classic'
         ? `${c.name} - לחץ בשטח מדינה עוינת (נקודת מוצא)`
         : `${c.name} - לחץ בתוך האזור האדום (נקודת מוצא)`);
     } else if (state.placeStep === 'target') {
@@ -3664,13 +3816,13 @@ function endDrag() {
       ent.y = d.sy0;
       flashStatus(inLake
         ? '⚠ לא ניתן להציב אמצעי הגנה בתוך אגם'
-        : '⚠ לא ניתן להציב מחוץ לגבולות טליאריה');
+        : '⚠ לא ניתן להציב מחוץ לגבולות המדינה');
     }
   } else if (c.kind === 'threat') {
     if (state.attackChallenge && !isInsideRedZone(ent.x, ent.y)) {
       ent.x = d.sx0;
       ent.y = d.sy0;
-      flashStatus(WORLD.mode === 'advanced'
+      flashStatus(WORLD.mode !== 'classic'
         ? '⚠ נקודת המוצא חייבת להיות בשטח מדינה עוינת!'
         : '⚠ נקודת המוצא חייבת להיות בתוך האזור האדום!');
     } else {
@@ -3812,7 +3964,7 @@ function placeAt(key, x, y) {
     if (!isInsideCountry(x, y)) {
       flashStatus(pointInPolygon(x, y, LAND_POLYGON) && isInLake(x, y)
         ? '⚠ לא ניתן להציב אמצעי הגנה בתוך אגם'
-        : '⚠ לא ניתן להציב מחוץ לגבולות טליאריה');
+        : '⚠ לא ניתן להציב מחוץ לגבולות המדינה');
       return;
     }
     const initialAmmo = (state.autoAmmo && state.autoAmmo[key] !== undefined) ? state.autoAmmo[key] : c.ammo;
@@ -4144,7 +4296,7 @@ function drawPlacementGuide() {
   if (c.kind === 'battery' || c.kind === 'radar') {
     drawValidityRing(state.mouseX, state.mouseY,
       isInsideCountry(state.mouseX, state.mouseY),
-      null, '✗ מחוץ לגבולות טליאריה');
+      null, '✗ מחוץ לגבולות המדינה');
     return;
   }
 
@@ -4155,7 +4307,7 @@ function drawPlacementGuide() {
     drawValidityRing(state.mouseX, state.mouseY,
       isInsideRedZone(state.mouseX, state.mouseY),
       '✓ נקודת מוצא תקינה',
-      WORLD.mode === 'advanced' ? '✗ לא בשטח מדינה עוינת' : '✗ מחוץ לאזור האדום');
+      WORLD.mode !== 'classic' ? '✗ לא בשטח מדינה עוינת' : '✗ מחוץ לאזור האדום');
   } else if (state.placeStep === 'target' && state.placeOrigin) {
     const o = state.placeOrigin;
     // Origin marker
@@ -4261,7 +4413,7 @@ function drawBackground() {
 
   // Classic mode only: fixed western red zone.
   // (The advanced world draws hostile-country territory instead.)
-  if (WORLD.mode !== 'advanced') {
+  if (WORLD.mode === 'classic') {
     // Red zone - diagonal hazard stripe
     ctx.save();
     ctx.beginPath();
@@ -4355,7 +4507,7 @@ function drawBackground() {
 
   // Area labels — faint, letter-spaced, cartographic (classic layout only;
   // the advanced world labels its neighbours dynamically instead)
-  if (WORLD.mode !== 'advanced') {
+  if (WORLD.mode === 'classic') {
     ctx.font = '700 20px Rajdhani, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = GC + '0.09)';
@@ -4407,7 +4559,8 @@ function drawNeighbors() {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Name + status label
+    // Name + status label (only on a country's primary ring)
+    if (nb.showLabel === false) continue;
     ctx.textAlign = 'center';
     ctx.font = 'bold 19px serif';
     ctx.fillStyle = nb.hostile ? 'rgba(248, 113, 113, 0.5)' : 'rgba(190, 205, 195, 0.34)';
@@ -4434,7 +4587,7 @@ function drawLakes() {
 
 function drawCountry() {
   const land = LAND_POLYGON;
-  const advanced = WORLD.mode === 'advanced';
+  const advanced = WORLD.mode !== 'classic';
 
   // Neighbouring countries sit under the home country so the home
   // border and glow paint cleanly over the shared boundary.
@@ -4514,7 +4667,7 @@ function drawCountry() {
   ctx.fillStyle = 'rgba(160, 220, 180, 0.26)';
   ctx.font = 'bold 27px serif';
   ctx.textAlign = 'center';
-  ctx.fillText('Republic of Taliaria', nameX, nameY);
+  ctx.fillText(WORLD.mode === 'real' ? (WORLD.homeName || 'ISRAEL') : 'Republic of Taliaria', nameX, nameY);
   ctx.font = '10px monospace';
   ctx.fillStyle = 'rgba(110, 185, 140, 0.32)';
   ctx.fillText('AIR DEFENSE COMMAND', nameX, nameY + 14);
@@ -6158,12 +6311,12 @@ function showResultsModal() {
     // Per-difficulty headline cap so the player can immediately tell how
     // much room there is to grow at this difficulty (e.g. "12 / 35" on
     // a medium mission makes it obvious that medium tops out at 35).
-    const worldFactor = WORLD.mode === 'advanced' ? ADVANCED_XP_FACTOR : 1;
+    const worldFactor = WORLD.mode !== 'classic' ? ADVANCED_XP_FACTOR : 1;
     const diffCap = Math.round((XP_MAX_BY_DIFF[state.challengeDifficulty] || 35) * worldFactor);
     const diffLabel = {
       easy: 'קל', medium: 'בינוני', hard: 'קשה', extreme: 'קשה במיוחד'
     }[state.challengeDifficulty] || '';
-    const advLabel = WORLD.mode === 'advanced' ? ' 🌍 (מתקדם ×1.25)' : '';
+    const advLabel = WORLD.mode === 'advanced' ? ' 🌍 (מתקדם ×1.25)' : WORLD.mode === 'real' ? ' 🌐 (מבצעי ×1.25)' : '';
     awardHtml = `
       <div class="award-block">
         <div class="award-score">
@@ -6742,7 +6895,7 @@ function startAttackChallenge(difficulty) {
   state.challengeDifficulty = difficulty;
   // Terrain complexity scales with difficulty; in the advanced world the
   // hostile-front layout is difficulty-driven too, so regenerate it all.
-  if (WORLD.mode === 'advanced') regenerateGeography(difficulty);
+  if (WORLD.mode !== 'classic') regenerateGeography(difficulty);
   else regenerateMountains(difficulty);
   state.threatBudget = { ...profile.threatBudget };
   state.objective = profile.objective;
@@ -6754,7 +6907,7 @@ function startAttackChallenge(difficulty) {
   // Advanced world: post extra defense units toward each hostile front —
   // a multi-directional attack must not be cheaper than the classic axis.
   let missionDefenses = profile.defenses;
-  if (WORLD.mode === 'advanced') {
+  if (WORLD.mode !== 'classic') {
     missionDefenses = profile.defenses.concat(ADVANCED_ATTACK_EXTRA[difficulty] || []);
   }
   const numBatteries = missionDefenses.filter(d => CATALOG[d.key].kind === 'battery').length;
@@ -6783,8 +6936,8 @@ function startAttackChallenge(difficulty) {
 
   const intelLine = state.noIntel
     ? `<span style="font-size:12px;font-weight:400;color:#ff7373"><b>🕶 ללא מודיעין:</b> פריסת ההגנה נסתרת — תיחשף רק כשתפעיל את הסימולציה. תקציב: ${total} איומים</span>`
-    : `<span style="font-size:12px;font-weight:400">תקציב: ${total} איומים | בחר סוג, לחץ ${WORLD.mode === 'advanced' ? 'בשטח מדינה עוינת' : 'מחוץ לגבולות'}, ואז על יעד</span>`;
-  const frontsLine = WORLD.mode === 'advanced'
+    : `<span style="font-size:12px;font-weight:400">תקציב: ${total} איומים | בחר סוג, לחץ ${WORLD.mode !== 'classic' ? 'בשטח מדינה עוינת' : 'מחוץ לגבולות'}, ואז על יעד</span>`;
+  const frontsLine = WORLD.mode !== 'classic'
     ? `<br><span style="font-size:12px;font-weight:400;color:#ff9d9d">🚀 שגר מתוך: <b>${hostileNames()}</b></span>`
     : '';
   showBanner(
@@ -6838,7 +6991,7 @@ function generateAutoAttack() {
     else key = 'uav'; // saturation
     // launch from hostile territory (classic: west or north edges)
     let sx, sy;
-    if (WORLD.mode === 'advanced') {
+    if (WORLD.mode !== 'classic') {
       const p = randomHostilePoint();
       sx = p.x; sy = p.y;
     } else if (Math.random() < 0.3) {
@@ -6874,7 +7027,7 @@ function startDefenseChallenge(difficulty = 'medium') {
   state.challengeDifficulty = difficulty;
   // Terrain complexity scales with difficulty; in the advanced world the
   // hostile-front layout is difficulty-driven too, so regenerate it all.
-  if (WORLD.mode === 'advanced') regenerateGeography(difficulty);
+  if (WORLD.mode !== 'classic') regenerateGeography(difficulty);
   else regenerateMountains(difficulty);
   const profile = DEFENSE_DIFFICULTY[difficulty];
   if (!profile) return;
@@ -6893,7 +7046,7 @@ function startDefenseChallenge(difficulty = 'medium') {
     // Spawn from hostile territory: classic — the western red strip;
     // advanced — anywhere inside either hostile neighbour.
     let sx, sy;
-    if (WORLD.mode === 'advanced') {
+    if (WORLD.mode !== 'classic') {
       const p = randomHostilePoint();
       sx = p.x; sy = p.y;
     } else {
@@ -6910,7 +7063,7 @@ function startDefenseChallenge(difficulty = 'medium') {
 
   // Advanced world: supplement the budget for the second front
   let missionBudget = profile.budget;
-  if (WORLD.mode === 'advanced') {
+  if (WORLD.mode !== 'classic') {
     const extra = ADVANCED_DEFENSE_EXTRA[difficulty] || {};
     missionBudget = { ...profile.budget };
     for (const k in extra) missionBudget[k] = (missionBudget[k] || 0) + extra[k];
@@ -6930,7 +7083,7 @@ function startDefenseChallenge(difficulty = 'medium') {
   const intelLine = state.noIntel
     ? `<span style="font-size:12px;font-weight:400;color:#ff7373"><b>🕶 ללא מודיעין:</b> נתיבי האיומים יחשפו רק עם תחילת הסימולציה — תכנן הגנה רב-שכבתית!</span>`
     : `<span style="font-size:12px;font-weight:400">איומים מתקרבים: ${attackSize} | פרוס במסגרת התקציב</span>`;
-  const frontsLine = WORLD.mode === 'advanced'
+  const frontsLine = WORLD.mode !== 'classic'
     ? `<br><span style="font-size:12px;font-weight:400;color:#ff9d9d">⚔ חזיתות אויב: <b>${hostileNames()}</b></span>`
     : '';
   showBanner(
