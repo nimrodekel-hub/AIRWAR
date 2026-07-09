@@ -766,6 +766,11 @@ function loadRealWorld(difficulty) {
   g.data = new Float32Array(hm.w * hm.h);
   const kScale = hm.scaleM / 1000;
   for (let i = 0; i < g.data.length; i++) g.data[i] = bin.charCodeAt(i) * kScale;
+  // Stretch the hypsometric ramp to this country's own peaks so the
+  // relief shows the full colour spectrum, with denser contour lines
+  const homeMax = Math.max(0.9, ...pack.peaks.map(p => p.alt));
+  TERRAIN_STYLE.colorScale = 3.2 / homeMax;
+  TERRAIN_STYLE.contourStep = 0.25;
   buildTerrainOverlay();
 
   PEAK_LABELS.length = 0;
@@ -804,6 +809,14 @@ function labelScale() {
   return window.MOBILE_MODE ? 1.7 : 1;
 }
 
+// Zoom compensation for icons/labels: past 100% zoom the world-space
+// glyphs shrink so they keep a constant on-screen size instead of
+// swallowing a small operational theater when zoomed in.
+function iconZoomComp() {
+  const s = state.viewport && state.viewport.scale ? state.viewport.scale : 1;
+  return Math.min(1, 1 / s);
+}
+
 // Bilinear lookup into the baked grid (falls back to analytic pre-bake)
 function getTerrainAlt(x, y) {
   const g = TERRAIN_GRID;
@@ -831,6 +844,12 @@ function buildTerrainGrid() {
 // Hypsometric tint ramp — classic topographic-map colours:
 // deep green lowlands → light green → tan/yellow → orange → red-brown →
 // pale rock at the summits. [alt km, r, g, b, alpha]
+// Terrain rendering style — procedural worlds use the palette as-is;
+// real-country packs stretch the colour ramp to the country's own
+// elevation range so a 1,000m country still shows the full hypsometric
+// spectrum, and draw denser contours.
+const TERRAIN_STYLE = { colorScale: 1, contourStep: 0.5 };
+
 const HYPSO_STOPS = [
   [0.10,  46, 110,  60, 0.00],
   [0.35,  62, 138,  68, 0.40],
@@ -871,7 +890,7 @@ function buildTerrainOverlay() {
   let Lx = -0.6, Ly = -0.6, Lz = 0.55;
   const Ll = Math.hypot(Lx, Ly, Lz); Lx /= Ll; Ly /= Ll; Lz /= Ll;
   const EXAG = 30;            // vertical exaggeration for slope shading
-  const CONTOUR_STEP = 0.5;   // km between contour lines
+  const CONTOUR_STEP = TERRAIN_STYLE.contourStep;   // km between contour lines
 
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
@@ -880,7 +899,7 @@ function buildTerrainOverlay() {
       if (alt < 0.1) continue;   // lowland plain — base map colour shows through
 
       // 1. Hypsometric base colour
-      let [r, g, b, a] = hypsoColor(alt);
+      let [r, g, b, a] = hypsoColor(alt * TERRAIN_STYLE.colorScale);
 
       // 2. Hillshade composited over the tint
       const gx = getTerrainAlt(x + 2, y) - getTerrainAlt(x - 2, y);
@@ -955,6 +974,8 @@ function regenerateMountains(difficulty) {
   const prof = TERRAIN_PROFILES[difficulty] || TERRAIN_PROFILES.medium;
   MOUNTAINS.length = 0;
   HILLS.length = 0;
+  TERRAIN_STYLE.colorScale = 1;
+  TERRAIN_STYLE.contourStep = 0.5;
 
   if (WORLD.mode === 'advanced') {
     regenerateMountainsAdvanced(prof);
@@ -4288,6 +4309,8 @@ function drawKillLabels() {
     const subColor  = isMiss ? 'rgba(252, 165, 165, 0.75)' : 'rgba(134, 239, 172, 0.75)';
     ctx.save();
     ctx.globalAlpha = Math.max(0, alpha);
+    const zc = iconZoomComp();
+    ctx.translate(k.x, k.y); ctx.scale(zc, zc); ctx.translate(-k.x, -k.y);
     ctx.font = 'bold 12px "Share Tech Mono", ui-monospace, monospace';
     ctx.textAlign = 'center';
     const y = k.y - 18 - rise;
@@ -4687,6 +4710,17 @@ function drawCountry() {
   const land = LAND_POLYGON;
   const advanced = WORLD.mode !== 'classic';
 
+  // Operational mode: real relief matters beyond the border too — show
+  // the whole theater's terrain (dimmed) underneath the neighbours, so
+  // ridges in Lebanon/Syria/Sinai read on the map exactly as the LOS
+  // engine sees them.
+  if (WORLD.mode === 'real' && TERRAIN_CANVAS) {
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.drawImage(TERRAIN_CANVAS, 0, 0);
+    ctx.restore();
+  }
+
   // Neighbouring countries sit under the home country so the home
   // border and glow paint cleanly over the shared boundary.
   if (advanced) drawNeighbors();
@@ -4802,7 +4836,10 @@ function drawMountains() {
 function drawTargets() {
   ctx.textAlign = 'center';
   const targetingPhase = state.mode === 'placing' && state.placeStep === 'target';
+  const zc = iconZoomComp();
   for (const t of TARGETS) {
+    ctx.save();
+    ctx.translate(t.x, t.y); ctx.scale(zc, zc); ctx.translate(-t.x, -t.y);
     // Bold prominence ring (always visible) so targets aren't lost behind battery icons
     const radial = ctx.createRadialGradient(t.x, t.y, 4, t.x, t.y, 22);
     radial.addColorStop(0, 'rgba(251, 191, 36, 0.35)');
@@ -4849,6 +4886,7 @@ function drawTargets() {
     const tlS = labelScale();
     ctx.font = `bold ${Math.round(11 * tlS)}px monospace`;
     ctx.fillText(t.name, t.x, t.y - 14 * tlS);
+    ctx.restore();
   }
 }
 
@@ -4964,6 +5002,9 @@ function drawDefenses() {
     const sd = (_scrubDef && i < _scrubDef.length) ? _scrubDef[i] : d;
     const c = CATALOG[d.key];
     const depleted = c.kind === 'battery' && sd.ammo <= 0;
+    const zc = iconZoomComp();
+    ctx.save();
+    ctx.translate(d.x, d.y); ctx.scale(zc, zc); ctx.translate(-d.x, -d.y);
 
     // Reaction-time preparation indicator: prominent filling ring around the battery
     if (sd.prepareTarget != null && state.simElapsed < sd.prepareUntil) {
@@ -5113,6 +5154,7 @@ function drawDefenses() {
       ctx.fillText(txt, d.x, by + bh/2);
       ctx.textBaseline = 'alphabetic';
     }
+    ctx.restore();
   }
 }
 
@@ -5146,9 +5188,12 @@ function drawThreatPaths() {
 
 function drawThreats() {
   if (intelHidden() && state.challengeMode === 'defense-challenge') return;
+  const zc = iconZoomComp();
   for (const t of state.threats) {
     const c = CATALOG[t.key];
     if (t.status === 'destroyed') continue;
+    ctx.save();
+    ctx.translate(t.x, t.y); ctx.scale(zc, zc); ctx.translate(-t.x, -t.y);
 
     const ang = Math.atan2(t.ty - t.sy, t.tx - t.sx);
 
@@ -5219,6 +5264,7 @@ function drawThreats() {
     ctx.textBaseline = 'middle';
     ctx.fillText(labelText, t.x, by + bh / 2);
     ctx.textBaseline = 'alphabetic';
+    ctx.restore();
   }
 }
 
@@ -5364,7 +5410,10 @@ function drawDrone() {
 }
 
 function drawMissiles() {
+  const zc = iconZoomComp();
   for (const m of state.missiles) {
+    ctx.save();
+    ctx.translate(m.x, m.y); ctx.scale(zc, zc); ctx.translate(-m.x, -m.y);
     const dx = m.tx - m.sx, dy = m.ty - m.sy;
     const len = Math.hypot(dx, dy) || 1;
     const ux = dx / len, uy = dy / len;
@@ -5395,12 +5444,16 @@ function drawMissiles() {
     headGrad.addColorStop(1, 'rgba(251, 191, 36, 0)');
     ctx.beginPath(); ctx.arc(m.x, m.y, 5, 0, Math.PI * 2);
     ctx.fillStyle = headGrad; ctx.fill();
+    ctx.restore();
   }
 }
 
 // Mid-air interception puff — multi-ring spark burst, distinct from ground impact
 function drawExplosions() {
+  const zc = iconZoomComp();
   for (const e of state.explosions) {
+    ctx.save();
+    ctx.translate(e.x, e.y); ctx.scale(zc, zc); ctx.translate(-e.x, -e.y);
     const k = e.t / e.dur;
     const a = 1 - k;
 
@@ -5427,6 +5480,7 @@ function drawExplosions() {
     fGrad.addColorStop(1,   'rgba(255, 80, 10, 0)');
     ctx.beginPath(); ctx.arc(e.x, e.y, fr, 0, Math.PI * 2);
     ctx.fillStyle = fGrad; ctx.fill();
+    ctx.restore();
   }
 }
 
