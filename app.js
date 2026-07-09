@@ -314,7 +314,12 @@ function randomHostilePoint() {
     const x = nb.bbox.x0 + Math.random() * (nb.bbox.x1 - nb.bbox.x0);
     const y = nb.bbox.y0 + Math.random() * (nb.bbox.y1 - nb.bbox.y0);
     if (x < 8 || x > 1192 || y < 8 || y > 792) continue;
-    if (pointInPolygon(x, y, nb.poly)) return { x, y };
+    if (!pointInPolygon(x, y, nb.poly)) continue;
+    // Real theaters: launch from within ~220km of the border, not from
+    // the far side of a huge neighbour (keeps approach times sane).
+    // Relax the cap late in the loop for slim border geometries.
+    if (WORLD.mode === 'real' && i < 300 && distToHomeBorder(x, y) > 220) continue;
+    return { x, y };
   }
   return { ...nb.centroid };
 }
@@ -816,6 +821,18 @@ function iconZoomComp() {
   const s = state.viewport && state.viewport.scale ? state.viewport.scale : 1;
   return Math.min(1, 1 / s);
 }
+
+// Operational theaters are 5-10x shallower than the 1200km procedural
+// world (Lebanon-Haifa is 45km; Jordan-Jerusalem 30km). At stock speeds
+// a fighter crosses that inside a single battery reaction time, making
+// defense physically impossible. In real mode threats AND interceptors
+// slow by the same factor — geometry stays identical, but reaction
+// times and cooldowns (absolute seconds) regain a realistic window.
+function kinScale() {
+  return WORLD.mode === 'real' ? 0.3 : 1;
+}
+function threatSpeedOf(tc) { return tc.speed * kinScale(); }
+function interceptorSpeedOf(c) { return c.missileSpeed * kinScale(); }
 
 // Bilinear lookup into the baked grid (falls back to analytic pre-bake)
 function getTerrainAlt(x, y) {
@@ -2884,7 +2901,7 @@ const TUTORIAL_STEPS = [
       <ul>
         <li>🧭 <b>משחק יסודות</b> — המפה הקלאסית: כל האיומים מגיעים מ<b>חזית אחת במערב</b> (האזור האדום). מומלץ ללמידת המערכות והטקטיקות.</li>
         <li>🌍 <b>משחק מתקדם</b> — עולם אקראי לגמרי: צורת המדינה מוגרלת בכל משחק, מוקפת <b>4 מדינות שכנות</b> ששתיים מהן עוינות, עם ימים גובלים ואגמים פנימיים. איומים מגיעים <b>מכמה כיוונים בו-זמנית</b>.</li>
-        <li>🌐 <b>מבצעי: ישראל</b> — תרגול על <b>מפה אמיתית</b>: גבולות אמיתיים (Natural Earth), <b>טופוגרפיה אמיתית</b> (SRTM — הגולן, הרי יהודה, הנגב משפיעים על קו-ראייה כמו במציאות), הכנרת וים המלח, יעדים אמיתיים (ירושלים, תל אביב, חיפה, באר שבע, בסיס נבטים) ושכנות אמיתיות. לפני המשימה תוכל <b>לבחור מאילו מדינות תגיע התקיפה</b> (או להגריל), וכן <b>גזרת הגנה</b>: כל המדינה, צפון, מרכז או דרום — במשימת גזרה מגינים רק על יעדי הגזרה והמפה מתמקדת בה. טווחי הנשק הם ק"מ אמיתיים על המפה. XP ×1.25.</li>
+        <li>🌐 <b>מבצעי: ישראל</b> — תרגול על <b>מפה אמיתית</b>: גבולות אמיתיים (Natural Earth), <b>טופוגרפיה אמיתית</b> (SRTM — הגולן, הרי יהודה, הנגב משפיעים על קו-ראייה כמו במציאות), הכנרת וים המלח, יעדים אמיתיים (ירושלים, תל אביב, חיפה, באר שבע, בסיס נבטים) ושכנות אמיתיות. לפני המשימה תוכל <b>לבחור מאילו מדינות תגיע התקיפה</b> (או להגריל), וכן <b>גזרת הגנה</b>: כל המדינה, צפון, מרכז או דרום — במשימת גזרה מגינים רק על יעדי הגזרה והמפה מתמקדת בה. טווחי הנשק הם ק"מ אמיתיים על המפה, ומהירויות האיומים והמיירטים מותאמות לעומק הזירה כך שיירוט אפשרי גם כשהגבול קרוב. XP ×1.25.</li>
       </ul>
       <h4>שני מצבי משחק עיקריים:</h4>
       <ul>
@@ -5904,7 +5921,7 @@ function tick(dt) {
     const c = CATALOG[t.key];
     const dx = t.tx - t.x, dy = t.ty - t.y;
     const dist = Math.hypot(dx, dy);
-    const step = c.speed * dt;
+    const step = threatSpeedOf(c) * dt;
     if (dist <= step) {
       t.x = t.tx; t.y = t.ty;
       if (t.status !== 'reached') triggerTargetHit(t);
@@ -6109,14 +6126,15 @@ function computeIntercept(t, d, c, tc, launchDelay) {
   const fdx = t.tx - t.sx, fdy = t.ty - t.sy;
   const flen = Math.hypot(fdx, fdy) || 1;
   const tvx = fdx / flen, tvy = fdy / flen;
-  const launchX = t.x + tvx * tc.speed * delay;
-  const launchY = t.y + tvy * tc.speed * delay;
-  let T = Math.hypot(launchX - d.x, launchY - d.y) / c.missileSpeed;
+  const ts = threatSpeedOf(tc), ms = interceptorSpeedOf(c);
+  const launchX = t.x + tvx * ts * delay;
+  const launchY = t.y + tvy * ts * delay;
+  let T = Math.hypot(launchX - d.x, launchY - d.y) / ms;
   let ipx = launchX, ipy = launchY;
   for (let i = 0; i < 6; i++) {
-    ipx = launchX + tvx * tc.speed * T;
-    ipy = launchY + tvy * tc.speed * T;
-    T = Math.hypot(ipx - d.x, ipy - d.y) / c.missileSpeed;
+    ipx = launchX + tvx * ts * T;
+    ipy = launchY + tvy * ts * T;
+    T = Math.hypot(ipx - d.x, ipy - d.y) / ms;
   }
   return { ipx, ipy, T, tvx, tvy };
 }
@@ -6150,7 +6168,7 @@ function isViableShot(t, d, c, tc, launchDelay) {
   const cosAng = (btx / blen) * tvx + (bty / blen) * tvy;
   if (Math.abs(cosAng) < 0.15) return false;
   const delay = (launchDelay !== undefined) ? launchDelay : c.reactionTime;
-  const remaining = Math.hypot(t.tx - t.x, t.ty - t.y) / tc.speed;
+  const remaining = Math.hypot(t.tx - t.x, t.ty - t.y) / threatSpeedOf(tc);
   if (delay + T > remaining) return false;
   return true;
 }
@@ -6200,8 +6218,8 @@ function fireMissile(d, t) {
   const fdx = t.tx - t.sx, fdy = t.ty - t.sy;
   const flen = Math.hypot(fdx, fdy) || 1;
   const tvx = fdx / flen, tvy = fdy / flen;
-  const threatSpeed = tc.speed;
-  const missileSpeed = c.missileSpeed;
+  const threatSpeed = threatSpeedOf(tc);
+  const missileSpeed = interceptorSpeedOf(c);
 
   // Iterative lead-pursuit intercept solution — converges on the future
   // point where missile and threat will collide.
@@ -6963,25 +6981,26 @@ function simulateEngagementOutcome(t, d, c, tc) {
   if (!losClear) return 'los-blocked';
 
   // 4. In-range chord too short for the reaction time
-  const inRangeTime = (exitDist - entryDist) / tc.speed;
+  const ts = threatSpeedOf(tc), ms = interceptorSpeedOf(c);
+  const inRangeTime = (exitDist - entryDist) / ts;
   if (c.reactionTime > inRangeTime) return 'flight-time';
 
   // 5. Battery commits at entry, missile launches after reactionTime
   const launchTimeFromEntry = c.reactionTime;
-  const launchX = t.sx + ux * (entryDist + tc.speed * launchTimeFromEntry);
-  const launchY = t.sy + uy * (entryDist + tc.speed * launchTimeFromEntry);
+  const launchX = t.sx + ux * (entryDist + ts * launchTimeFromEntry);
+  const launchY = t.sy + uy * (entryDist + ts * launchTimeFromEntry);
 
   // 6. Iterative lead-pursuit intercept
-  let T = Math.hypot(launchX - d.x, launchY - d.y) / c.missileSpeed;
+  let T = Math.hypot(launchX - d.x, launchY - d.y) / ms;
   let ipx = launchX, ipy = launchY;
   for (let i = 0; i < 6; i++) {
-    ipx = launchX + ux * tc.speed * T;
-    ipy = launchY + uy * tc.speed * T;
-    T = Math.hypot(ipx - d.x, ipy - d.y) / c.missileSpeed;
+    ipx = launchX + ux * ts * T;
+    ipy = launchY + uy * ts * T;
+    T = Math.hypot(ipx - d.x, ipy - d.y) / ms;
   }
 
   // 7. Threat may reach its target before the missile arrives
-  const remaining = Math.hypot(t.tx - launchX, t.ty - launchY) / tc.speed;
+  const remaining = Math.hypot(t.tx - launchX, t.ty - launchY) / ts;
   if (T > remaining) return 'flight-time';
 
   // 8. Intercept point may be outside the (RCS-adjusted) envelope
