@@ -122,6 +122,8 @@ const HILLS = [];       // broad low mounds — visual texture + mild terrain-fo
 //              Threats can arrive from every hostile border.
 const WORLD = {
   mode: 'classic',
+  realHostiles: null,   // real mode: player-picked hostile names (null = random)
+  realSector: null,     // real mode: defended sector 'n'|'c'|'s' (null = whole country)
   neighbors: [],   // [{name, hostile, poly, bbox, centroid, arcMid, labelX, labelY}]
   lakes: [],       // [{poly, cx, cy}]
   center: { x: 620, y: 400 },
@@ -647,6 +649,12 @@ function shoelaceArea(poly) {
 // in the pack. Same difficulty semantics as the procedural world:
 // easy = closest pair, hard/extreme = opposite pair, else random.
 function markHostilesReal(difficulty) {
+  // Player-picked fronts take precedence over the random draw
+  if (WORLD.realHostiles && WORLD.realHostiles.length) {
+    const want = new Set(WORLD.realHostiles);
+    for (const nb of WORLD.neighbors) nb.hostile = !!nb.eligible && want.has(nb.name);
+    if (WORLD.neighbors.some(nb => nb.hostile)) return;
+  }
   const groups = {};
   for (const nb of WORLD.neighbors) {
     nb.hostile = false;
@@ -728,8 +736,24 @@ function loadRealWorld(difficulty) {
     TARGETS.push({
       name: t.nameHe || t.name, value: t.value,
       capital: !!t.capital, airbase: !!t.airbase,
+      sector: t.sector || null,
       x: t.x, y: t.y
     });
+  }
+  // Defended-sector drill: keep only that sector's targets. If the
+  // capital fell outside, the sector's highest-value target becomes
+  // the primary objective (drawn with the star).
+  if (WORLD.realSector) {
+    const keep = TARGETS.filter(t => t.sector === WORLD.realSector);
+    if (keep.length >= 2) {
+      TARGETS.length = 0;
+      for (const t of keep) TARGETS.push(t);
+      if (!TARGETS.some(t => t.capital)) {
+        let top = TARGETS[0];
+        for (const t of TARGETS) if (t.value > top.value) top = t;
+        top.capital = true;
+      }
+    }
   }
 
   // Real terrain: decode the pack heightmap straight into the LOS grid
@@ -1211,7 +1235,7 @@ const ATTACK_DIFFICULTY = {
     label: 'קל',
     threatBudget: { uav: 24, fighter: 8, helicopter: 8 },  // 40 total
     objective: {
-      text: 'פגע ב<b>בירה</b>',
+      text: 'פגע ב<b>יעד הראשי ⭐</b>',
       check: (hits) => hits.has(capitalName())
     },
     defenses: [
@@ -1240,7 +1264,7 @@ const ATTACK_DIFFICULTY = {
     label: 'קשה',
     threatBudget: { uav: 12, fighter: 4, helicopter: 4 },  // 20 total
     objective: {
-      text: 'פגע ב-<b>4 יעדים אסטרטגיים שונים</b>, או ב<b>בירה + 2 יעדים נוספים</b>',
+      text: 'פגע ב-<b>4 יעדים אסטרטגיים שונים</b>, או ב<b>יעד הראשי ⭐ + 2 נוספים</b>',
       check: (hits) => hits.size >= 4 || (hits.has(capitalName()) && hits.size >= 3)
     },
     defenses: [
@@ -1267,7 +1291,7 @@ const ATTACK_DIFFICULTY = {
     noIntel: true,
     threatBudget: { uav: 12, fighter: 4, helicopter: 4 },  // 20 total
     objective: {
-      text: 'פגע ב-<b>4 יעדים שונים</b>, או ב<b>בירה + 2 נוספים</b> — <span style="color:#dc2626">ההגנה נסתרת!</span>',
+      text: 'פגע ב-<b>4 יעדים שונים</b>, או ב<b>יעד הראשי ⭐ + 2 נוספים</b> — <span style="color:#dc2626">ההגנה נסתרת!</span>',
       check: (hits) => hits.size >= 4 || (hits.has(capitalName()) && hits.size >= 3)
     },
     defenses: [
@@ -1313,7 +1337,7 @@ const DEFENSE_DIFFICULTY = {
     budget: { ironDome: 4, sa8: 3, barak8: 3, patriot: 2, davidsSling: 2,
               longRadar: 2, medRadar: 3, shortRadar: 3 },
     objective: {
-      text: 'הגן על <b>הבירה</b> ואל תאפשר פגיעה ב-<b>3 יעדים אחרים או יותר</b>',
+      text: 'הגן על <b>היעד הראשי ⭐</b> ואל תאפשר פגיעה ב-<b>3 יעדים אחרים או יותר</b>',
       check: (hits) => !hits.has(capitalName()) && nonCapitalHits(hits) < 3
     }
   },
@@ -1324,7 +1348,7 @@ const DEFENSE_DIFFICULTY = {
     budget: { ironDome: 3, sa8: 2, barak8: 2, patriot: 1, davidsSling: 1,
               longRadar: 1, medRadar: 2, shortRadar: 2 },
     objective: {
-      text: 'הגן על <b>הבירה</b> ואל תאפשר פגיעה ב-<b>2 יעדים אחרים או יותר</b>',
+      text: 'הגן על <b>היעד הראשי ⭐</b> ואל תאפשר פגיעה ב-<b>2 יעדים אחרים או יותר</b>',
       check: (hits) => !hits.has(capitalName()) && nonCapitalHits(hits) < 2
     }
   },
@@ -1335,7 +1359,7 @@ const DEFENSE_DIFFICULTY = {
     budget: { ironDome: 2, sa8: 1, barak8: 1, patriot: 1, davidsSling: 1,
               longRadar: 1, medRadar: 1, shortRadar: 1 },
     objective: {
-      text: 'הגן על <b>הבירה</b> ואל תאפשר אף פגיעה ביעד נוסף',
+      text: 'הגן על <b>היעד הראשי ⭐</b> ואל תאפשר אף פגיעה ביעד נוסף',
       check: (hits) => !hits.has(capitalName()) && nonCapitalHits(hits) < 1
     }
   },
@@ -1350,7 +1374,7 @@ const DEFENSE_DIFFICULTY = {
     budget: { ironDome: 2, sa8: 1, barak8: 1, patriot: 1, davidsSling: 1,
               longRadar: 1, medRadar: 1, shortRadar: 1 },
     objective: {
-      text: 'הגן על <b>הבירה</b> ואל תאפשר אף פגיעה ביעד נוסף — <span style="color:#dc2626">ההתקפה נסתרת!</span>',
+      text: 'הגן על <b>היעד הראשי ⭐</b> ואל תאפשר אף פגיעה ביעד נוסף — <span style="color:#dc2626">ההתקפה נסתרת!</span>',
       check: (hits) => !hits.has(capitalName()) && nonCapitalHits(hits) < 1
     }
   }
@@ -2266,6 +2290,10 @@ function makeChallengeLink() {
     w: state.duel.seed,
     D: state.defenses.map(x => [DUEL_UNIT_KEYS.indexOf(x.key), Math.round(x.x), Math.round(x.y)])
   };
+  if (state.duel.worldMode === 'real') {
+    payload.rh = [...new Set(hostileNeighbors().map(nb => nb.name))];
+    payload.rs = WORLD.realSector || '';
+  }
   const url = location.origin + location.pathname + '#duel=' + encodeDuel(payload);
   showDuelLinkModal(
     '⚔ קישור האתגר מוכן!',
@@ -2278,6 +2306,8 @@ function makeChallengeLink() {
 function enterDuelAttack(p) {
   resetAll();
   WORLD.mode = p.m === 2 ? 'real' : p.m === 1 ? 'advanced' : 'classic';
+  WORLD.realHostiles = (p.rh && p.rh.length) ? p.rh : null;
+  WORLD.realSector = p.rs || null;
   syncWorldModeButtons();
   withSeed(p.w, () => regenerateGeography(p.d));
   resetView();
@@ -2343,6 +2373,10 @@ function makeResultLink() {
     S: scores,
     o: r.objectiveMet ? 1 : 0
   };
+  if (state.duel.worldMode === 'real') {
+    payload.rh = [...new Set(hostileNeighbors().map(nb => nb.name))];
+    payload.rs = WORLD.realSector || '';
+  }
   const url = location.origin + location.pathname + '#duel=' + encodeDuel(payload);
   const verdict = scores.atk > scores.def ? 'ניצחת את המגן!' : scores.def > scores.atk ? 'המגן ניצח הפעם' : 'תיקו!';
   showDuelLinkModal(
@@ -2356,6 +2390,8 @@ function makeResultLink() {
 function enterDuelReview(p, rawPayload) {
   resetAll();
   WORLD.mode = p.m === 2 ? 'real' : p.m === 1 ? 'advanced' : 'classic';
+  WORLD.realHostiles = (p.rh && p.rh.length) ? p.rh : null;
+  WORLD.realSector = p.rs || null;
   syncWorldModeButtons();
   withSeed(p.w, () => regenerateGeography(p.d));
   resetView();
@@ -2581,6 +2617,7 @@ function bindControls() {
     btn.addEventListener('click', () => setWorldMode(btn.dataset.worldmode));
   });
   syncWorldModeButtons();
+  renderRealOptions();
 
   // Start modal can be dismissed without losing an active game —
   // starting a mission is what resets, not opening the picker.
@@ -2647,6 +2684,55 @@ function syncWorldModeButtons() {
     const [cls, html] = byMode[WORLD.mode] || byMode.classic;
     ind.className = 'track-indicator ' + cls;
     ind.innerHTML = html;
+  }
+  const opts = document.getElementById('real-options');
+  if (opts) opts.style.display = WORLD.mode === 'real' ? '' : 'none';
+}
+
+// Operational-mode mission options: which neighbours attack (multi-select,
+// empty = random draw per difficulty) and which sector is defended.
+// Selections apply to the next mission (and to duel challenges you create).
+function renderRealOptions() {
+  const fronts = document.getElementById('real-fronts-chips');
+  if (!fronts) return;
+  const pack = (window.COUNTRY_PACKS || {})[WORLD.countryId || 'il'];
+  if (!pack) return;
+  fronts.innerHTML = '<button class="rf-chip active" data-front="random">🎲 אקראי</button>' +
+    pack.neighbors.filter(n => n.eligible).map(n =>
+      `<button class="rf-chip" data-front="${n.name}">${n.nameHe || n.name}</button>`).join('');
+  const applyNow = () => {
+    if (WORLD.mode === 'real') {
+      regenerateGeography();
+      resetView();
+    }
+  };
+  fronts.querySelectorAll('.rf-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const rnd = fronts.querySelector('[data-front="random"]');
+      if (btn.dataset.front === 'random') {
+        WORLD.realHostiles = null;
+        fronts.querySelectorAll('.rf-chip').forEach(b =>
+          b.classList.toggle('active', b === rnd));
+      } else {
+        btn.classList.toggle('active');
+        const sel = [...fronts.querySelectorAll('.rf-chip.active')]
+          .map(b => b.dataset.front).filter(f => f !== 'random');
+        WORLD.realHostiles = sel.length ? sel : null;
+        rnd.classList.toggle('active', !sel.length);
+      }
+      applyNow();
+    });
+  });
+  const sect = document.getElementById('real-sector-chips');
+  if (sect) {
+    sect.querySelectorAll('.rs-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        sect.querySelectorAll('.rs-chip').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        WORLD.realSector = btn.dataset.sector || null;
+        applyNow();
+      });
+    });
   }
 }
 
@@ -2777,7 +2863,7 @@ const TUTORIAL_STEPS = [
       <ul>
         <li>🧭 <b>משחק יסודות</b> — המפה הקלאסית: כל האיומים מגיעים מ<b>חזית אחת במערב</b> (האזור האדום). מומלץ ללמידת המערכות והטקטיקות.</li>
         <li>🌍 <b>משחק מתקדם</b> — עולם אקראי לגמרי: צורת המדינה מוגרלת בכל משחק, מוקפת <b>4 מדינות שכנות</b> ששתיים מהן עוינות, עם ימים גובלים ואגמים פנימיים. איומים מגיעים <b>מכמה כיוונים בו-זמנית</b>.</li>
-        <li>🌐 <b>מבצעי: ישראל</b> — תרגול על <b>מפה אמיתית</b>: גבולות אמיתיים (Natural Earth), <b>טופוגרפיה אמיתית</b> (SRTM — הגולן, הרי יהודה, הנגב משפיעים על קו-ראייה כמו במציאות), הכנרת וים המלח, יעדים אמיתיים (ירושלים, תל אביב, חיפה, באר שבע, בסיס נבטים) ושכנות אמיתיות. שתי חזיתות עוינות מוגרלות מבין השכנות בכל משחק — טווחי הנשק הם ק"מ אמיתיים על המפה. XP ×1.25.</li>
+        <li>🌐 <b>מבצעי: ישראל</b> — תרגול על <b>מפה אמיתית</b>: גבולות אמיתיים (Natural Earth), <b>טופוגרפיה אמיתית</b> (SRTM — הגולן, הרי יהודה, הנגב משפיעים על קו-ראייה כמו במציאות), הכנרת וים המלח, יעדים אמיתיים (ירושלים, תל אביב, חיפה, באר שבע, בסיס נבטים) ושכנות אמיתיות. לפני המשימה תוכל <b>לבחור מאילו מדינות תגיע התקיפה</b> (או להגריל), וכן <b>גזרת הגנה</b>: כל המדינה, צפון, מרכז או דרום — במשימת גזרה מגינים רק על יעדי הגזרה והמפה מתמקדת בה. טווחי הנשק הם ק"מ אמיתיים על המפה. XP ×1.25.</li>
       </ul>
       <h4>שני מצבי משחק עיקריים:</h4>
       <ul>
@@ -3209,9 +3295,9 @@ const TUTORIAL_STEPS = [
       <p>כמות הכלים האוויריים שתוכל להשתמש מוצגת בתג אדום על כפתורי האיומים. כל איום שתציב יוריד את הכמות שבידיך.</p>
       <h4>תנאי ניצחון לפי רמה:</h4>
       <ul>
-        <li>🟢 <b>קל</b>: פגע ב<b>בירה</b>. לרשותך 40 כלים אוויריים.</li>
+        <li>🟢 <b>קל</b>: פגע ב<b>יעד הראשי ⭐</b>. לרשותך 40 כלים אוויריים.</li>
         <li>🟡 <b>בינוני</b>: פגע ב<b>3 יעדים אסטרטגיים שונים</b>. לרשותך 30 כלים אוויריים.</li>
-        <li>🔴 <b>קשה</b>: פגע ב<b>4 יעדים שונים</b>, או ב<b>בירה + 2 נוספים</b>. לרשותך 20 כלים אוויריים.</li>
+        <li>🔴 <b>קשה</b>: פגע ב<b>4 יעדים שונים</b>, או ב<b>יעד הראשי ⭐ + 2 נוספים</b>. לרשותך 20 כלים אוויריים.</li>
         <li>🕶 <b>קשה במיוחד (ללא מודיעין)</b>: כמו <b>קשה</b>, אבל <u>פריסת ההגנה נסתרת</u>. אתה לא רואה איפה ההגנה פרוסה — תכנן את נתיבי התקיפה לפי הנחות בלבד. ההגנה מתגלה רק כשתפעיל סימולציה.</li>
       </ul>
       <div class="tip">🕶 <b>מתאר ללא מודיעין</b>: זוהי הסיטואציה של מתכנן תקיפה אווירית כאשר המודיעין על מערך ההגנה שלם או חלקי לא קיים. תפזר את האיומים על מספר וקטורים שונים כדי למקסם סיכויי פריצה דרך נקודות חולשה שאתה לא מכיר. שלח כטב"מים זולים כ"גלאים" לפני שיגור Fighters יקרים.</div>
@@ -3403,10 +3489,22 @@ function resetView() {
   // mobile bias the view LEFT so the western spawn region is visible.
   const real = WORLD.mode === 'real';
   const advanced = WORLD.mode !== 'classic';
-  const s  = real ? (isMobile ? 0.62 : 1.05)
-           : isMobile ? (advanced ? 0.42 : 0.48) : (advanced ? 0.8 : 0.85);
-  const cx = real ? WORLD.center.x : advanced ? 600 : (isMobile ? 600 : 720);
-  const cy = real ? WORLD.center.y : advanced ? 400 : 410;
+  let s  = isMobile ? (advanced ? 0.42 : 0.48) : (advanced ? 0.8 : 0.85);
+  let cx = advanced ? 600 : (isMobile ? 600 : 720);
+  let cy = advanced ? 400 : 410;
+  if (real && TARGETS.length) {
+    // Frame the defended targets (whole country or the chosen sector)
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    for (const t of TARGETS) {
+      if (t.x < x0) x0 = t.x; if (t.x > x1) x1 = t.x;
+      if (t.y < y0) y0 = t.y; if (t.y > y1) y1 = t.y;
+    }
+    cx = (x0 + x1) / 2;
+    cy = (y0 + y1) / 2;
+    const bw = Math.max(140, x1 - x0), bh = Math.max(140, y1 - y0);
+    s = Math.min(isMobile ? 1.1 : 1.55, W / (bw + 340), H / (bh + 260));
+    s = Math.max(isMobile ? 0.5 : 0.7, s);
+  }
   state.viewport = {
     offsetX: W / 2 - cx * s,
     offsetY: H / 2 - cy * s,

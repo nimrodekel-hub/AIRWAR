@@ -7,14 +7,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20260707a">
+  <link rel="stylesheet" href="styles.css?v=20260707b">
 </head>
 <body>
   <div id="app">
     <aside id="sidebar">
       <header>
         <h1>פיקוד הגנה אווירית</h1>
-        <div class="subtitle">משחק מלחמה: כחול נגד אדום <span class="version-tag">v20260707a</span></div>
+        <div class="subtitle">משחק מלחמה: כחול נגד אדום <span class="version-tag">v20260707b</span></div>
         <button id="open-tutorial" class="instructions-btn">📘 הוראות המשחק</button>
         <button id="open-start" class="newgame-btn">🆕 משחק חדש</button>
         <div class="side-toggle" id="side-toggle">
@@ -213,6 +213,21 @@
           </button>
         </div>
         <div id="track-indicator" class="track-indicator cls"></div>
+        <div id="real-options" style="display:none">
+          <div class="real-opt-row">
+            <span class="rf-label">⚔ חזיתות התקיפה:</span>
+            <span id="real-fronts-chips"></span>
+          </div>
+          <div class="real-opt-row">
+            <span class="rf-label">🗺 גזרת ההגנה:</span>
+            <span id="real-sector-chips">
+              <button class="rs-chip active" data-sector="">כל המדינה</button>
+              <button class="rs-chip" data-sector="n">צפון</button>
+              <button class="rs-chip" data-sector="c">מרכז</button>
+              <button class="rs-chip" data-sector="s">דרום</button>
+            </span>
+          </div>
+        </div>
         <div class="start-grid" id="start-grid">
           <div class="start-section defense">
             <div class="start-section-title">🛡 משחק הגנה</div>
@@ -273,7 +288,7 @@
     </div>
   </div>
 
-  <script src="countries/il.js?v=20260707a"></script>
-  <script src="app.js?v=20260707a"></script>
+  <script src="countries/il.js?v=20260707b"></script>
+  <script src="app.js?v=20260707b"></script>
 </body>
 </html>
