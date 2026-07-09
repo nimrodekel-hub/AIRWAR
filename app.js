@@ -5175,32 +5175,55 @@ function drawDefenses() {
   }
 }
 
+// Threat paths render onto an offscreen layer at full opacity which is
+// then composited at a fixed alpha — so 25 overlapping paths from one
+// front read as clean individual lines instead of stacking into an
+// opaque blanket over the map.
+let _pathLayer = null;
 function drawThreatPaths() {
   if (intelHidden() && state.challengeMode === 'defense-challenge') return;
+  if (!state.threats.length) return;
+  const live = isSimActive() || state.scrubTime != null;
+  if (!_pathLayer) {
+    _pathLayer = document.createElement('canvas');
+    _pathLayer.width = 2400;
+    _pathLayer.height = 1600;
+  }
+  const pc = _pathLayer.getContext('2d');
+  pc.clearRect(0, 0, 2400, 1600);
+  pc.save();
+  pc.scale(2, 2);
   for (const t of state.threats) {
     if (t.status === 'destroyed') continue;
     const c = CATALOG[t.key];
-    // Full origin-to-target path, clearly visible
-    ctx.beginPath();
-    ctx.moveTo(t.sx, t.sy);
-    ctx.lineTo(t.tx, t.ty);
-    ctx.strokeStyle = c.color + '88';
-    ctx.setLineDash([7, 6]);
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-    ctx.setLineDash([]);
-    // Remaining path (current → target) brighter solid
-    if (t.status === 'inflight') {
-      ctx.beginPath();
-      ctx.moveTo(t.x, t.y);
-      ctx.lineTo(t.tx, t.ty);
-      ctx.strokeStyle = c.color + 'cc';
-      ctx.setLineDash([4, 4]);
-      ctx.lineWidth = 1.4;
-      ctx.stroke();
-      ctx.setLineDash([]);
+    pc.beginPath();
+    pc.moveTo(t.sx, t.sy);
+    pc.lineTo(t.tx, t.ty);
+    pc.strokeStyle = c.color;
+    pc.setLineDash([5, 5]);
+    pc.lineWidth = 1.2;
+    pc.stroke();
+    pc.setLineDash([]);
+    // In flight: short bright heading vector ahead of the aircraft
+    if (live && t.status === 'inflight') {
+      const dx = t.tx - t.x, dy = t.ty - t.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const seg = Math.min(len, 46);
+      pc.beginPath();
+      pc.moveTo(t.x, t.y);
+      pc.lineTo(t.x + dx / len * seg, t.y + dy / len * seg);
+      pc.strokeStyle = c.color;
+      pc.setLineDash([3, 4]);
+      pc.lineWidth = 1.6;
+      pc.stroke();
+      pc.setLineDash([]);
     }
   }
+  pc.restore();
+  ctx.save();
+  ctx.globalAlpha = live ? 0.32 : 0.55;
+  ctx.drawImage(_pathLayer, 0, 0, 1200, 800);
+  ctx.restore();
 }
 
 function drawThreats() {
@@ -5257,30 +5280,24 @@ function drawThreats() {
     else drawDrone();
     ctx.restore();
 
-    // Label with absolute altitude (changes over terrain)
-    const altMSL = c.altitude + getTerrainAlt(t.x, t.y);
-    const labelText = `${t.label} · ${altMSL.toFixed(1)}km`;
+    ctx.restore();
+
+    // Compact identity chip pinned at the LAUNCH POINT (not the moving
+    // aircraft) — keeps the picture readable under massed raids. Serial
+    // stagger fans chips from clustered origins onto 3 rows. Altitude
+    // and full details remain available in the hover/touch tooltip.
+    ctx.save();
+    ctx.translate(t.sx, t.sy); ctx.scale(zc, zc); ctx.translate(-t.sx, -t.sy);
     const tlS = labelScale();
-    ctx.font = `bold ${Math.round(11 * tlS)}px monospace`;
-    const tw = ctx.measureText(labelText).width;
-    const padX = 5 * tlS, padY = 2 * tlS;
-    const bx = t.x - tw / 2 - padX;
-    const by = t.y + 12 + 4 * tlS;
-    const bw = tw + padX * 2;
-    const bh = 14 * tlS + padY;
-    ctx.fillStyle = 'rgba(6, 10, 18, 0.93)';
-    ctx.strokeStyle = c.color;
-    ctx.lineWidth = 1.2;
-    if (ctx.roundRect) {
-      ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 7); ctx.fill(); ctx.stroke();
-    } else {
-      ctx.fillRect(bx, by, bw, bh); ctx.strokeRect(bx, by, bw, bh);
-    }
-    ctx.fillStyle = c.color;
+    ctx.font = `bold ${Math.round(8.5 * tlS)}px monospace`;
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(labelText, t.x, by + bh / 2);
-    ctx.textBaseline = 'alphabetic';
+    const chipY = t.sy + (14 + (t.serial % 3) * 10) * tlS;
+    const tw = ctx.measureText(t.label).width;
+    ctx.globalAlpha = 0.8;
+    ctx.fillStyle = 'rgba(6, 10, 18, 0.6)';
+    ctx.fillRect(t.sx - tw / 2 - 3, chipY - 8 * tlS, tw + 6, 10.5 * tlS);
+    ctx.fillStyle = c.color;
+    ctx.fillText(t.label, t.sx, chipY);
     ctx.restore();
   }
 }
