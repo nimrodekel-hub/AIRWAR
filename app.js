@@ -5529,7 +5529,8 @@ function drawMissiles() {
 
 // Mid-air interception puff — multi-ring spark burst, distinct from ground impact
 function drawExplosions() {
-  const zc = iconZoomComp();
+  // Operational theaters are played zoomed-in — keep the FX modest
+  const zc = iconZoomComp() * (WORLD.mode === 'real' ? 0.6 : 1);
   for (const e of state.explosions) {
     ctx.save();
     ctx.translate(e.x, e.y); ctx.scale(zc, zc); ctx.translate(-e.x, -e.y);
@@ -5605,12 +5606,16 @@ function triggerTargetHit(t) {
 }
 
 function drawTargetHits() {
+  const zc = iconZoomComp() * (WORLD.mode === 'real' ? 0.55 : 1);
   for (const e of state.targetHits) {
+    ctx.save();
+    ctx.translate(e.x, e.y); ctx.scale(zc, zc); ctx.translate(-e.x, -e.y);
     if (e.type === 'explosion') {
       drawTargetExplosion(e);
     } else if (e.type === 'paratroopers') {
       drawParatroopers(e);
     }
+    ctx.restore();
   }
 }
 
