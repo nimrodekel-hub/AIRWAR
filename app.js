@@ -3234,8 +3234,8 @@ const TUTORIAL_STEPS = [
         </svg>
         <div class="caption">4 שלבי רצף היירוט מהגילוי ועד התוצאה - מה שאתה רואה על המסך לכל איום</div>
       </div>
-      <h4>🔍 9 קטגוריות החטאה — מסך הסיכום</h4>
-      <p>בסיום משחק, מסך התוצאות מציג <u>לכל איום שחדר</u> מה קרה עם <u>כל אחת מהסוללות במפה</u> — גם אלה שירו עליו, וגם אלה שלא ירו וההסבר למה. תשע הקטגוריות מסודרות מ"כמעט יירוט" ל"חסם מבני":</p>
+      <h4>🔍 9 קטגוריות החטאה — תחקיר הסימולציה</h4>
+      <p>בסיום משחק, תחקיר הסימולציה מציג <u>לכל איום שחדר</u> מה קרה עם <u>כל אחת מהסוללות במפה</u> — גם אלה שירו עליו, וגם אלה שלא ירו וההסבר למה. תשע הקטגוריות מסודרות מ"כמעט יירוט" ל"חסם מבני":</p>
       <h5 style="color:#fbbf24;margin-top:8px">קרוב ליירוט — כיוונון של הפריסה הקיימת</h5>
       <ul>
         <li>🎲 <b>החטאה סטטיסטית</b> — הסוללה ירתה והתבצעה הגרלה לפי ה-PK שלה. <b>תיקון:</b> שכב סוללה נוספת על אותו ציר תקיפה (90%×90% = 99% פגיעה).</li>
@@ -7179,7 +7179,7 @@ function renderResults() {
     const txt = b.status === 'destroyed' ? `יורט ע"י ${b.hitBy || '-'}` : `→ ${b.target}`;
     html += `<li class="${cls}"><span><b style="color:#fbbf24">${b.label}</b> ${b.type}</span><span>${txt}</span></li>`;
   }
-  html += '</ul><button id="show-modal" style="width:100%;margin-top:8px;padding:6px;background:#2a4571;border:1px solid #4a6b9c;border-radius:4px;color:#d6e0f0;cursor:pointer;font-family:inherit">📋 הצג טבלת תוצאות מפורטת</button>';
+  html += '</ul><button id="show-modal" style="width:100%;margin-top:8px;padding:6px;background:#2a4571;border:1px solid #4a6b9c;border-radius:4px;color:#d6e0f0;cursor:pointer;font-family:inherit">📋 הצג תחקיר סימולציה מפורט</button>';
   el.innerHTML = html;
   const btn = document.getElementById('show-modal');
   if (btn) btn.addEventListener('click', showResultsModal);
