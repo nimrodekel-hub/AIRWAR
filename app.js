@@ -726,10 +726,13 @@ function markHostilesReal(difficulty) {
 // the WHOLE country then means defending all of them at once (budget and
 // threat count scale up, and it is meant to be harder).
 const ZONE_RADIUS_KM = 210;   // → ~420 km theater footprint
+const ZONE_MAX_TARGETS = 5;   // 4-5 strategic sites per theater
 
 // Greedy cluster: the highest-value unassigned target seeds a zone and
-// grabs every target within the standard radius; repeat. Deterministic
-// given the pack's target order, so a duel reconstructs the same zones.
+// grabs the nearest unassigned targets within the standard radius, up to
+// ZONE_MAX_TARGETS, so every theater holds 4-5 attackable sites. Repeat
+// for the rest. Deterministic given the pack's target order, so a duel
+// reconstructs the same zones.
 function computeZones(targets) {
   const pool = targets.slice().sort((a, b) => (b.value - a.value));
   const used = new Set();
@@ -737,9 +740,12 @@ function computeZones(targets) {
   for (const seed of pool) {
     if (used.has(seed)) continue;
     const members = [seed]; used.add(seed);
-    for (const t of pool) {
-      if (used.has(t)) continue;
-      if (Math.hypot(t.x - seed.x, t.y - seed.y) <= ZONE_RADIUS_KM) { members.push(t); used.add(t); }
+    const cand = pool
+      .filter(t => !used.has(t) && Math.hypot(t.x - seed.x, t.y - seed.y) <= ZONE_RADIUS_KM)
+      .sort((a, b) => Math.hypot(a.x - seed.x, a.y - seed.y) - Math.hypot(b.x - seed.x, b.y - seed.y));
+    for (const t of cand) {
+      if (members.length >= ZONE_MAX_TARGETS) break;
+      members.push(t); used.add(t);
     }
     let cx = 0, cy = 0, x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
     for (const m of members) {
@@ -2966,13 +2972,18 @@ function renderRealOptions() {
   if (sect) {
     const zones = (WORLD.zones && WORLD.zones.length) ? WORLD.zones : zonesForPack(pack);
     WORLD.zones = zones;
-    if (WORLD.realZone && !zones.some(z => z.id === WORLD.realZone)) WORLD.realZone = defaultZoneId(zones);
-    const n = zones.length;
-    const wholeLabel = n > 1 ? `כל המדינה ⚠×${n}` : 'כל המדינה';
+    // Only offer "full" theaters (3+ sites) as standalone missions; the odd
+    // isolated city is still defended under "whole country". Fall back to
+    // all zones if a country somehow has no substantial cluster.
+    const major = zones.filter(z => z.targets.length >= 3);
+    const pick = major.length ? major : zones;
+    if (WORLD.realZone && !pick.some(z => z.id === WORLD.realZone)) WORLD.realZone = defaultZoneId(zones);
+    const factor = Math.max(1, Math.min(4, zones.length));
+    const wholeLabel = zones.length > 1 ? `כל המדינה ⚠×${factor}` : 'כל המדינה';
     let html = `<button class="rs-chip${WORLD.realZone ? '' : ' active'}" data-zone="">${wholeLabel}</button>`;
-    if (n > 1) {
-      html += zones.map(z =>
-        `<button class="rs-chip${z.id === WORLD.realZone ? ' active' : ''}" data-zone="${z.id}">${z.hasCapital ? '★ ' : ''}${z.nameHe}</button>`).join('');
+    if (pick.length > 1) {
+      html += pick.map(z =>
+        `<button class="rs-chip${z.id === WORLD.realZone ? ' active' : ''}" data-zone="${z.id}">${z.hasCapital ? '★ ' : ''}${z.nameHe} (${z.targets.length})</button>`).join('');
     }
     sect.innerHTML = html;
     sect.querySelectorAll('.rs-chip').forEach(btn => {
@@ -3113,7 +3124,7 @@ const TUTORIAL_STEPS = [
       <ul>
         <li>🧭 <b>משחק יסודות</b> — המפה הקלאסית: כל האיומים מגיעים מ<b>חזית אחת במערב</b> (האזור האדום). מומלץ ללמידת המערכות והטקטיקות.</li>
         <li>🌍 <b>משחק מתקדם</b> — עולם אקראי לגמרי: צורת המדינה מוגרלת בכל משחק, מוקפת <b>4 מדינות שכנות</b> ששתיים מהן עוינות, עם ימים גובלים ואגמים פנימיים. איומים מגיעים <b>מכמה כיוונים בו-זמנית</b>.</li>
-        <li>🌐 <b>מבצעי — מפות אמיתיות</b> — תרגול על <b>מדינה אמיתית לבחירתך</b>: 🇮🇱 ישראל, 🇺🇦 אוקראינה, 🇵🇱 פולין, 🇩🇪 גרמניה, 🇫🇷 צרפת (הרשימה מתרחבת). לכל מדינה <b>גבולות אמיתיים</b> (Natural Earth), <b>טופוגרפיה אמיתית</b> (SRTM — הרים ורכסים משפיעים על קו-ראייה כמו במציאות), אגמים וימים אמיתיים, <b>יעדים אסטרטגיים אמיתיים</b> (בירה + הערים הגדולות) ושכנות אמיתיות. בחר את המדינה מ<b>שורת "🌐 מדינה"</b> במסך הפתיחה. לפני המשימה תוכל <b>לבחור מאילו מדינות שכנות תגיע התקיפה</b> (או להגריל), וכן <b>גזרת הגנה</b>. <b>המפתח לאיזון:</b> כל מדינה מחולקת אוטומטית ל<b>גזרות סטנדרטיות בגודל קבוע (~420 ק"מ)</b> — כך שהגנה על גזרה בודדת תמיד באותו קנה-מידה (שטח ותקציב דומים) בכל מדינה, קטנה כגדולה. בחר <b>גזרה</b> (המפה תתמקד בה, תקציב סטנדרטי) או <b>"כל המדינה"</b> — הגנה על כל הגזרות בו-זמנית, שבה התקציב וכמות האיומים גדלים לפי מספר הגזרות (⚠ מורכב בהרבה במדינות ענקיות). מדינה קטנה כמו ישראל היא גזרה אחת. טווחי הנשק הם ק"מ אמיתיים על המפה, ומהירויות האיומים והמיירטים מותאמות לעומק הזירה כך שיירוט אפשרי גם כשהגבול קרוב. <b>פרופילי טיסה מבצעיים</b>: כטב"מים חודרים ב-200 מ' ומסוקים ב-300 מ' בלבד — הסתתרות מאחורי רכסים הופכת קריטית. XP ×1.25.</li>
+        <li>🌐 <b>מבצעי — מפות אמיתיות</b> — תרגול על <b>מדינה אמיתית לבחירתך</b>: 🇮🇱 ישראל, 🇺🇦 אוקראינה, 🇵🇱 פולין, 🇩🇪 גרמניה, 🇫🇷 צרפת (הרשימה מתרחבת). לכל מדינה <b>גבולות אמיתיים</b> (Natural Earth), <b>טופוגרפיה אמיתית</b> (SRTM — הרים ורכסים משפיעים על קו-ראייה כמו במציאות), אגמים וימים אמיתיים, <b>יעדים אסטרטגיים אמיתיים</b> (בירה + הערים הגדולות) ושכנות אמיתיות. בחר את המדינה מ<b>שורת "🌐 מדינה"</b> במסך הפתיחה. לפני המשימה תוכל <b>לבחור מאילו מדינות שכנות תגיע התקיפה</b> (או להגריל), וכן <b>גזרת הגנה</b>. <b>המפתח לאיזון:</b> כל מדינה מחולקת אוטומטית ל<b>גזרות סטנדרטיות בגודל קבוע (~420 ק"מ)</b>, כל אחת עם <b>4-5 אתרים אסטרטגיים</b> שהאויב יתקוף בו-זמנית — כך שהגנה על גזרה בודדת תמיד באותו קנה-מידה (שטח, מספר אתרים ותקציב דומים) בכל מדינה, קטנה כגדולה. בחר <b>גזרה</b> (המפה תתמקד בה, תקציב סטנדרטי) או <b>"כל המדינה"</b> — הגנה על כל הגזרות בו-זמנית, שבה התקציב וכמות האיומים גדלים לפי מספר הגזרות (⚠ מורכב בהרבה במדינות ענקיות). מדינה קטנה כמו ישראל היא גזרה אחת. טווחי הנשק הם ק"מ אמיתיים על המפה, ומהירויות האיומים והמיירטים מותאמות לעומק הזירה כך שיירוט אפשרי גם כשהגבול קרוב. <b>פרופילי טיסה מבצעיים</b>: כטב"מים חודרים ב-200 מ' ומסוקים ב-300 מ' בלבד — הסתתרות מאחורי רכסים הופכת קריטית. XP ×1.25.</li>
       </ul>
       <h4>שני מצבי משחק עיקריים:</h4>
       <ul>
