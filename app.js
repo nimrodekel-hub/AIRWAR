@@ -318,19 +318,21 @@ function hostileNames() {
   return [...new Set(hostileNeighbors().map(nb => nb.nameHe || nb.name))].join(' + ');
 }
 
-// Random launch point inside one of the hostile neighbouring countries.
-function randomHostilePoint() {
-  let hs = hostileNeighbors();
+// Shortest distance from a point to a bbox rectangle (0 if inside).
+function bboxDist(b, px, py) {
+  const dx = Math.max(b.x0 - px, 0, px - b.x1);
+  const dy = Math.max(b.y0 - py, 0, py - b.y1);
+  return Math.hypot(dx, dy);
+}
+
+// Random launch point inside a hostile neighbour. Pass `forceNb` to launch
+// from a specific front (used to rotate the wave across every hostile
+// front so the attack is genuinely multi-directional).
+function randomHostilePoint(forceNb) {
+  const hs = hostileNeighbors();
   if (!hs.length) return { x: 50 + Math.random() * 300, y: 50 + Math.random() * 700 };
-  // When a single zone is defended, launch from the hostile fronts nearest
-  // that theater so the fight stays local and at a consistent scale — pick
-  // among the two closest hostiles to the zone centroid.
+  const nb = forceNb || hs[Math.floor(Math.random() * hs.length)];
   const zc = WORLD.zoneCenter;
-  if (zc && hs.length > 1) {
-    const distTo = nb => Math.hypot(nb.centroid.x - zc.x, nb.centroid.y - zc.y);
-    hs = hs.slice().sort((a, b) => distTo(a) - distTo(b)).slice(0, 2);
-  }
-  const nb = hs[Math.floor(Math.random() * hs.length)];
   for (let i = 0; i < 400; i++) {
     const x = nb.bbox.x0 + Math.random() * (nb.bbox.x1 - nb.bbox.x0);
     const y = nb.bbox.y0 + Math.random() * (nb.bbox.y1 - nb.bbox.y0);
@@ -340,9 +342,9 @@ function randomHostilePoint() {
     // the far side of a huge neighbour (keeps approach times sane).
     // Relax the cap late in the loop for slim border geometries.
     if (WORLD.mode === 'real' && i < 300 && distToHomeBorder(x, y) > 220) continue;
-    // Zone mode: also keep launches within reach of the defended theater
-    // so a battery placed there can realistically engage them.
-    if (zc && i < 260 && Math.hypot(x - zc.x, y - zc.y) > 420) continue;
+    // Zone mode: keep launches within reach of the defended theater, but
+    // wide enough that several different fronts can all contribute.
+    if (zc && i < 260 && Math.hypot(x - zc.x, y - zc.y) > 650) continue;
     return { x, y };
   }
   return { ...nb.centroid };
@@ -697,22 +699,47 @@ function markHostilesReal(difficulty) {
     for (const nb of WORLD.neighbors) nb.hostile = !!nb.eligible;
     return;
   }
+  // Greedy pick of `count` fronts that surround the country — each added
+  // front maximises the minimum angular separation from those already
+  // chosen, so the attack arrives from genuinely different bearings.
+  const pickSpread = (count) => {
+    let bestSet = null, bestScore = -1;
+    for (let s = 0; s < names.length; s++) {
+      const chosen = [names[s]];
+      while (chosen.length < count) {
+        let cand = null, candScore = -1;
+        for (const nm of names) {
+          if (chosen.includes(nm)) continue;
+          let minSep = Infinity;
+          for (const c of chosen) minSep = Math.min(minSep, arcSeparation(groups[nm].arcMid, groups[c].arcMid));
+          if (minSep > candScore) { candScore = minSep; cand = nm; }
+        }
+        chosen.push(cand);
+      }
+      let score = Infinity;
+      for (let i = 0; i < chosen.length; i++)
+        for (let j = i + 1; j < chosen.length; j++)
+          score = Math.min(score, arcSeparation(groups[chosen[i]].arcMid, groups[chosen[j]].arcMid));
+      if (score > bestScore) { bestScore = score; bestSet = chosen; }
+    }
+    return bestSet;
+  };
+  const big = names.length >= 4;   // large country -> more simultaneous fronts
   let pick;
-  if (difficulty === 'easy' || difficulty === 'hard' || difficulty === 'extreme') {
-    let best = null, bestSep = null;
-    for (let i = 0; i < names.length; i++) {
+  if (difficulty === 'easy') {
+    // Gentle intro: the two closest fronts (one broad axis).
+    let best = null, bestSep = Infinity;
+    for (let i = 0; i < names.length; i++)
       for (let j = i + 1; j < names.length; j++) {
         const sep = arcSeparation(groups[names[i]].arcMid, groups[names[j]].arcMid);
-        const better = bestSep === null ||
-          (difficulty === 'easy' ? sep < bestSep : sep > bestSep);
-        if (better) { bestSep = sep; best = [names[i], names[j]]; }
+        if (sep < bestSep) { bestSep = sep; best = [names[i], names[j]]; }
       }
-    }
     pick = best;
   } else {
-    const a = Math.floor(Math.random() * names.length);
-    let b; do { b = Math.floor(Math.random() * names.length); } while (b === a);
-    pick = [names[a], names[b]];
+    const count = (difficulty === 'hard' || difficulty === 'extreme')
+      ? Math.min(3, names.length)
+      : Math.min(big ? 3 : 2, names.length);
+    pick = pickSpread(count);
   }
   const chosen = new Set(pick);
   for (const nb of WORLD.neighbors) nb.hostile = chosen.has(nb.name);
@@ -3144,7 +3171,7 @@ const TUTORIAL_STEPS = [
       <ul>
         <li>🧭 <b>משחק יסודות</b> — המפה הקלאסית: כל האיומים מגיעים מ<b>חזית אחת במערב</b> (האזור האדום). מומלץ ללמידת המערכות והטקטיקות.</li>
         <li>🌍 <b>משחק מתקדם</b> — עולם אקראי לגמרי: צורת המדינה מוגרלת בכל משחק, מוקפת <b>4 מדינות שכנות</b> ששתיים מהן עוינות, עם ימים גובלים ואגמים פנימיים. איומים מגיעים <b>מכמה כיוונים בו-זמנית</b>.</li>
-        <li>🌐 <b>מבצעי — מפות אמיתיות</b> — תרגול על <b>מדינה אמיתית לבחירתך</b>: 🇮🇱 ישראל, 🇺🇦 אוקראינה, 🇵🇱 פולין, 🇩🇪 גרמניה, 🇫🇷 צרפת (הרשימה מתרחבת). לכל מדינה <b>גבולות אמיתיים</b> (Natural Earth), <b>טופוגרפיה אמיתית</b> (SRTM — הרים ורכסים משפיעים על קו-ראייה כמו במציאות), אגמים וימים אמיתיים, <b>יעדים אסטרטגיים אמיתיים</b> (בירה + הערים הגדולות) ושכנות אמיתיות. בחר את המדינה מ<b>שורת "🌐 מדינה"</b> במסך הפתיחה. לפני המשימה תוכל <b>לבחור מאילו מדינות שכנות תגיע התקיפה</b> (או להגריל), וכן <b>גזרת הגנה</b>. <b>המפתח לאיזון:</b> כל מדינה מחולקת אוטומטית ל<b>גזרות סטנדרטיות בגודל קבוע (~420 ק"מ)</b>, כל אחת עם <b>4-5 אתרים אסטרטגיים</b> שהאויב יתקוף בו-זמנית — כך שהגנה על גזרה בודדת תמיד באותו קנה-מידה (שטח, מספר אתרים ותקציב דומים) בכל מדינה, קטנה כגדולה. בחר <b>גזרה</b> (המפה תתמקד בה, תקציב סטנדרטי) או <b>"כל המדינה"</b> — הגנה על כל הגזרות בו-זמנית, שבה התקציב וכמות האיומים גדלים לפי מספר הגזרות (⚠ מורכב בהרבה במדינות ענקיות). מדינה קטנה כמו ישראל היא גזרה אחת. טווחי הנשק הם ק"מ אמיתיים על המפה, ומהירויות האיומים והמיירטים מותאמות לעומק הזירה כך שיירוט אפשרי גם כשהגבול קרוב. <b>פרופילי טיסה מבצעיים</b>: כטב"מים חודרים ב-200 מ' ומסוקים ב-300 מ' בלבד — הסתתרות מאחורי רכסים הופכת קריטית. XP ×1.25.</li>
+        <li>🌐 <b>מבצעי — מפות אמיתיות</b> — תרגול על <b>מדינה אמיתית לבחירתך</b>: 🇮🇱 ישראל, 🇺🇦 אוקראינה, 🇵🇱 פולין, 🇩🇪 גרמניה, 🇫🇷 צרפת (הרשימה מתרחבת). לכל מדינה <b>גבולות אמיתיים</b> (Natural Earth), <b>טופוגרפיה אמיתית</b> (SRTM — הרים ורכסים משפיעים על קו-ראייה כמו במציאות), אגמים וימים אמיתיים, <b>יעדים אסטרטגיים אמיתיים</b> (בירה + הערים הגדולות) ושכנות אמיתיות. בחר את המדינה מ<b>שורת "🌐 מדינה"</b> במסך הפתיחה. לפני המשימה תוכל <b>לבחור מאילו מדינות שכנות תגיע התקיפה</b> (או להגריל), וכן <b>גזרת הגנה</b>. <b>המפתח לאיזון:</b> כל מדינה מחולקת אוטומטית ל<b>גזרות סטנדרטיות בגודל קבוע (~420 ק"מ)</b>, כל אחת עם <b>4-5 אתרים אסטרטגיים</b> שהאויב יתקוף בו-זמנית — כך שהגנה על גזרה בודדת תמיד באותו קנה-מידה (שטח, מספר אתרים ותקציב דומים) בכל מדינה, קטנה כגדולה. בחר <b>גזרה</b> (המפה תתמקד בה, תקציב סטנדרטי) או <b>"כל המדינה"</b> — הגנה על כל הגזרות בו-זמנית, שבה התקציב וכמות האיומים גדלים לפי מספר הגזרות (⚠ מורכב בהרבה במדינות ענקיות). מדינה קטנה כמו ישראל היא גזרה אחת. <b>התקפה רב-כיוונית:</b> במדינות גדולות האויב תוקף בו-זמנית מ<b>2-3 חזיתות בכיוונים שונים</b> (בקושי בינוני ומעלה) — אי אפשר לחסום ציר אחד; פזר את הכיסוי לכל הכיוונים. טווחי הנשק הם ק"מ אמיתיים על המפה, ומהירויות האיומים והמיירטים מותאמות לעומק הזירה כך שיירוט אפשרי גם כשהגבול קרוב. <b>פרופילי טיסה מבצעיים</b>: כטב"מים חודרים ב-200 מ' ומסוקים ב-300 מ' בלבד — הסתתרות מאחורי רכסים הופכת קריטית. XP ×1.25.</li>
       </ul>
       <h4>שני מצבי משחק עיקריים:</h4>
       <ul>
@@ -7578,7 +7605,27 @@ function startDefenseChallenge(difficulty = 'medium') {
       check: (hits) => !hits.has(capitalName()) && nonCapitalHits(hits) <= maxLose
     };
   }
-  const attackSize = Math.round((profile.countMin + Math.floor(Math.random() * (profile.countMax - profile.countMin))) * sf);
+  // Real mode is flatter than Israel (less terrain masking helps the
+  // defender), so lift the wave a notch to keep it demanding.
+  const realMul = WORLD.mode === 'real' ? 1.35 : 1;
+  const attackSize = Math.round((profile.countMin + Math.floor(Math.random() * (profile.countMax - profile.countMin))) * sf * realMul);
+
+  // Multi-axis: rotate launches across every hostile front within reach of
+  // the defended area so the wave arrives from several directions at once —
+  // you can't just wall off a single approach. Fronts too far to be
+  // interceptable are dropped.
+  let realFronts = null;
+  if (WORLD.mode === 'real') {
+    const dc = WORLD.zoneCenter || (TARGETS.length
+      ? { x: TARGETS.reduce((s, t) => s + t.x, 0) / TARGETS.length, y: TARGETS.reduce((s, t) => s + t.y, 0) / TARGETS.length }
+      : WORLD.center);
+    const hs = hostileNeighbors();
+    realFronts = hs.filter(nb => nb.bbox && bboxDist(nb.bbox, dc.x, dc.y) < 620);
+    if (!realFronts.length) realFronts = hs;
+    // Shuffle so the rotation start varies between missions.
+    for (let k = realFronts.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [realFronts[k], realFronts[j]] = [realFronts[j], realFronts[k]]; }
+  }
+
   for (let i = 0; i < attackSize; i++) {
     const r = Math.random();
     let key;
@@ -7587,9 +7634,13 @@ function startDefenseChallenge(difficulty = 'medium') {
     else key = 'uav';
     const tgt = TARGETS[Math.floor(Math.random() * TARGETS.length)];
     // Spawn from hostile territory: classic — the western red strip;
-    // advanced — anywhere inside either hostile neighbour.
+    // advanced — anywhere inside either hostile neighbour; real — rotate
+    // across the reachable hostile fronts for a multi-directional attack.
     let sx, sy;
-    if (WORLD.mode !== 'classic') {
+    if (WORLD.mode === 'real' && realFronts && realFronts.length) {
+      const p = randomHostilePoint(realFronts[i % realFronts.length]);
+      sx = p.x; sy = p.y;
+    } else if (WORLD.mode !== 'classic') {
       const p = randomHostilePoint();
       sx = p.x; sy = p.y;
     } else {
