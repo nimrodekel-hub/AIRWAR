@@ -4362,7 +4362,7 @@ function drawKillLabels() {
     const alpha = p < 0.15 ? p / 0.15 : 1 - (p - 0.15) / 0.85;
     const rise = p * 26;
     const isMiss = k.kind === 'miss';
-    const txt = isMiss ? '✗ MISS' : '✓ KILL';
+    const txt = (isMiss ? '✗ MISS' : '✓ KILL') + (k.threat ? ' ' + k.threat : '');
     const mainColor = isMiss ? '#fca5a5' : '#86efac';
     const subColor  = isMiss ? 'rgba(252, 165, 165, 0.75)' : 'rgba(134, 239, 172, 0.75)';
     ctx.save();
@@ -5326,7 +5326,7 @@ function drawThreats() {
     if ((isSimActive() || state.scrubTime != null) && t.status === 'inflight') {
       const altMSL = threatAglOf(t.key) + getTerrainAlt(t.x, t.y);
       const aS = labelScale();
-      const altTxt = altMSL.toFixed(1) + 'km';
+      const altTxt = t.label + ' · ' + altMSL.toFixed(1) + 'km';
       ctx.font = `bold ${Math.round(8 * aS)}px monospace`;
       ctx.textAlign = 'center';
       ctx.lineWidth = 2.5;
@@ -6083,13 +6083,13 @@ function tick(dt) {
           // Smaller, brief mid-air interception puff
           state.explosions.push({ x: target.x, y: target.y, r: 9, t: 0, dur: 0.5 });
           // Kill confirmation — floating label rising over the intercept point
-          state.killLabels.push({ kind: 'hit', x: target.x, y: target.y, t: 0, dur: 1.4, battery: m.battery });
+          state.killLabels.push({ kind: 'hit', x: target.x, y: target.y, t: 0, dur: 1.4, battery: m.battery, threat: target.label });
         } else {
           target.missedBy.push({ battery: m.battery, reason: m.reason });
           state.explosions.push({ x: m.x + (Math.random()-0.5)*10, y: m.y + (Math.random()-0.5)*10, r: 5, t: 0, dur: 0.35 });
           // Miss confirmation — symmetric to SPLASH so the player can see
           // which engagements went wrong, not just which succeeded.
-          state.killLabels.push({ kind: 'miss', x: m.x, y: m.y, t: 0, dur: 1.2, battery: m.battery });
+          state.killLabels.push({ kind: 'miss', x: m.x, y: m.y, t: 0, dur: 1.2, battery: m.battery, threat: target.label });
         }
       }
     }
