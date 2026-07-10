@@ -728,12 +728,44 @@ function markHostilesReal(difficulty) {
 const ZONE_RADIUS_KM = 210;   // → ~420 km theater footprint
 const ZONE_MAX_TARGETS = 5;   // 4-5 strategic sites per theater
 
-// Greedy cluster: the highest-value unassigned target seeds a zone and
-// grabs the nearest unassigned targets within the standard radius, up to
-// ZONE_MAX_TARGETS, so every theater holds 4-5 attackable sites. Repeat
-// for the rest. Deterministic given the pack's target order, so a duel
-// reconstructs the same zones.
+// Assemble a zone descriptor from a set of member targets.
+function makeZone(id, nameHe, members) {
+  let cx = 0, cy = 0, x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (const m of members) {
+    cx += m.x; cy += m.y;
+    x0 = Math.min(x0, m.x); y0 = Math.min(y0, m.y);
+    x1 = Math.max(x1, m.x); y1 = Math.max(y1, m.y);
+  }
+  return {
+    id, name: nameHe, nameHe,
+    hasCapital: members.some(m => m.capital),
+    targets: members,
+    cx: Math.round(cx / members.length), cy: Math.round(cy / members.length),
+    bbox: { x0, y0, x1, y1 }
+  };
+}
+
+// Fixed north / center / south sectors, used when a pack's targets carry
+// an explicit sector tag (e.g. Israel) — each becomes one named theater.
+const SECTOR_ZONES = [['n', 'צפון'], ['c', 'מרכז'], ['s', 'דרום']];
+
+// Zones for a country:
+//  • If targets carry n/c/s sectors → exactly three theaters (north,
+//    center, south), each with that sector's own strategic sites.
+//  • Otherwise → greedy standard-footprint clustering: the highest-value
+//    unassigned target seeds a zone and grabs the nearest unassigned
+//    targets within the standard radius (up to ZONE_MAX_TARGETS), so every
+//    theater holds 4-5 sites.
+// Deterministic in both cases, so a duel reconstructs the same zones.
 function computeZones(targets) {
+  if (targets.some(t => t.sector)) {
+    const zones = [];
+    for (const [key, he] of SECTOR_ZONES) {
+      const members = targets.filter(t => t.sector === key);
+      if (members.length) zones.push(makeZone('z' + zones.length, he, members));
+    }
+    if (zones.length) return zones;
+  }
   const pool = targets.slice().sort((a, b) => (b.value - a.value));
   const used = new Set();
   const zones = [];
@@ -747,20 +779,7 @@ function computeZones(targets) {
       if (members.length >= ZONE_MAX_TARGETS) break;
       members.push(t); used.add(t);
     }
-    let cx = 0, cy = 0, x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
-    for (const m of members) {
-      cx += m.x; cy += m.y;
-      x0 = Math.min(x0, m.x); y0 = Math.min(y0, m.y);
-      x1 = Math.max(x1, m.x); y1 = Math.max(y1, m.y);
-    }
-    zones.push({
-      id: 'z' + zones.length,
-      name: seed.name, nameHe: seed.nameHe || seed.name,
-      hasCapital: members.some(m => m.capital),
-      targets: members,
-      cx: Math.round(cx / members.length), cy: Math.round(cy / members.length),
-      bbox: { x0, y0, x1, y1 }
-    });
+    zones.push(makeZone('z' + zones.length, seed.nameHe || seed.name, members));
   }
   return zones;
 }
@@ -846,13 +865,14 @@ function loadRealWorld(difficulty) {
       for (const t of TARGETS) if (t.value > top.value) top = t;
       top.capital = true;
     }
-    // Area-of-responsibility box: a fixed standard footprint centred on
-    // the zone, so the defended area reads the same size in every country.
-    const half = ZONE_RADIUS_KM;
+    // Area-of-responsibility box: the zone's own extent plus a margin, so
+    // it hugs the defended sites (works for both the standard clusters and
+    // the fixed north/center/south sectors).
+    const pad = 55;
     WORLD.zoneCenter = { x: zone.cx, y: zone.cy };
     WORLD.zoneBBox = {
-      x0: zone.cx - half, y0: zone.cy - half,
-      x1: zone.cx + half, y1: zone.cy + half
+      x0: zone.bbox.x0 - pad, y0: zone.bbox.y0 - pad,
+      x1: zone.bbox.x1 + pad, y1: zone.bbox.y1 + pad
     };
   }
 
@@ -7613,7 +7633,7 @@ function startDefenseChallenge(difficulty = 'medium') {
   if (WORLD.mode === 'real') {
     const zone = WORLD.realZone && WORLD.zones.find(z => z.id === WORLD.realZone);
     scopeLine = zone
-      ? `<br><span style="font-size:12px;font-weight:400;color:#86efac">🗺 גזרת הגנה: <b>${zone.nameHe}</b> (~420 ק"מ, תקציב סטנדרטי)</span>`
+      ? `<br><span style="font-size:12px;font-weight:400;color:#86efac">🗺 גזרת הגנה: <b>${zone.nameHe}</b> · ${zone.targets.length} אתרים אסטרטגיים · תקציב סטנדרטי</span>`
       : (sf > 1 ? `<br><span style="font-size:12px;font-weight:400;color:#fbbf24">🗺 הגנה על <b>כל המדינה</b> — ${WORLD.zones.length} גזרות, פי ${sf} מערכות ואיומים (מורכב)</span>` : '');
   }
   showBanner(
