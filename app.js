@@ -137,6 +137,7 @@ const NEIGHBOR_NAMES = ['Vorenia', 'Kastria', 'Ardunia', 'Meridia', 'Zephyra', '
 // share one truth.
 const TERRAIN_GRID = { cell: 5, w: 241, h: 161, data: null };
 let TERRAIN_CANVAS = null;   // pre-rendered hillshade + contours overlay
+let _realTerrainCache = null; // real-mode overlay cache: { id, canvas }
 
 function regenerateLand() {
   LAND_POLYGON.length = 0;
@@ -776,7 +777,12 @@ function loadRealWorld(difficulty) {
   const homeMax = Math.max(0.9, ...pack.peaks.map(p => p.alt));
   TERRAIN_STYLE.colorScale = 3.2 / homeMax;
   TERRAIN_STYLE.contourStep = 0.25;
-  buildTerrainOverlay();
+  if (_realTerrainCache && _realTerrainCache.id === pack.id) {
+    TERRAIN_CANVAS = _realTerrainCache.canvas;
+  } else {
+    buildTerrainOverlay(2);   // 2x for crisp relief under high zoom
+    _realTerrainCache = { id: pack.id, canvas: TERRAIN_CANVAS };
+  }
 
   PEAK_LABELS.length = 0;
   for (const p of pack.peaks) PEAK_LABELS.push({ x: p.x, y: p.y, alt: p.alt });
@@ -830,6 +836,15 @@ function iconZoomComp() {
 // times and cooldowns (absolute seconds) regain a realistic window.
 function kinScale() {
   return WORLD.mode === 'real' ? 0.3 : 1;
+}
+
+// Operational scenario flight profiles (km AGL): cruise UAVs hug the
+// terrain at 200m and helicopters at 300m — ridge-masking becomes a
+// decisive factor. Fighters keep their high-altitude profile.
+const REAL_THREAT_ALT = { uav: 0.2, helicopter: 0.3 };
+function threatAglOf(key) {
+  if (WORLD.mode === 'real' && REAL_THREAT_ALT[key] !== undefined) return REAL_THREAT_ALT[key];
+  return CATALOG[key].altitude;
 }
 function threatSpeedOf(tc) { return tc.speed * kinScale(); }
 function interceptorSpeedOf(c) { return c.missileSpeed * kinScale(); }
@@ -897,8 +912,8 @@ function hypsoColor(alt) {
 // Render the terrain overlay once per map regen: hypsometric colouring +
 // directional hillshade (lit from NW) + contour lines — all derived from
 // the same heightfield the LOS engine raycasts.
-function buildTerrainOverlay() {
-  const w = 1200, h = 800;
+function buildTerrainOverlay(scale = 1) {
+  const w = 1200 * scale, h = 800 * scale;
   const cnv = document.createElement('canvas');
   cnv.width = w; cnv.height = h;
   const c2 = cnv.getContext('2d');
@@ -914,15 +929,16 @@ function buildTerrainOverlay() {
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const idx = (y * w + x) * 4;
-      const alt = getTerrainAlt(x, y);
+      const wx = x / scale, wy = y / scale;   // world km
+      const alt = getTerrainAlt(wx, wy);
       if (alt < 0.1) continue;   // lowland plain — base map colour shows through
 
       // 1. Hypsometric base colour
       let [r, g, b, a] = hypsoColor(alt * TERRAIN_STYLE.colorScale);
 
       // 2. Hillshade composited over the tint
-      const gx = getTerrainAlt(x + 2, y) - getTerrainAlt(x - 2, y);
-      const gy = getTerrainAlt(x, y + 2) - getTerrainAlt(x, y - 2);
+      const gx = getTerrainAlt(wx + 2, wy) - getTerrainAlt(wx - 2, wy);
+      const gy = getTerrainAlt(wx, wy + 2) - getTerrainAlt(wx, wy - 2);
       let nx = -gx * EXAG, ny = -gy * EXAG, nz = 4;
       const nl = Math.hypot(nx, ny, nz); nx /= nl; ny /= nl; nz /= nl;
       const lam = nx * Lx + ny * Ly + nz * Lz;
@@ -962,12 +978,14 @@ function buildTerrainOverlay() {
 }
 
 function getThreatAltMSL(t) {
-  return CATALOG[t.key].altitude + getTerrainAlt(t.x, t.y);
+  return threatAglOf(t.key) + getTerrainAlt(t.x, t.y);
 }
 
 function hasLOS(ax, ay, bx, by, tgtAltMSL) {
   const obsAlt = getTerrainAlt(ax, ay);
-  const steps = 24;
+  // ~3km sampling so 200m terrain-hugging flight can't slip between
+  // ridge samples on long rays (was a fixed 24 steps)
+  const steps = Math.min(96, Math.max(24, Math.ceil(Math.hypot(bx - ax, by - ay) / 3)));
   for (let i = 1; i < steps; i++) {
     const f = i / steps;
     const mx = ax + f * (bx - ax);
@@ -1996,6 +2014,7 @@ window.addEventListener('DOMContentLoaded', () => {
   requestAnimationFrame(loop);
 });
 
+let DPR = 1;
 function resize() {
   const r = canvas.parentElement.getBoundingClientRect();
   const newW = Math.round(r.width);
@@ -2003,9 +2022,15 @@ function resize() {
   // Mid-transition viewports (especially during iOS orientation change)
   // can report a 0-sized rect — ignore them so we don't blank the canvas.
   if (newW === 0 || newH === 0) return;
+  // Render at devicePixelRatio for crisp lines/text under zoom while all
+  // layout math stays in logical CSS pixels (W/H).
+  DPR = Math.min(window.devicePixelRatio || 1, 3);
+  const pw = Math.round(newW * DPR), ph = Math.round(newH * DPR);
   // Skip the reallocation if nothing changed (assignment clears the canvas).
-  if (canvas.width  !== newW) canvas.width  = newW;
-  if (canvas.height !== newH) canvas.height = newH;
+  if (canvas.width  !== pw) canvas.width  = pw;
+  if (canvas.height !== ph) canvas.height = ph;
+  canvas.style.width = newW + 'px';
+  canvas.style.height = newH + 'px';
   W = newW; H = newH;
 }
 
@@ -2028,6 +2053,7 @@ function buildButtons() {
   const bGrid = document.getElementById('battery-btns');
   const rGrid = document.getElementById('radar-btns');
   const tGrid = document.getElementById('threat-btns');
+  bGrid.innerHTML = ''; rGrid.innerHTML = ''; tGrid.innerHTML = '';
   BATTERY_KEYS.forEach(k => bGrid.appendChild(makeBtn(k)));
   RADAR_KEYS.forEach(k => rGrid.appendChild(makeBtn(k)));
   THREAT_KEYS.forEach(k => tGrid.appendChild(makeBtn(k)));
@@ -2041,7 +2067,7 @@ function makeBtn(k) {
   } else if (c.kind === 'radar') {
     rangeText = `Detection ${c.detection} km`;
   } else {
-    rangeText = `Speed ${c.speed} • Altitude ${c.altitude} km`;
+    rangeText = `Speed ${c.speed} • Altitude ${threatAglOf(k)} km`;
   }
 
   const wrapper = document.createElement('div');
@@ -2112,7 +2138,7 @@ function showInfoModal(key) {
     rows += `
       <tr><td>סוג</td><td>איום אווירי</td></tr>
       <tr><td>מהירות (סקלת המשחק)</td><td>${c.speed} px/s</td></tr>
-      <tr><td>גובה טיסה</td><td>${c.altitude} ק"מ</td></tr>
+      <tr><td>גובה טיסה</td><td>${threatAglOf(key)} ק"מ</td></tr>
       <tr><td>חתימת מכ"ם (RCS)</td><td>${c.rcs} ${c.rcs < 0.5 ? '(נמוכה - קשה לאתר)' : c.rcs < 0.8 ? '(בינונית)' : '(גבוהה)'}</td></tr>
     `;
   }
@@ -2699,6 +2725,7 @@ function setWorldMode(mode) {
   WORLD.mode = mode;
   try { localStorage.setItem('airwar_world_mode', mode); } catch (e) { /* private browsing */ }
   syncWorldModeButtons();
+  buildButtons();   // threat spec labels are mode-dependent (real altitudes)
   // Rebuild the visible map immediately so the choice is tangible
   regenerateGeography();
   resetView();
@@ -2903,7 +2930,7 @@ const TUTORIAL_STEPS = [
       <ul>
         <li>🧭 <b>משחק יסודות</b> — המפה הקלאסית: כל האיומים מגיעים מ<b>חזית אחת במערב</b> (האזור האדום). מומלץ ללמידת המערכות והטקטיקות.</li>
         <li>🌍 <b>משחק מתקדם</b> — עולם אקראי לגמרי: צורת המדינה מוגרלת בכל משחק, מוקפת <b>4 מדינות שכנות</b> ששתיים מהן עוינות, עם ימים גובלים ואגמים פנימיים. איומים מגיעים <b>מכמה כיוונים בו-זמנית</b>.</li>
-        <li>🌐 <b>מבצעי: ישראל</b> — תרגול על <b>מפה אמיתית</b>: גבולות אמיתיים (Natural Earth), <b>טופוגרפיה אמיתית</b> (SRTM — הגולן, הרי יהודה, הנגב משפיעים על קו-ראייה כמו במציאות), הכנרת וים המלח, יעדים אמיתיים (ירושלים, תל אביב, חיפה, באר שבע, בסיס נבטים) ושכנות אמיתיות. לפני המשימה תוכל <b>לבחור מאילו מדינות תגיע התקיפה</b> (או להגריל), וכן <b>גזרת הגנה</b>: כל המדינה, צפון, מרכז או דרום — במשימת גזרה מגינים רק על יעדי הגזרה והמפה מתמקדת בה. טווחי הנשק הם ק"מ אמיתיים על המפה, ומהירויות האיומים והמיירטים מותאמות לעומק הזירה כך שיירוט אפשרי גם כשהגבול קרוב. XP ×1.25.</li>
+        <li>🌐 <b>מבצעי: ישראל</b> — תרגול על <b>מפה אמיתית</b>: גבולות אמיתיים (Natural Earth), <b>טופוגרפיה אמיתית</b> (SRTM — הגולן, הרי יהודה, הנגב משפיעים על קו-ראייה כמו במציאות), הכנרת וים המלח, יעדים אמיתיים (ירושלים, תל אביב, חיפה, באר שבע, בסיס נבטים) ושכנות אמיתיות. לפני המשימה תוכל <b>לבחור מאילו מדינות תגיע התקיפה</b> (או להגריל), וכן <b>גזרת הגנה</b>: כל המדינה, צפון, מרכז או דרום — במשימת גזרה מגינים רק על יעדי הגזרה והמפה מתמקדת בה. טווחי הנשק הם ק"מ אמיתיים על המפה, ומהירויות האיומים והמיירטים מותאמות לעומק הזירה כך שיירוט אפשרי גם כשהגבול קרוב. <b>פרופילי טיסה מבצעיים</b>: כטב"מים חודרים ב-200 מ' ומסוקים ב-300 מ' בלבד — הסתתרות מאחורי רכסים הופכת קריטית. XP ×1.25.</li>
       </ul>
       <h4>שני מצבי משחק עיקריים:</h4>
       <ul>
@@ -3509,7 +3536,7 @@ function zoomBy(factor) {
 function zoomAt(sx, sy, factor) {
   const wx = (sx - state.viewport.offsetX) / state.viewport.scale;
   const wy = (sy - state.viewport.offsetY) / state.viewport.scale;
-  const newScale = Math.max(0.5, Math.min(3, state.viewport.scale * factor));
+  const newScale = Math.max(0.5, Math.min(8, state.viewport.scale * factor));
   state.viewport.scale = newScale;
   state.viewport.offsetX = sx - wx * newScale;
   state.viewport.offsetY = sy - wy * newScale;
@@ -3922,7 +3949,7 @@ function onMouseMove(ev) {
     } else if (c.kind === 'threat') {
       lines[0] = `<b>${c.name} <span style="color:#fbbf24">[${ent.label}]</span></b>`;
       lines.push(`יעד: ${ent.target}`);
-      lines.push(`מהירות: ${c.speed} | גובה אבסולוטי: ${(c.altitude + getTerrainAlt(ent.x, ent.y)).toFixed(1)} ק"מ (AGL ${c.altitude})`);
+      lines.push(`מהירות: ${c.speed} | גובה אבסולוטי: ${(threatAglOf(ent.key) + getTerrainAlt(ent.x, ent.y)).toFixed(1)} ק"מ (AGL ${threatAglOf(ent.key)})`);
       lines.push(`סטטוס: ${ent.status === 'destroyed' ? 'הושמד' : ent.status === 'reached' ? 'הגיע ליעד' : 'פעיל'}`);
     }
     tooltip.innerHTML = lines.join('<br>');
@@ -4026,7 +4053,7 @@ function onTouchMove(ev) {
     const factor = _touchDist(t1, t2) / p.startDist;
     const wx = (p.cx - p.startOffsetX) / p.startScale;
     const wy = (p.cy - p.startOffsetY) / p.startScale;
-    const newScale = Math.max(0.5, Math.min(3, p.startScale * factor));
+    const newScale = Math.max(0.5, Math.min(8, p.startScale * factor));
     state.viewport.scale = newScale;
     state.viewport.offsetX = p.cx - wx * newScale;
     state.viewport.offsetY = p.cy - wy * newScale;
@@ -4244,6 +4271,7 @@ function loop(ts) {
 }
 
 function draw() {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.clearRect(0, 0, W, H);
   // Deep ocean: radial gradient centered on the map
   const seaGrad = ctx.createRadialGradient(W * 0.5, H * 0.45, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.76);
@@ -4736,7 +4764,7 @@ function drawCountry() {
   if (WORLD.mode === 'real' && TERRAIN_CANVAS) {
     ctx.save();
     ctx.globalAlpha = 0.55;
-    ctx.drawImage(TERRAIN_CANVAS, 0, 0);
+    ctx.drawImage(TERRAIN_CANVAS, 0, 0, 1200, 800);
     ctx.restore();
   }
 
@@ -4767,7 +4795,7 @@ function drawCountry() {
 
   // Real topography: hillshade + hypsometric tint + contour lines,
   // pre-rendered from the same heightfield the LOS engine raycasts.
-  if (TERRAIN_CANVAS) ctx.drawImage(TERRAIN_CANVAS, 0, 0);
+  if (TERRAIN_CANVAS) ctx.drawImage(TERRAIN_CANVAS, 0, 0, 1200, 800);
 
   // Subtle coastal shading — darker strip near boundary
   const coastGrad = ctx.createRadialGradient(gcx, gcy, gr * 0.63, gcx, gcy, gr);
@@ -5285,7 +5313,7 @@ function drawThreats() {
     // In-flight altitude readout — terrain-following MSL, boxless and
     // small so it informs without cluttering (like the other modes)
     if ((isSimActive() || state.scrubTime != null) && t.status === 'inflight') {
-      const altMSL = c.altitude + getTerrainAlt(t.x, t.y);
+      const altMSL = threatAglOf(t.key) + getTerrainAlt(t.x, t.y);
       const aS = labelScale();
       const altTxt = altMSL.toFixed(1) + 'km';
       ctx.font = `bold ${Math.round(8 * aS)}px monospace`;
@@ -6663,13 +6691,14 @@ function generateDefenseRecommendations(r) {
     let coversAny = false;
     for (const tk of threatKeys) {
       const tc = CATALOG[tk];
-      if (tc.altitude >= c.minAlt && tc.altitude <= c.maxAlt) {
+      const agl = threatAglOf(tk);
+      if (agl >= c.minAlt && agl <= c.maxAlt) {
         coversAny = true;
       } else {
         blocked.push({
           name: tc.name,
-          altitude: tc.altitude,
-          why: tc.altitude > c.maxAlt ? 'מעל התקרה' : 'מתחת לרצפה'
+          altitude: agl,
+          why: agl > c.maxAlt ? 'מעל התקרה' : 'מתחת לרצפה'
         });
       }
     }
@@ -7009,7 +7038,7 @@ function simulateEngagementOutcome(t, d, c, tc) {
     const sx = t.sx + ux * (entryDist + (exitDist - entryDist) * f);
     const sy = t.sy + uy * (entryDist + (exitDist - entryDist) * f);
     // Use the actual threat AGL altitude at the sampled point (terrain follows)
-    const sAlt = tc.altitude + getTerrainAlt(sx, sy);
+    const sAlt = threatAglOf(t.key) + getTerrainAlt(sx, sy);
     return hasLOS(d.x, d.y, sx, sy, sAlt);
   });
   if (!losClear) return 'los-blocked';
