@@ -269,27 +269,23 @@ async function ensureTiles() {
     .map(c => ({ ...c, x: Math.round(projX(c.lon)), y: Math.round(projY(c.lat)) }))
     .filter(c => pointInPoly(c.x, c.y, home));
   cityFeats.sort((a, b) => (b.cap - a.cap) || (b.pop - a.pop));
-  // de-dup near-identical coords, cap at ~10 targets
+  // De-dup near-identical coords. A generous cap (many cities) so the
+  // runtime zoning can fill every ~420km theater with 4-5 strategic
+  // sites — the whole country then has a rich target set to defend.
   const picked = [];
   for (const c of cityFeats) {
-    if (picked.every(p => Math.hypot(p.x - c.x, p.y - c.y) > 25)) picked.push(c);
-    if (picked.length >= 10) break;
+    if (picked.every(p => Math.hypot(p.x - c.x, p.y - c.y) > 18)) picked.push(c);
+    if (picked.length >= 30) break;
   }
-  // latitude tertiles → n/c/s sector (screen y: smaller = north)
-  const ys = picked.map(p => p.y);
-  const yMin = Math.min(...ys), yMax = Math.max(...ys), span = (yMax - yMin) || 1;
-  const sectorOf = y => {
-    const f = (y - yMin) / span;
-    return f < 1 / 3 ? 'n' : f < 2 / 3 ? 'c' : 's';
-  };
+  // Value by population tier (capital always top), so the highest-value
+  // cities seed zones and read as the primary objectives.
   const targets = picked.map((c, i) => ({
     name: c.en, nameHe: heName(CITY_HE, c.en),
     x: c.x, y: c.y,
-    value: c.cap ? 5 : Math.max(2, 4 - Math.floor(i / 3)),
-    ...(c.cap ? { capital: true } : {}),
-    sector: sectorOf(c.y)
+    value: c.cap ? 5 : i < 6 ? 4 : i < 14 ? 3 : 2,
+    ...(c.cap ? { capital: true } : {})
   }));
-  console.log(`[${id}] targets: ${targets.map(t => t.name + '(' + t.sector + t.value + ')').join(', ')}`);
+  console.log(`[${id}] ${targets.length} targets: ${targets.map(t => t.name).join(', ')}`);
 
   // ── Emit ──
   const pack = {
