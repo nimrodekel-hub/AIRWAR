@@ -4156,6 +4156,17 @@ function makeThreat(key, sx, sy, tx, ty, targetName) {
   };
 }
 
+// Aim-point scatter must stay on dry land — coastal targets (Haifa,
+// Tel Aviv, Eilat...) would otherwise send threats to "hit" the sea.
+function scatterAim(tgt, spread) {
+  for (let i = 0; i < 12; i++) {
+    const x = tgt.x + (Math.random() - 0.5) * spread;
+    const y = tgt.y + (Math.random() - 0.5) * spread;
+    if (isInsideCountry(x, y)) return { x, y };
+  }
+  return { x: tgt.x, y: tgt.y };
+}
+
 function pickTarget() {
   const total = TARGETS.reduce((s, t) => s + t.value, 0);
   let r = Math.random() * total;
@@ -7240,12 +7251,8 @@ function generateAutoAttack() {
       sx = 20 + Math.random() * 200;
       sy = 80 + Math.random() * 600;
     }
-    state.threats.push(makeThreat(
-      key, sx, sy,
-      tgt.x + (Math.random() - 0.5) * 20,
-      tgt.y + (Math.random() - 0.5) * 20,
-      tgt.name
-    ));
+    const aimA = scatterAim(tgt, 20);
+    state.threats.push(makeThreat(key, sx, sy, aimA.x, aimA.y, tgt.name));
   }
   setStatus(`נוצרה התקפה: ${nThreats} איומים מכוונים לחלשות בהגנה`);
   showBanner('תכנית התקפה אוטומטית נוצרה - לחץ "הפעל סימולציה"', '');
@@ -7292,12 +7299,8 @@ function startDefenseChallenge(difficulty = 'medium') {
       sx = 10 + Math.random() * 360;
       sy = 10 + Math.random() * 780;
     }
-    state.threats.push(makeThreat(
-      key, sx, sy,
-      tgt.x + (Math.random() - 0.5) * 30,
-      tgt.y + (Math.random() - 0.5) * 30,
-      tgt.name
-    ));
+    const aim = scatterAim(tgt, 30);
+    state.threats.push(makeThreat(key, sx, sy, aim.x, aim.y, tgt.name));
   }
 
   // Advanced world: supplement the budget for the second front
