@@ -123,7 +123,10 @@ const HILLS = [];       // broad low mounds — visual texture + mild terrain-fo
 const WORLD = {
   mode: 'classic',
   realHostiles: null,   // real mode: player-picked hostile names (null = random)
-  realSector: null,     // real mode: defended sector 'n'|'c'|'s' (null = whole country)
+  realZone: null,       // real mode: defended zone id (null = whole country)
+  zones: [],            // real mode: standard-size defense zones (target clusters)
+  zoneBBox: null,       // active zone bounding box (null = whole country)
+  zoneCenter: null,     // active zone centroid (biases threat spawn)
   neighbors: [],   // [{name, hostile, poly, bbox, centroid, arcMid, labelX, labelY}]
   lakes: [],       // [{poly, cx, cy}]
   center: { x: 620, y: 400 },
@@ -302,14 +305,31 @@ function hostileNeighbors() {
   return WORLD.neighbors.filter(nb => nb.hostile);
 }
 
+// Mission scope multiplier: a single defense zone plays at the standard
+// scale (×1); "whole country" (real mode, no zone chosen) scales the
+// wave and budget by the number of theaters, clamped so it stays playable.
+function scopeFactor() {
+  if (WORLD.mode !== 'real' || WORLD.realZone) return 1;
+  const n = (WORLD.zones && WORLD.zones.length) ? WORLD.zones.length : 1;
+  return Math.max(1, Math.min(4, n));
+}
+
 function hostileNames() {
   return [...new Set(hostileNeighbors().map(nb => nb.nameHe || nb.name))].join(' + ');
 }
 
 // Random launch point inside one of the hostile neighbouring countries.
 function randomHostilePoint() {
-  const hs = hostileNeighbors();
+  let hs = hostileNeighbors();
   if (!hs.length) return { x: 50 + Math.random() * 300, y: 50 + Math.random() * 700 };
+  // When a single zone is defended, launch from the hostile fronts nearest
+  // that theater so the fight stays local and at a consistent scale — pick
+  // among the two closest hostiles to the zone centroid.
+  const zc = WORLD.zoneCenter;
+  if (zc && hs.length > 1) {
+    const distTo = nb => Math.hypot(nb.centroid.x - zc.x, nb.centroid.y - zc.y);
+    hs = hs.slice().sort((a, b) => distTo(a) - distTo(b)).slice(0, 2);
+  }
   const nb = hs[Math.floor(Math.random() * hs.length)];
   for (let i = 0; i < 400; i++) {
     const x = nb.bbox.x0 + Math.random() * (nb.bbox.x1 - nb.bbox.x0);
@@ -320,6 +340,9 @@ function randomHostilePoint() {
     // the far side of a huge neighbour (keeps approach times sane).
     // Relax the cap late in the loop for slim border geometries.
     if (WORLD.mode === 'real' && i < 300 && distToHomeBorder(x, y) > 220) continue;
+    // Zone mode: also keep launches within reach of the defended theater
+    // so a battery placed there can realistically engage them.
+    if (zc && i < 260 && Math.hypot(x - zc.x, y - zc.y) > 420) continue;
     return { x, y };
   }
   return { ...nb.centroid };
@@ -695,6 +718,68 @@ function markHostilesReal(difficulty) {
   for (const nb of WORLD.neighbors) nb.hostile = chosen.has(nb.name);
 }
 
+// ── Standard defense zones ───────────────────────────────────────────
+// Every country, whatever its size, is divided into standard-footprint
+// "theaters" (~420 km across) so a single-zone mission always plays at a
+// consistent scale — comparable defended area and weapon budget — no
+// matter which country. Huge countries simply have more zones; defending
+// the WHOLE country then means defending all of them at once (budget and
+// threat count scale up, and it is meant to be harder).
+const ZONE_RADIUS_KM = 210;   // → ~420 km theater footprint
+
+// Greedy cluster: the highest-value unassigned target seeds a zone and
+// grabs every target within the standard radius; repeat. Deterministic
+// given the pack's target order, so a duel reconstructs the same zones.
+function computeZones(targets) {
+  const pool = targets.slice().sort((a, b) => (b.value - a.value));
+  const used = new Set();
+  const zones = [];
+  for (const seed of pool) {
+    if (used.has(seed)) continue;
+    const members = [seed]; used.add(seed);
+    for (const t of pool) {
+      if (used.has(t)) continue;
+      if (Math.hypot(t.x - seed.x, t.y - seed.y) <= ZONE_RADIUS_KM) { members.push(t); used.add(t); }
+    }
+    let cx = 0, cy = 0, x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    for (const m of members) {
+      cx += m.x; cy += m.y;
+      x0 = Math.min(x0, m.x); y0 = Math.min(y0, m.y);
+      x1 = Math.max(x1, m.x); y1 = Math.max(y1, m.y);
+    }
+    zones.push({
+      id: 'z' + zones.length,
+      name: seed.name, nameHe: seed.nameHe || seed.name,
+      hasCapital: members.some(m => m.capital),
+      targets: members,
+      cx: Math.round(cx / members.length), cy: Math.round(cy / members.length),
+      bbox: { x0, y0, x1, y1 }
+    });
+  }
+  return zones;
+}
+
+// Normalise a pack's raw targets into the in-game target shape.
+function normalizeTargets(pack) {
+  return pack.targets.map(t => ({
+    name: t.nameHe || t.name, value: t.value,
+    capital: !!t.capital, airbase: !!t.airbase,
+    sector: t.sector || null, x: t.x, y: t.y
+  }));
+}
+
+// Zones for a pack (used by both the picker and the loader).
+function zonesForPack(pack) { return computeZones(normalizeTargets(pack)); }
+
+// Default scope for a freshly selected country: focus on the capital's
+// theater when the country spans several zones; small countries (one
+// zone) default to the whole country, which already IS one theater.
+function defaultZoneId(zones) {
+  if (zones.length <= 1) return null;
+  const cap = zones.find(z => z.hasCapital);
+  return (cap || zones[0]).id;
+}
+
 function loadRealWorld(difficulty) {
   const pack = (window.COUNTRY_PACKS || {})[WORLD.countryId || 'il'];
   if (!pack) {
@@ -736,30 +821,33 @@ function loadRealWorld(difficulty) {
 
   WORLD.lakes = pack.lakes.map(l => ({ poly: l.poly, cx: l.cx, cy: l.cy }));
 
-  // Real strategic targets (Hebrew names on the map)
+  // Real strategic targets (Hebrew names on the map) + standard zones
   TARGETS.length = 0;
-  for (const t of pack.targets) {
-    TARGETS.push({
-      name: t.nameHe || t.name, value: t.value,
-      capital: !!t.capital, airbase: !!t.airbase,
-      sector: t.sector || null,
-      x: t.x, y: t.y
-    });
-  }
-  // Defended-sector drill: keep only that sector's targets. If the
-  // capital fell outside, the sector's highest-value target becomes
-  // the primary objective (drawn with the star).
-  if (WORLD.realSector) {
-    const keep = TARGETS.filter(t => t.sector === WORLD.realSector);
-    if (keep.length >= 2) {
-      TARGETS.length = 0;
-      for (const t of keep) TARGETS.push(t);
-      if (!TARGETS.some(t => t.capital)) {
-        let top = TARGETS[0];
-        for (const t of TARGETS) if (t.value > top.value) top = t;
-        top.capital = true;
-      }
+  for (const t of normalizeTargets(pack)) TARGETS.push(t);
+  WORLD.zones = computeZones(TARGETS);
+
+  // Scope the mission. A chosen zone keeps only that theater's targets
+  // (resetView then frames it); "whole country" keeps them all. If the
+  // capital fell outside the zone, its highest-value target becomes the
+  // primary objective (drawn with the star).
+  WORLD.zoneBBox = null; WORLD.zoneCenter = null;
+  const zone = WORLD.realZone && WORLD.zones.find(z => z.id === WORLD.realZone);
+  if (zone) {
+    TARGETS.length = 0;
+    for (const t of zone.targets) TARGETS.push(t);
+    if (!TARGETS.some(t => t.capital)) {
+      let top = TARGETS[0];
+      for (const t of TARGETS) if (t.value > top.value) top = t;
+      top.capital = true;
     }
+    // Area-of-responsibility box: a fixed standard footprint centred on
+    // the zone, so the defended area reads the same size in every country.
+    const half = ZONE_RADIUS_KM;
+    WORLD.zoneCenter = { x: zone.cx, y: zone.cy };
+    WORLD.zoneBBox = {
+      x0: zone.cx - half, y0: zone.cy - half,
+      x1: zone.cx + half, y1: zone.cy + half
+    };
   }
 
   // Real terrain: decode the pack heightmap straight into the LOS grid
@@ -2363,7 +2451,7 @@ function makeChallengeLink() {
   };
   if (state.duel.worldMode === 'real') {
     payload.rh = [...new Set(hostileNeighbors().map(nb => nb.name))];
-    payload.rs = WORLD.realSector || '';
+    payload.rs = WORLD.realZone || '';
     payload.c = WORLD.countryId || 'il';
   }
   const url = location.origin + location.pathname + '#duel=' + encodeDuel(payload);
@@ -2388,7 +2476,7 @@ function enterDuelAttack(p) {
   WORLD.countryId = cid;
   WORLD.mode = p.m === 2 ? 'real' : p.m === 1 ? 'advanced' : 'classic';
   WORLD.realHostiles = (p.rh && p.rh.length) ? p.rh : null;
-  WORLD.realSector = p.rs || null;
+  WORLD.realZone = p.rs || null;
   syncWorldModeButtons();
   withSeed(p.w, () => regenerateGeography(p.d));
   resetView();
@@ -2456,7 +2544,7 @@ function makeResultLink() {
   };
   if (state.duel.worldMode === 'real') {
     payload.rh = [...new Set(hostileNeighbors().map(nb => nb.name))];
-    payload.rs = WORLD.realSector || '';
+    payload.rs = WORLD.realZone || '';
     payload.c = WORLD.countryId || 'il';
   }
   const url = location.origin + location.pathname + '#duel=' + encodeDuel(payload);
@@ -2480,7 +2568,7 @@ function enterDuelReview(p, rawPayload) {
   WORLD.countryId = cid;
   WORLD.mode = p.m === 2 ? 'real' : p.m === 1 ? 'advanced' : 'classic';
   WORLD.realHostiles = (p.rh && p.rh.length) ? p.rh : null;
-  WORLD.realSector = p.rs || null;
+  WORLD.realZone = p.rs || null;
   syncWorldModeButtons();
   withSeed(p.w, () => regenerateGeography(p.d));
   resetView();
@@ -2831,11 +2919,10 @@ function renderRealOptions() {
         catch (e) { console.error(e); btn.disabled = false; return; }
         WORLD.countryId = id;
         WORLD.realHostiles = null;   // neighbour set differs per country
-        WORLD.realSector = null;
-        renderRealOptions();         // re-render country + fronts for the new pack
-        const sect = document.getElementById('real-sector-chips');
-        if (sect) sect.querySelectorAll('.rs-chip').forEach(b =>
-          b.classList.toggle('active', b.dataset.sector === ''));
+        const pk = (window.COUNTRY_PACKS || {})[id];
+        WORLD.zones = pk ? zonesForPack(pk) : [];
+        WORLD.realZone = defaultZoneId(WORLD.zones);   // focus on the capital theater
+        renderRealOptions();         // re-render country + fronts + zones for the new pack
         if (WORLD.mode === 'real') { regenerateGeography(); resetView(); }
         syncWorldModeButtons();      // refresh the "מבצעי — <country>" track label
       });
@@ -2871,13 +2958,28 @@ function renderRealOptions() {
       applyNow();
     });
   });
+  // ── Scope chips: standard-size defense zones + whole country ──
+  // Each zone is one ~420 km theater (comparable area & budget in every
+  // country). Whole-country defends all zones at once — budget and threats
+  // scale with the number of zones, so bigger countries are harder.
   const sect = document.getElementById('real-sector-chips');
   if (sect) {
+    const zones = (WORLD.zones && WORLD.zones.length) ? WORLD.zones : zonesForPack(pack);
+    WORLD.zones = zones;
+    if (WORLD.realZone && !zones.some(z => z.id === WORLD.realZone)) WORLD.realZone = defaultZoneId(zones);
+    const n = zones.length;
+    const wholeLabel = n > 1 ? `כל המדינה ⚠×${n}` : 'כל המדינה';
+    let html = `<button class="rs-chip${WORLD.realZone ? '' : ' active'}" data-zone="">${wholeLabel}</button>`;
+    if (n > 1) {
+      html += zones.map(z =>
+        `<button class="rs-chip${z.id === WORLD.realZone ? ' active' : ''}" data-zone="${z.id}">${z.hasCapital ? '★ ' : ''}${z.nameHe}</button>`).join('');
+    }
+    sect.innerHTML = html;
     sect.querySelectorAll('.rs-chip').forEach(btn => {
       btn.addEventListener('click', () => {
         sect.querySelectorAll('.rs-chip').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        WORLD.realSector = btn.dataset.sector || null;
+        WORLD.realZone = btn.dataset.zone || null;
         applyNow();
       });
     });
@@ -3011,7 +3113,7 @@ const TUTORIAL_STEPS = [
       <ul>
         <li>🧭 <b>משחק יסודות</b> — המפה הקלאסית: כל האיומים מגיעים מ<b>חזית אחת במערב</b> (האזור האדום). מומלץ ללמידת המערכות והטקטיקות.</li>
         <li>🌍 <b>משחק מתקדם</b> — עולם אקראי לגמרי: צורת המדינה מוגרלת בכל משחק, מוקפת <b>4 מדינות שכנות</b> ששתיים מהן עוינות, עם ימים גובלים ואגמים פנימיים. איומים מגיעים <b>מכמה כיוונים בו-זמנית</b>.</li>
-        <li>🌐 <b>מבצעי — מפות אמיתיות</b> — תרגול על <b>מדינה אמיתית לבחירתך</b>: 🇮🇱 ישראל, 🇺🇦 אוקראינה, 🇵🇱 פולין, 🇩🇪 גרמניה, 🇫🇷 צרפת (הרשימה מתרחבת). לכל מדינה <b>גבולות אמיתיים</b> (Natural Earth), <b>טופוגרפיה אמיתית</b> (SRTM — הרים ורכסים משפיעים על קו-ראייה כמו במציאות), אגמים וימים אמיתיים, <b>יעדים אסטרטגיים אמיתיים</b> (בירה + הערים הגדולות) ושכנות אמיתיות. בחר את המדינה מ<b>שורת "🌐 מדינה"</b> במסך הפתיחה. לפני המשימה תוכל <b>לבחור מאילו מדינות שכנות תגיע התקיפה</b> (או להגריל), וכן <b>גזרת הגנה</b>: כל המדינה, צפון, מרכז או דרום — במשימת גזרה מגינים רק על יעדי הגזרה והמפה מתמקדת בה. טווחי הנשק הם ק"מ אמיתיים על המפה, ומהירויות האיומים והמיירטים מותאמות לעומק הזירה כך שיירוט אפשרי גם כשהגבול קרוב. <b>פרופילי טיסה מבצעיים</b>: כטב"מים חודרים ב-200 מ' ומסוקים ב-300 מ' בלבד — הסתתרות מאחורי רכסים הופכת קריטית. XP ×1.25.</li>
+        <li>🌐 <b>מבצעי — מפות אמיתיות</b> — תרגול על <b>מדינה אמיתית לבחירתך</b>: 🇮🇱 ישראל, 🇺🇦 אוקראינה, 🇵🇱 פולין, 🇩🇪 גרמניה, 🇫🇷 צרפת (הרשימה מתרחבת). לכל מדינה <b>גבולות אמיתיים</b> (Natural Earth), <b>טופוגרפיה אמיתית</b> (SRTM — הרים ורכסים משפיעים על קו-ראייה כמו במציאות), אגמים וימים אמיתיים, <b>יעדים אסטרטגיים אמיתיים</b> (בירה + הערים הגדולות) ושכנות אמיתיות. בחר את המדינה מ<b>שורת "🌐 מדינה"</b> במסך הפתיחה. לפני המשימה תוכל <b>לבחור מאילו מדינות שכנות תגיע התקיפה</b> (או להגריל), וכן <b>גזרת הגנה</b>. <b>המפתח לאיזון:</b> כל מדינה מחולקת אוטומטית ל<b>גזרות סטנדרטיות בגודל קבוע (~420 ק"מ)</b> — כך שהגנה על גזרה בודדת תמיד באותו קנה-מידה (שטח ותקציב דומים) בכל מדינה, קטנה כגדולה. בחר <b>גזרה</b> (המפה תתמקד בה, תקציב סטנדרטי) או <b>"כל המדינה"</b> — הגנה על כל הגזרות בו-זמנית, שבה התקציב וכמות האיומים גדלים לפי מספר הגזרות (⚠ מורכב בהרבה במדינות ענקיות). מדינה קטנה כמו ישראל היא גזרה אחת. טווחי הנשק הם ק"מ אמיתיים על המפה, ומהירויות האיומים והמיירטים מותאמות לעומק הזירה כך שיירוט אפשרי גם כשהגבול קרוב. <b>פרופילי טיסה מבצעיים</b>: כטב"מים חודרים ב-200 מ' ומסוקים ב-300 מ' בלבד — הסתתרות מאחורי רכסים הופכת קריטית. XP ×1.25.</li>
       </ul>
       <h4>שני מצבי משחק עיקריים:</h4>
       <ul>
@@ -4387,6 +4489,7 @@ function draw() {
   drawBackground();
   drawCountry();
   drawMountains();
+  drawZoneAOR();
   drawTargets();
 
   // When scrubbing, swap dynamic arrays and expose snapshot defense fields via
@@ -4789,6 +4892,32 @@ function tracePoly(poly) {
   ctx.moveTo(poly[0][0], poly[0][1]);
   for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i][0], poly[i][1]);
   ctx.closePath();
+}
+
+// Area-of-responsibility box for the active defense zone — a fixed
+// standard footprint so the defended theater reads the same size in
+// every country. Drawn under the targets, with a corner label.
+function drawZoneAOR() {
+  if (WORLD.mode !== 'real' || !WORLD.zoneBBox) return;
+  const b = WORLD.zoneBBox;
+  const w = b.x1 - b.x0, h = b.y1 - b.y0;
+  ctx.save();
+  ctx.lineWidth = 1.4 / state.viewport.scale;
+  ctx.setLineDash([8 / state.viewport.scale, 6 / state.viewport.scale]);
+  ctx.strokeStyle = 'rgba(52, 211, 153, 0.55)';
+  ctx.fillStyle = 'rgba(52, 211, 153, 0.05)';
+  ctx.beginPath();
+  ctx.rect(b.x0, b.y0, w, h);
+  ctx.fill();
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // Corner label
+  const fs = Math.max(9, 12 / state.viewport.scale);
+  ctx.font = `bold ${fs}px 'Rajdhani', sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.fillStyle = 'rgba(134, 239, 172, 0.9)';
+  ctx.fillText('אזור אחריות', b.x1 - 4 / state.viewport.scale, b.y0 + fs + 2 / state.viewport.scale);
+  ctx.restore();
 }
 
 function drawNeighbors() {
@@ -7405,7 +7534,20 @@ function startDefenseChallenge(difficulty = 'medium') {
   state.noIntel = !!profile.noIntel;
   state.intelRevealed = !state.noIntel;
 
-  const attackSize = profile.countMin + Math.floor(Math.random() * (profile.countMax - profile.countMin));
+  // Whole-country scope (real mode) multiplies the wave & budget by the
+  // number of theaters so defending a big country is proportionally
+  // bigger and harder; a single zone stays at the standard scale.
+  const sf = scopeFactor();
+  // Whole-country: the per-target tolerance would be brutal with many more
+  // targets, so scale the allowed losses to the enlarged front instead.
+  if (sf > 1) {
+    const maxLose = Math.max(2, Math.round(TARGETS.length * 0.3));
+    state.objective = {
+      text: `הגן על <b>היעד הראשי ⭐</b> ואל תאפשר פגיעה ביותר מ-<b>${maxLose} יעדים</b> — <span style="color:#fbbf24">הגנה על מדינה שלמה (${WORLD.zones.length} גזרות)</span>`,
+      check: (hits) => !hits.has(capitalName()) && nonCapitalHits(hits) <= maxLose
+    };
+  }
+  const attackSize = Math.round((profile.countMin + Math.floor(Math.random() * (profile.countMax - profile.countMin))) * sf);
   for (let i = 0; i < attackSize; i++) {
     const r = Math.random();
     let key;
@@ -7434,6 +7576,10 @@ function startDefenseChallenge(difficulty = 'medium') {
     missionBudget = { ...profile.budget };
     for (const k in extra) missionBudget[k] = (missionBudget[k] || 0) + extra[k];
   }
+  if (sf > 1) {   // whole-country: scale the hardware to the enlarged theater
+    missionBudget = { ...missionBudget };
+    for (const k in missionBudget) missionBudget[k] = Math.round(missionBudget[k] * sf);
+  }
 
   let numBudgetBatteries = 0;
   for (const k of BATTERY_KEYS) numBudgetBatteries += (missionBudget[k] || 0);
@@ -7452,10 +7598,17 @@ function startDefenseChallenge(difficulty = 'medium') {
   const frontsLine = WORLD.mode !== 'classic'
     ? `<br><span style="font-size:12px;font-weight:400;color:#ff9d9d">⚔ חזיתות אויב: <b>${hostileNames()}</b></span>`
     : '';
+  let scopeLine = '';
+  if (WORLD.mode === 'real') {
+    const zone = WORLD.realZone && WORLD.zones.find(z => z.id === WORLD.realZone);
+    scopeLine = zone
+      ? `<br><span style="font-size:12px;font-weight:400;color:#86efac">🗺 גזרת הגנה: <b>${zone.nameHe}</b> (~420 ק"מ, תקציב סטנדרטי)</span>`
+      : (sf > 1 ? `<br><span style="font-size:12px;font-weight:400;color:#fbbf24">🗺 הגנה על <b>כל המדינה</b> — ${WORLD.zones.length} גזרות, פי ${sf} מערכות ואיומים (מורכב)</span>` : '');
+  }
   showBanner(
     `🛡 <u>משימת הגנה - ${profile.label}</u>${state.noIntel ? ' 🕶' : ''}<br>` +
-    `<span style="color:#fbbf24">תנאי ניצחון:</span> ${profile.objective.text}<br>` +
-    intelLine + frontsLine,
+    `<span style="color:#fbbf24">תנאי ניצחון:</span> ${state.objective.text}<br>` +
+    intelLine + frontsLine + scopeLine,
     ''
   );
   renderBudget();
