@@ -2702,6 +2702,11 @@ function bindControls() {
   const mapNewGame = document.getElementById('map-new-game');
   if (mapNewGame) mapNewGame.addEventListener('click', showStartModal);
 
+  // Floating "re-open debrief" button — lets the player return to the
+  // results modal after dismissing it (visible only while results exist).
+  const mapDebrief = document.getElementById('map-debrief');
+  if (mapDebrief) mapDebrief.addEventListener('click', showResultsModal);
+
   // Duel buttons (defender creates a challenge at the chosen difficulty)
   document.querySelectorAll('#start-body button[data-duel]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -5341,6 +5346,23 @@ function drawThreats() {
       ctx.strokeText(altTxt, t.x, t.y + 15 * aS);
       ctx.fillStyle = c.color;
       ctx.fillText(altTxt, t.x, t.y + 15 * aS);
+    } else if (t.status === 'reached') {
+      // Impact serial — pinned at the strike point and kept on screen
+      // after the hit so a breach can be matched to its row in the
+      // debrief even once the raid is over.
+      const aS = labelScale();
+      const hitTxt = '✸ ' + t.label;
+      ctx.font = `bold ${Math.round(8.5 * aS)}px monospace`;
+      ctx.textAlign = 'center';
+      const hy = t.y + 15 * aS;
+      const hw = ctx.measureText(hitTxt).width;
+      ctx.fillStyle = 'rgba(40, 6, 10, 0.72)';
+      ctx.fillRect(t.x - hw / 2 - 3, hy - 8 * aS, hw + 6, 10.5 * aS);
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = 'rgba(6, 10, 18, 0.85)';
+      ctx.strokeText(hitTxt, t.x, hy);
+      ctx.fillStyle = '#fca5a5';
+      ctx.fillText(hitTxt, t.x, hy);
     }
 
     ctx.restore();
@@ -7132,6 +7154,11 @@ function segmentIntersectsCircle(x1, y1, x2, y2, cx, cy, r) {
 
 function renderResults() {
   const el = document.getElementById('results');
+  // Keep the floating "re-open debrief" button in sync with results:
+  // shown once a simulation has produced a debrief, hidden on new game
+  // / clear (both of which null state.results and call this).
+  const debriefBtn = document.getElementById('map-debrief');
+  if (debriefBtn) debriefBtn.style.display = state.results ? 'block' : 'none';
   if (!state.results) {
     el.innerHTML = '<div class="placeholder">טרם בוצעה סימולציה</div>';
     return;
