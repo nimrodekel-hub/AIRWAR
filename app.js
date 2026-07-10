@@ -5005,11 +5005,13 @@ function drawCoverage() {
       ctx.stroke();
 
     } else if (c.kind === 'battery') {
-      // Engagement zone — gradient fill
+      // Engagement zone — gradient fill. Kept very light so that
+      // overlapping batteries don't stack into an opaque wash that
+      // hides the underlying terrain/geography.
       const eGrad = ctx.createRadialGradient(d.x, d.y, c.minRange, d.x, d.y, c.maxRange);
-      eGrad.addColorStop(0,   c.color + '22');
-      eGrad.addColorStop(0.7, c.color + '12');
-      eGrad.addColorStop(1,   c.color + '05');
+      eGrad.addColorStop(0,   c.color + '0d');
+      eGrad.addColorStop(0.7, c.color + '07');
+      eGrad.addColorStop(1,   c.color + '02');
       ctx.beginPath();
       ctx.arc(d.x, d.y, c.maxRange, 0, Math.PI * 2);
       ctx.fillStyle = eGrad;
@@ -5018,7 +5020,7 @@ function drawCoverage() {
       // Mid-range reference ring
       ctx.beginPath();
       ctx.arc(d.x, d.y, c.maxRange * 0.5, 0, Math.PI * 2);
-      ctx.strokeStyle = c.color + '2e';
+      ctx.strokeStyle = c.color + '20';
       ctx.lineWidth = 0.7;
       ctx.stroke();
 
