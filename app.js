@@ -2364,6 +2364,7 @@ function makeChallengeLink() {
   if (state.duel.worldMode === 'real') {
     payload.rh = [...new Set(hostileNeighbors().map(nb => nb.name))];
     payload.rs = WORLD.realSector || '';
+    payload.c = WORLD.countryId || 'il';
   }
   const url = location.origin + location.pathname + '#duel=' + encodeDuel(payload);
   showDuelLinkModal(
@@ -2375,7 +2376,16 @@ function makeChallengeLink() {
 
 // ── Stage 2: the attacker opens a challenge link ──
 function enterDuelAttack(p) {
+  // Real-mode duels carry the country id — make sure its pack is loaded
+  // before regenerating geography, then re-enter with it available.
+  const cid = (p.m === 2 && p.c) ? p.c : 'il';
+  if (p.m === 2 && !(window.COUNTRY_PACKS || {})[cid]) {
+    ensureCountryPack(cid).then(() => enterDuelAttack(p))
+      .catch(() => enterDuelAttack({ ...p, m: 1 }));
+    return;
+  }
   resetAll();
+  WORLD.countryId = cid;
   WORLD.mode = p.m === 2 ? 'real' : p.m === 1 ? 'advanced' : 'classic';
   WORLD.realHostiles = (p.rh && p.rh.length) ? p.rh : null;
   WORLD.realSector = p.rs || null;
@@ -2447,6 +2457,7 @@ function makeResultLink() {
   if (state.duel.worldMode === 'real') {
     payload.rh = [...new Set(hostileNeighbors().map(nb => nb.name))];
     payload.rs = WORLD.realSector || '';
+    payload.c = WORLD.countryId || 'il';
   }
   const url = location.origin + location.pathname + '#duel=' + encodeDuel(payload);
   const verdict = scores.atk > scores.def ? 'ניצחת את המגן!' : scores.def > scores.atk ? 'המגן ניצח הפעם' : 'תיקו!';
@@ -2459,7 +2470,14 @@ function makeResultLink() {
 
 // ── Stage 3: the defender opens a result link ──
 function enterDuelReview(p, rawPayload) {
+  const cid = (p.m === 2 && p.c) ? p.c : 'il';
+  if (p.m === 2 && !(window.COUNTRY_PACKS || {})[cid]) {
+    ensureCountryPack(cid).then(() => enterDuelReview(p, rawPayload))
+      .catch(() => enterDuelReview({ ...p, m: 1 }, rawPayload));
+    return;
+  }
   resetAll();
+  WORLD.countryId = cid;
   WORLD.mode = p.m === 2 ? 'real' : p.m === 1 ? 'advanced' : 'classic';
   WORLD.realHostiles = (p.rh && p.rh.length) ? p.rh : null;
   WORLD.realSector = p.rs || null;
@@ -2753,10 +2771,12 @@ function syncWorldModeButtons() {
   }
   const ind = document.getElementById('track-indicator');
   if (ind) {
+    const curPack = (window.COUNTRY_PACKS || {})[WORLD.countryId || 'il'];
+    const realName = curPack ? (curPack.nameHe || curPack.name) : 'ישראל';
     const byMode = {
       classic:  ['cls',  '🧭 המסלול הנבחר: <b>משחק יסודות</b> — עכשיו בחר משימה ורמת קושי ↓'],
       advanced: ['adv',  '🌍 המסלול הנבחר: <b>משחק מתקדם</b> — עכשיו בחר משימה ורמת קושי ↓'],
-      real:     ['real', '🌐 המסלול הנבחר: <b>מבצעי — ישראל</b> — עכשיו בחר משימה ורמת קושי ↓']
+      real:     ['real', `🌐 המסלול הנבחר: <b>מבצעי — ${realName}</b> — עכשיו בחר משימה ורמת קושי ↓`]
     };
     const [cls, html] = byMode[WORLD.mode] || byMode.classic;
     ind.className = 'track-indicator ' + cls;
@@ -2766,13 +2786,64 @@ function syncWorldModeButtons() {
   if (opts) opts.style.display = WORLD.mode === 'real' ? '' : 'none';
 }
 
-// Operational-mode mission options: which neighbours attack (multi-select,
-// empty = random draw per difficulty) and which sector is defended.
-// Selections apply to the next mission (and to duel challenges you create).
+// Operational-mode countries with a pre-baked pack. `il` ships inline in
+// index/mobile.html; the rest are lazy-loaded on first selection.
+const AVAILABLE_COUNTRIES = [
+  { id: 'il', he: 'ישראל',    flag: '🇮🇱' },
+  { id: 'ua', he: 'אוקראינה', flag: '🇺🇦' },
+  { id: 'pl', he: 'פולין',    flag: '🇵🇱' },
+  { id: 'de', he: 'גרמניה',   flag: '🇩🇪' },
+  { id: 'fr', he: 'צרפת',     flag: '🇫🇷' }
+];
+
+// Inject countries/<id>.js on demand (borders + terrain + targets), reusing
+// the cache-bust query from the inline pack's <script> tag so a published
+// pack update is picked up. Resolves once the pack registers.
+function ensureCountryPack(id) {
+  return new Promise((resolve, reject) => {
+    if ((window.COUNTRY_PACKS || {})[id]) return resolve(true);
+    let q = '';
+    const existing = document.querySelector('script[src*="countries/"]');
+    if (existing) { const m = existing.src.match(/\?[^"']*$/); if (m) q = m[0]; }
+    const s = document.createElement('script');
+    s.src = 'countries/' + id + '.js' + q;
+    s.onload = () => resolve(true);
+    s.onerror = () => reject(new Error('failed to load country pack: ' + id));
+    document.head.appendChild(s);
+  });
+}
+
+// Operational-mode mission options: which country, which neighbours attack
+// (multi-select, empty = random draw per difficulty) and which sector is
+// defended. Selections apply to the next mission (and to duel challenges).
 function renderRealOptions() {
+  const curId = WORLD.countryId || 'il';
+  const countryWrap = document.getElementById('real-country-chips');
+  if (countryWrap) {
+    countryWrap.innerHTML = AVAILABLE_COUNTRIES.map(c =>
+      `<button class="rf-chip${c.id === curId ? ' active' : ''}" data-country="${c.id}">${c.flag} ${c.he}</button>`).join('');
+    countryWrap.querySelectorAll('[data-country]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.country;
+        if (id === (WORLD.countryId || 'il')) return;
+        btn.disabled = true;
+        try { await ensureCountryPack(id); }
+        catch (e) { console.error(e); btn.disabled = false; return; }
+        WORLD.countryId = id;
+        WORLD.realHostiles = null;   // neighbour set differs per country
+        WORLD.realSector = null;
+        renderRealOptions();         // re-render country + fronts for the new pack
+        const sect = document.getElementById('real-sector-chips');
+        if (sect) sect.querySelectorAll('.rs-chip').forEach(b =>
+          b.classList.toggle('active', b.dataset.sector === ''));
+        if (WORLD.mode === 'real') { regenerateGeography(); resetView(); }
+        syncWorldModeButtons();      // refresh the "מבצעי — <country>" track label
+      });
+    });
+  }
   const fronts = document.getElementById('real-fronts-chips');
   if (!fronts) return;
-  const pack = (window.COUNTRY_PACKS || {})[WORLD.countryId || 'il'];
+  const pack = (window.COUNTRY_PACKS || {})[curId];
   if (!pack) return;
   fronts.innerHTML = '<button class="rf-chip active" data-front="random">🎲 אקראי</button>' +
     pack.neighbors.filter(n => n.eligible).map(n =>
@@ -2940,7 +3011,7 @@ const TUTORIAL_STEPS = [
       <ul>
         <li>🧭 <b>משחק יסודות</b> — המפה הקלאסית: כל האיומים מגיעים מ<b>חזית אחת במערב</b> (האזור האדום). מומלץ ללמידת המערכות והטקטיקות.</li>
         <li>🌍 <b>משחק מתקדם</b> — עולם אקראי לגמרי: צורת המדינה מוגרלת בכל משחק, מוקפת <b>4 מדינות שכנות</b> ששתיים מהן עוינות, עם ימים גובלים ואגמים פנימיים. איומים מגיעים <b>מכמה כיוונים בו-זמנית</b>.</li>
-        <li>🌐 <b>מבצעי: ישראל</b> — תרגול על <b>מפה אמיתית</b>: גבולות אמיתיים (Natural Earth), <b>טופוגרפיה אמיתית</b> (SRTM — הגולן, הרי יהודה, הנגב משפיעים על קו-ראייה כמו במציאות), הכנרת וים המלח, יעדים אמיתיים (ירושלים, תל אביב, חיפה, באר שבע, בסיס נבטים) ושכנות אמיתיות. לפני המשימה תוכל <b>לבחור מאילו מדינות תגיע התקיפה</b> (או להגריל), וכן <b>גזרת הגנה</b>: כל המדינה, צפון, מרכז או דרום — במשימת גזרה מגינים רק על יעדי הגזרה והמפה מתמקדת בה. טווחי הנשק הם ק"מ אמיתיים על המפה, ומהירויות האיומים והמיירטים מותאמות לעומק הזירה כך שיירוט אפשרי גם כשהגבול קרוב. <b>פרופילי טיסה מבצעיים</b>: כטב"מים חודרים ב-200 מ' ומסוקים ב-300 מ' בלבד — הסתתרות מאחורי רכסים הופכת קריטית. XP ×1.25.</li>
+        <li>🌐 <b>מבצעי — מפות אמיתיות</b> — תרגול על <b>מדינה אמיתית לבחירתך</b>: 🇮🇱 ישראל, 🇺🇦 אוקראינה, 🇵🇱 פולין, 🇩🇪 גרמניה, 🇫🇷 צרפת (הרשימה מתרחבת). לכל מדינה <b>גבולות אמיתיים</b> (Natural Earth), <b>טופוגרפיה אמיתית</b> (SRTM — הרים ורכסים משפיעים על קו-ראייה כמו במציאות), אגמים וימים אמיתיים, <b>יעדים אסטרטגיים אמיתיים</b> (בירה + הערים הגדולות) ושכנות אמיתיות. בחר את המדינה מ<b>שורת "🌐 מדינה"</b> במסך הפתיחה. לפני המשימה תוכל <b>לבחור מאילו מדינות שכנות תגיע התקיפה</b> (או להגריל), וכן <b>גזרת הגנה</b>: כל המדינה, צפון, מרכז או דרום — במשימת גזרה מגינים רק על יעדי הגזרה והמפה מתמקדת בה. טווחי הנשק הם ק"מ אמיתיים על המפה, ומהירויות האיומים והמיירטים מותאמות לעומק הזירה כך שיירוט אפשרי גם כשהגבול קרוב. <b>פרופילי טיסה מבצעיים</b>: כטב"מים חודרים ב-200 מ' ומסוקים ב-300 מ' בלבד — הסתתרות מאחורי רכסים הופכת קריטית. XP ×1.25.</li>
       </ul>
       <h4>שני מצבי משחק עיקריים:</h4>
       <ul>
