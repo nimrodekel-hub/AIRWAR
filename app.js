@@ -850,6 +850,8 @@ function getTerrainAlt(x, y) {
 
 function buildTerrainGrid() {
   const g = TERRAIN_GRID;
+  // stock procedural resolution (real-country packs override these)
+  g.cell = 5; g.w = 241; g.h = 161;
   g.data = new Float32Array(g.w * g.h);
   for (let iy = 0; iy < g.h; iy++) {
     for (let ix = 0; ix < g.w; ix++) {
@@ -5279,6 +5281,21 @@ function drawThreats() {
     else if (t.key === 'helicopter') drawHelo();
     else drawDrone();
     ctx.restore();
+
+    // In-flight altitude readout — terrain-following MSL, boxless and
+    // small so it informs without cluttering (like the other modes)
+    if ((isSimActive() || state.scrubTime != null) && t.status === 'inflight') {
+      const altMSL = c.altitude + getTerrainAlt(t.x, t.y);
+      const aS = labelScale();
+      const altTxt = altMSL.toFixed(1) + 'km';
+      ctx.font = `bold ${Math.round(8 * aS)}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = 'rgba(6, 10, 18, 0.85)';
+      ctx.strokeText(altTxt, t.x, t.y + 15 * aS);
+      ctx.fillStyle = c.color;
+      ctx.fillText(altTxt, t.x, t.y + 15 * aS);
+    }
 
     ctx.restore();
 
