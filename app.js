@@ -1545,7 +1545,7 @@ const REASON_LABEL = {
   'out-of-range':          'מחוץ לטווח היירוט הנומינלי',
   'rcs-shrunk':            'מעטפת מצומצמת בשל RCS נמוך',
   'altitude':              'מחוץ למעטפת הגובה של הסוללה',
-  'los-blocked':           'קו ראיה חסום ע"י טופוגרפיה',
+  'los-blocked':           'בטווח, אך קו הראיה חסום ע"י טופוגרפיה — שקול הצבה חשופה יותר',
   'ammo-depleted':         'בתוך מעטפת סוללה, גמר מיירטים',
   'engagement-saturation': 'סוללה תפוסה ביירוט אחר (רוויה)'
 };
@@ -7044,25 +7044,40 @@ function simulateEngagementOutcome(t, d, c, tc) {
   if (closestDist > c.maxRange) return 'out-of-range';   // beyond nominal too
   if (closestDist > effMax)    return 'rcs-shrunk';      // nominal yes, RCS no
 
-  // 3. LOS — terrain may hide the threat from the battery during the entire
-  // in-envelope chord. Sample three points along the engagement window; if
-  // ALL three are blocked, the battery never has a clear shot.
+  // 3. LOS — terrain can mask part or all of the in-envelope chord.
+  // Sample the window densely and measure the longest CONTIGUOUS
+  // visible stretch: the battery must fit its whole reaction time
+  // inside one continuous visibility window to complete a shot, so a
+  // badly-sited battery that only glimpses the threat between ridges
+  // is correctly reported as LOS-blocked (not as a generic miss).
   const halfChord = Math.sqrt(effMax*effMax - closestDist*closestDist);
   const entryDist = Math.max(0, proj - halfChord);
   const exitDist  = Math.min(len, proj + halfChord);
-  const losClear = [0, 0.5, 1].some(f => {
+  const LOS_SAMPLES = 13;
+  let bestRun = 0, run = 0;
+  for (let i = 0; i < LOS_SAMPLES; i++) {
+    const f = i / (LOS_SAMPLES - 1);
     const sx = t.sx + ux * (entryDist + (exitDist - entryDist) * f);
     const sy = t.sy + uy * (entryDist + (exitDist - entryDist) * f);
     // Use the actual threat AGL altitude at the sampled point (terrain follows)
     const sAlt = threatAglOf(t.key) + getTerrainAlt(sx, sy);
-    return hasLOS(d.x, d.y, sx, sy, sAlt);
-  });
-  if (!losClear) return 'los-blocked';
+    if (hasLOS(d.x, d.y, sx, sy, sAlt)) {
+      run++;
+      if (run > bestRun) bestRun = run;
+    } else {
+      run = 0;
+    }
+  }
+  if (bestRun === 0) return 'los-blocked';
 
-  // 4. In-range chord too short for the reaction time
+  // 4. Time inside the envelope / inside the visible window
   const ts = threatSpeedOf(tc), ms = interceptorSpeedOf(c);
   const inRangeTime = (exitDist - entryDist) / ts;
   if (c.reactionTime > inRangeTime) return 'flight-time';
+  // In range the whole time, but terrain leaves a visibility window
+  // shorter than the reaction time — a siting problem, not geometry
+  const visibleTime = (bestRun / LOS_SAMPLES) * inRangeTime;
+  if (visibleTime < c.reactionTime) return 'los-blocked';
 
   // 5. Battery commits at entry, missile launches after reactionTime
   const launchTimeFromEntry = c.reactionTime;
@@ -7077,6 +7092,10 @@ function simulateEngagementOutcome(t, d, c, tc) {
     ipy = launchY + uy * ts * T;
     T = Math.hypot(ipx - d.x, ipy - d.y) / ms;
   }
+
+  // 6b. Terrain may block guidance at the predicted intercept point
+  const ipAlt = threatAglOf(t.key) + getTerrainAlt(ipx, ipy);
+  if (!hasLOS(d.x, d.y, ipx, ipy, ipAlt)) return 'los-blocked';
 
   // 7. Threat may reach its target before the missile arrives
   const remaining = Math.hypot(t.tx - launchX, t.ty - launchY) / ts;
