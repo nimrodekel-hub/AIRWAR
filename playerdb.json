@@ -1,9 +1,9 @@
 {
   "players": {
     "נמרוד": {
-      "xp": 1328,
-      "games": 19,
-      "wins": 7,
+      "xp": 1453,
+      "games": 20,
+      "wins": 8,
       "bests": {},
       "bestsXp": {
         "defense-challenge-hard": 125,
@@ -13,7 +13,7 @@
         "attack-challenge-medium": 11
       },
       "rank": "סמ\"ר",
-      "updated": "2026-07-10T21:47:33.183Z"
+      "updated": "2026-07-10T21:52:48.132Z"
     }
   }
 }
