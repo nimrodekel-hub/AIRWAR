@@ -8,7 +8,7 @@ const CATALOG = {
   // Missile speed order (fastest to slowest, per spec): Iron shield > Barak > Gecko > David's Sling > Patriot
   ironDome: {
     kind: 'battery', name: 'Iron shield', short: 'IRN',
-    minRange: 4, maxRange: 70, minAlt: 0, maxAlt: 9,
+    minRange: 4, maxRange: 40, minAlt: 0, maxAlt: 9,
     color: '#3b82f6', ammo: 8, reload: 0.4,
     hitRate: 0.90,
     reactionTime: 1,
@@ -26,7 +26,7 @@ const CATALOG = {
   },
   barak8: {
     kind: 'battery', name: 'Barak', short: 'BRK',
-    minRange: 0.5, maxRange: 100, minAlt: 0, maxAlt: 16,
+    minRange: 0.5, maxRange: 70, minAlt: 0, maxAlt: 16,
     color: '#8b5cf6', ammo: 6, reload: 0.5,
     hitRate: 0.85,
     reactionTime: 0.5,
@@ -35,7 +35,7 @@ const CATALOG = {
   },
   patriot: {
     kind: 'battery', name: 'Patriot PAC-3', short: 'PAT',
-    minRange: 3, maxRange: 160, minAlt: 0, maxAlt: 24,
+    minRange: 3, maxRange: 150, minAlt: 0, maxAlt: 24,
     color: '#f59e0b', ammo: 4, reload: 0.7,
     hitRate: 0.65,
     reactionTime: 1.5,
@@ -44,7 +44,7 @@ const CATALOG = {
   },
   davidsSling: {
     kind: 'battery', name: "David's Sling", short: 'DSL',
-    minRange: 40, maxRange: 200, minAlt: 5, maxAlt: 30,
+    minRange: 40, maxRange: 140, minAlt: 5, maxAlt: 30,
     color: '#d946ef', ammo: 5, reload: 0.8,
     hitRate: 0.70,
     reactionTime: 1,
@@ -846,7 +846,12 @@ function threatAglOf(key) {
   if (WORLD.mode === 'real' && REAL_THREAT_ALT[key] !== undefined) return REAL_THREAT_ALT[key];
   return CATALOG[key].altitude;
 }
-function threatSpeedOf(tc) { return tc.speed * kinScale(); }
+// Non-operational games: targets fly 30% slower than catalog so the
+// shortened battery ranges (2026-07 rebalance) still leave a workable
+// intercept window. Interceptor speeds are NOT reduced — the improved
+// missile/threat speed ratio is the point. Real mode keeps its own
+// uniform 0.3 kinematics scale (threats + interceptors alike).
+function threatSpeedOf(tc) { return tc.speed * (WORLD.mode === 'real' ? kinScale() : 0.7); }
 function interceptorSpeedOf(c) { return c.missileSpeed * kinScale(); }
 
 // Bilinear lookup into the baked grid (falls back to analytic pre-bake)
@@ -2067,7 +2072,7 @@ function makeBtn(k) {
   } else if (c.kind === 'radar') {
     rangeText = `Detection ${c.detection} km`;
   } else {
-    rangeText = `Speed ${c.speed} • Altitude ${threatAglOf(k)} km`;
+    rangeText = `Speed ${Math.round(threatSpeedOf(c))} • Altitude ${threatAglOf(k)} km`;
   }
 
   const wrapper = document.createElement('div');
@@ -2137,7 +2142,7 @@ function showInfoModal(key) {
   } else {
     rows += `
       <tr><td>סוג</td><td>איום אווירי</td></tr>
-      <tr><td>מהירות (סקלת המשחק)</td><td>${c.speed} px/s</td></tr>
+      <tr><td>מהירות (סקלת המשחק)</td><td>${Math.round(threatSpeedOf(c))} px/s</td></tr>
       <tr><td>גובה טיסה</td><td>${threatAglOf(key)} ק"מ</td></tr>
       <tr><td>חתימת מכ"ם (RCS)</td><td>${c.rcs} ${c.rcs < 0.5 ? '(נמוכה - קשה לאתר)' : c.rcs < 0.8 ? '(בינונית)' : '(גבוהה)'}</td></tr>
     `;
@@ -3024,11 +3029,11 @@ const TUTORIAL_STEPS = [
       <p>חמש סוללות הגנה שונות, כל אחת עם תכונות ייחודיות. הקטלוג מימין מציג את הנתונים העיקריים.</p>
       <table>
         <tr><th>סוללה</th><th>טווח</th><th>גובה</th><th>PK</th><th>RT</th><th>תחמושת</th></tr>
-        <tr><td><span class="swatch" style="background:#3b82f6"></span> Iron shield</td><td>4-70</td><td>0-9</td><td class="key">90%</td><td>1s</td><td>8</td></tr>
+        <tr><td><span class="swatch" style="background:#3b82f6"></span> Iron shield</td><td>4-40</td><td>0-9</td><td class="key">90%</td><td>1s</td><td>8</td></tr>
         <tr><td><span class="swatch" style="background:#10b981"></span> SA-8 Gecko</td><td>1.5-30</td><td>0-5</td><td class="key">65%</td><td>0.5s</td><td>3</td></tr>
-        <tr><td><span class="swatch" style="background:#8b5cf6"></span> Barak</td><td>0.5-100</td><td>0-16</td><td class="key">85%</td><td>0.5s</td><td>6</td></tr>
-        <tr><td><span class="swatch" style="background:#f59e0b"></span> Patriot PAC-3</td><td>3-160</td><td>0-24</td><td class="key">65%</td><td>1.5s</td><td>4</td></tr>
-        <tr><td><span class="swatch" style="background:#d946ef"></span> David's Sling</td><td>40-200</td><td>5-30</td><td class="key">70%</td><td>1s</td><td>5</td></tr>
+        <tr><td><span class="swatch" style="background:#8b5cf6"></span> Barak</td><td>0.5-70</td><td>0-16</td><td class="key">85%</td><td>0.5s</td><td>6</td></tr>
+        <tr><td><span class="swatch" style="background:#f59e0b"></span> Patriot PAC-3</td><td>3-150</td><td>0-24</td><td class="key">65%</td><td>1.5s</td><td>4</td></tr>
+        <tr><td><span class="swatch" style="background:#d946ef"></span> David's Sling</td><td>40-140</td><td>5-30</td><td class="key">70%</td><td>1s</td><td>5</td></tr>
       </table>
       <h4>מה כל מספר אומר:</h4>
       <ul>
@@ -3239,7 +3244,7 @@ const TUTORIAL_STEPS = [
         <li>⛰ <b>קו ראיה חסום ע"י טופוגרפיה (LOS)</b> — הר/רכס היה בין הסוללה לאיום לאורך כל מעבר המעטפת. הסוללה לא יכלה לראות, ולכן לא ירתה. <b>תיקון:</b> פזר סוללות בכיוונים שונים סביב היעד כך שלפחות אחת תראה מכיוון אחר, או הצב על שטח גבוה שמתעלה מעל הרכס.</li>
         <li>📡 <b>מעטפת מצומצמת בשל RCS נמוך</b> — הסוללה הייתה בטווח <u>הנומינלי</u>, אבל ה-RCS הקטן של האיום (UAV/מטרה קטנה) הקטין את טווח היירוט האפקטיבי שלה אל מתחת למרחק האיום. <b>תיקון:</b> הוסף Short-Range Radar (משפר זיהוי מטרות RCS נמוכות), או קרב את הסוללה לציר התקיפה.</li>
         <li>📏 <b>מחוץ למעטפת הגובה של הסוללה</b> — האיום טס מתחת/מעל לתחום הגובה של הסוללה. SA-8 לא יורה על מטוסים בגובה 10 ק"מ; David's Sling לא יורה על מסוקים בגובה 0.8 ק"מ. <b>תיקון:</b> הגנה רב-שכבתית — סוללה נמוכה (Iron shield/SA-8) + סוללה גבוהה (Patriot/David's Sling) שמכסות יחד את כל טווחי הגובה.</li>
-        <li>🎯 <b>מחוץ לטווח היירוט הנומינלי</b> — האיום עבר במרחק גדול יותר מהטווח המקסימלי של הסוללה (גם בלי קיזוז RCS). זה אומר שאף סוללה לא הייתה מספיק קרובה גאומטרית. <b>תיקון:</b> פרוס סוללה ארוכת-טווח (Patriot 160 ק"מ / David's Sling 200 ק"מ) קרוב יותר לאזור החדירה.</li>
+        <li>🎯 <b>מחוץ לטווח היירוט הנומינלי</b> — האיום עבר במרחק גדול יותר מהטווח המקסימלי של הסוללה (גם בלי קיזוז RCS). זה אומר שאף סוללה לא הייתה מספיק קרובה גאומטרית. <b>תיקון:</b> פרוס סוללה ארוכת-טווח (Patriot 150 ק"מ / David's Sling 140 ק"מ) קרוב יותר לאזור החדירה.</li>
       </ul>
       <div class="tip">💡 <b>איך לקרוא את האבחון:</b> ראית "החטאה סטטיסטית [IRN] • LOS חסום [DSL] • RCS שרינק [PAT]"? המשמעות: על אותו איום, Iron Shield ירה והחטיא במזל רע, David's Sling לא ירה כי הר חסם, ו-Patriot לא ירה כי ה-UAV נשמר ב-RCS-shrunk envelope שלה. עכשיו אתה יודע איפה להזיז כל סוללה ולמה.</div>
     `
@@ -3949,7 +3954,7 @@ function onMouseMove(ev) {
     } else if (c.kind === 'threat') {
       lines[0] = `<b>${c.name} <span style="color:#fbbf24">[${ent.label}]</span></b>`;
       lines.push(`יעד: ${ent.target}`);
-      lines.push(`מהירות: ${c.speed} | גובה אבסולוטי: ${(threatAglOf(ent.key) + getTerrainAlt(ent.x, ent.y)).toFixed(1)} ק"מ (AGL ${threatAglOf(ent.key)})`);
+      lines.push(`מהירות: ${Math.round(threatSpeedOf(c))} | גובה אבסולוטי: ${(threatAglOf(ent.key) + getTerrainAlt(ent.x, ent.y)).toFixed(1)} ק"מ (AGL ${threatAglOf(ent.key)})`);
       lines.push(`סטטוס: ${ent.status === 'destroyed' ? 'הושמד' : ent.status === 'reached' ? 'הגיע ליעד' : 'פעיל'}`);
     }
     tooltip.innerHTML = lines.join('<br>');
@@ -6744,7 +6749,7 @@ function generateDefenseRecommendations(r) {
 
   if (counts['out-of-range'] > 0) {
     const tgts = [...new Set(targetsPerReason['out-of-range'])].join(', ');
-    recs.push(`📍 <b>${counts['out-of-range']} איומים מחוץ לטווח הנומינלי</b> (יעדים: ${tgts}). אף סוללה בפריסה הנוכחית אינה מספיק קרובה לציר התקיפה גם בהנחת RCS מלא. <b>פתרון:</b> פרוס סוללה ארוכת-טווח (Patriot 160km / David's Sling 200km / Barak 100km) קרוב יותר לאזור החדירה.`);
+    recs.push(`📍 <b>${counts['out-of-range']} איומים מחוץ לטווח הנומינלי</b> (יעדים: ${tgts}). אף סוללה בפריסה הנוכחית אינה מספיק קרובה לציר התקיפה גם בהנחת RCS מלא. <b>פתרון:</b> פרוס סוללה ארוכת-טווח (Patriot 150km / David's Sling 140km / Barak 70km) קרוב יותר לאזור החדירה.`);
   }
 
   if (counts['rcs-shrunk'] > 0) {
