@@ -12,6 +12,9 @@ const CATALOG = {
     color: '#3b82f6', ammo: 8, reload: 0.4,
     hitRate: 0.90,
     reactionTime: 1,
+    // Purpose-built against small/low-RCS targets — keeps most of its
+    // range on UAVs instead of suffering the full radar-equation penalty.
+    cuav: 0.5,
     missileSpeed: 600, realSpeed: 'Mach 7 (fastest)',
     desc: 'Short-range interception, highly effective against UAVs and rockets'
   },
@@ -21,6 +24,9 @@ const CATALOG = {
     color: '#10b981', ammo: 3, reload: 0.6,
     hitRate: 0.65,
     reactionTime: 0.5,
+    // Dedicated low-altitude point defence / counter-UAV — resists the
+    // small-target range shrink so it engages drones well before overhead.
+    cuav: 0.6,
     missileSpeed: 380, realSpeed: 'Mach 4 (medium)',
     desc: 'Mobile short-range SAM, low-altitude'
   },
@@ -1428,12 +1434,22 @@ function rcsRangeFactor(rcs) {
   return Math.pow(Math.max(rcs, 0.001), 0.25);
 }
 
+// Range factor for a specific BATTERY tracking a specific threat. A
+// counter-UAV / point-defence battery (c.cuav) resists the small-target
+// range shrink — it is optimised to track low-RCS drones, so its factor
+// is blended toward 1.0 rather than the full radar-equation penalty.
+function battRangeFactor(c, tc) {
+  const base = rcsRangeFactor(tc.rcs);
+  const cuav = c.cuav || 0;
+  return base + (1 - base) * cuav;
+}
+
 // Effective engagement range of a battery against a specific threat.
 // The missile envelope is physically fixed but the battery's tracking
 // radar (used to guide the interceptor) suffers from RCS so the
 // closeable engagement range shrinks for low-RCS targets.
 function effectiveEngagementRange(c, tc) {
-  return c.maxRange * rcsRangeFactor(tc.rcs);
+  return c.maxRange * battRangeFactor(c, tc);
 }
 
 // ---- Attack-challenge difficulty profiles ----
@@ -2257,7 +2273,7 @@ function showInfoModal(key) {
 
   if (c.kind === 'battery') {
     // Per-threat-type effective range (RCS-adjusted)
-    const fmtEff = (rcs) => `${Math.round(c.maxRange * rcsRangeFactor(rcs))} ק"מ`;
+    const fmtEff = (rcs) => `${Math.round(c.maxRange * battRangeFactor(c, { rcs }))} ק"מ`;
     rows += `
       <tr><td>סוג</td><td>סוללת נ"מ קרקע-אוויר</td></tr>
       <tr><td>טווח יירוט נומינלי</td><td>${c.minRange} - ${c.maxRange} ק"מ</td></tr>
@@ -5603,10 +5619,9 @@ function drawThreats() {
     if ((isSimActive() || state.scrubTime != null) && t.status === 'inflight') {
       const altMSL = threatAglOf(t.key) + getTerrainAlt(t.x, t.y);
       const aS = labelScale();
-      // Show metres below 2 km so terrain-following changes over hills and
-      // valleys are visible; km higher up where fine resolution is noise.
-      const altStr = altMSL < 2 ? Math.round(altMSL * 1000) + 'מ\'' : altMSL.toFixed(1) + 'ק"מ';
-      const altTxt = t.label + ' · ' + altStr;
+      // One decimal km — enough to read the trend without the readout
+      // flickering on every metre of terrain-following.
+      const altTxt = t.label + ' · ' + altMSL.toFixed(1) + 'ק"מ';
       ctx.font = `bold ${Math.round(8 * aS)}px monospace`;
       ctx.textAlign = 'center';
       ctx.lineWidth = 2.5;
@@ -6473,8 +6488,9 @@ function pickEngagementTarget(d) {
 function getDetectionInfo(t, d, c, tc) {
   const factor = rcsRangeFactor(tc.rcs);
   let organic = false, externalRadar = false;
-  // Battery's own organic search radar
-  const ownEff = c.maxRange * factor;
+  // Battery's own organic search radar (counter-UAV batteries track small
+  // targets better, so their organic detection resists the RCS shrink too)
+  const ownEff = c.maxRange * battRangeFactor(c, tc);
   if (Math.hypot(t.x - d.x, t.y - d.y) <= ownEff && hasLOS(d.x, d.y, t.x, t.y, getThreatAltMSL(t))) organic = true;
   // Standalone radars elsewhere on the map - detection only, doesn't
   // change the missile's physical envelope but extends the battery's
