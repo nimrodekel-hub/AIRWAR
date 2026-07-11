@@ -913,10 +913,12 @@ function loadRealWorld(difficulty) {
   g.data = new Float32Array(hm.w * hm.h);
   const kScale = hm.scaleM / 1000;
   for (let i = 0; i < g.data.length; i++) g.data[i] = bin.charCodeAt(i) * kScale;
-  // Stretch the hypsometric ramp to this country's own peaks so the
-  // relief shows the full colour spectrum, with denser contour lines
-  const homeMax = Math.max(0.9, ...pack.peaks.map(p => p.alt));
-  TERRAIN_STYLE.colorScale = 3.2 / homeMax;
+  // Colour by TRUE elevation (a mild boost so foothills already read as
+  // tan/orange) rather than dimming by the country's max — that earlier
+  // stretch washed out genuinely high countries (the Alps looked flat).
+  // Real relief now shows: green plains, tan/orange highlands, rocky
+  // summits, revealed further by strong hillshade below.
+  TERRAIN_STYLE.colorScale = 1.15;
   TERRAIN_STYLE.contourStep = 0.25;
   if (_realTerrainCache && _realTerrainCache.id === pack.id) {
     TERRAIN_CANVAS = _realTerrainCache.canvas;
@@ -1069,7 +1071,7 @@ function buildTerrainOverlay(scale = 1) {
   // Light from the north-west, normalized
   let Lx = -0.6, Ly = -0.6, Lz = 0.55;
   const Ll = Math.hypot(Lx, Ly, Lz); Lx /= Ll; Ly /= Ll; Lz /= Ll;
-  const EXAG = 30;            // vertical exaggeration for slope shading
+  const EXAG = 55;            // vertical exaggeration for slope shading
   const CONTOUR_STEP = TERRAIN_STYLE.contourStep;   // km between contour lines
 
   for (let y = 0; y < h; y++) {
@@ -1077,12 +1079,17 @@ function buildTerrainOverlay(scale = 1) {
       const idx = (y * w + x) * 4;
       const wx = x / scale, wy = y / scale;   // world km
       const alt = getTerrainAlt(wx, wy);
-      if (alt < 0.1) continue;   // lowland plain — base map colour shows through
+      if (alt < 0.03) continue;   // open sea / below ~30 m — base map shows through
 
-      // 1. Hypsometric base colour
+      // 1. Hypsometric base colour. A faint green floor is applied to low
+      // land (< first stop) so plains carry tint + hillshade texture
+      // instead of rendering blank — that blankness read as "flat".
       let [r, g, b, a] = hypsoColor(alt * TERRAIN_STYLE.colorScale);
+      if (a === 0) { r = 54; g = 118; b = 66; a = 0.34; }
 
-      // 2. Hillshade composited over the tint
+      // 2. Hillshade composited over the tint. Higher exaggeration + a
+      // little more contrast so gentle lowland relief (river valleys,
+      // rolling hills) is visible, and mountains cast strong shadows.
       const gx = getTerrainAlt(wx + 2, wy) - getTerrainAlt(wx - 2, wy);
       const gy = getTerrainAlt(wx, wy + 2) - getTerrainAlt(wx, wy - 2);
       let nx = -gx * EXAG, ny = -gy * EXAG, nz = 4;
@@ -1090,8 +1097,8 @@ function buildTerrainOverlay(scale = 1) {
       const lam = nx * Lx + ny * Ly + nz * Lz;
       const shade = lam - Lz;   // 0 on flat ground, +lit / −shadow on slopes
       let sr, sg, sb, sa;
-      if (shade > 0) { sr = 255; sg = 246; sb = 214; sa = Math.min(0.30, shade * 1.4); }
-      else           { sr = 4;   sg = 10;  sb = 16;  sa = Math.min(0.48, -shade * 1.7); }
+      if (shade > 0) { sr = 255; sg = 248; sb = 220; sa = Math.min(0.42, shade * 1.7); }
+      else           { sr = 3;   sg = 9;   sb = 15;  sa = Math.min(0.60, -shade * 2.1); }
       if (sa > 0) {
         const na = sa + a * (1 - sa);
         r = (sr * sa + r * a * (1 - sa)) / na;
@@ -1100,8 +1107,8 @@ function buildTerrainOverlay(scale = 1) {
         a = na;
       }
 
-      // 3. Contour lines every 0.5 km
-      if (alt > 0.25) {
+      // 3. Contour lines (every contourStep km), down to low foothills
+      if (alt > 0.1) {
         const f = alt / CONTOUR_STEP;
         const frac = f - Math.floor(f);
         if (frac < 0.06 || frac > 0.94) {
@@ -5596,7 +5603,10 @@ function drawThreats() {
     if ((isSimActive() || state.scrubTime != null) && t.status === 'inflight') {
       const altMSL = threatAglOf(t.key) + getTerrainAlt(t.x, t.y);
       const aS = labelScale();
-      const altTxt = t.label + ' · ' + altMSL.toFixed(1) + 'km';
+      // Show metres below 2 km so terrain-following changes over hills and
+      // valleys are visible; km higher up where fine resolution is noise.
+      const altStr = altMSL < 2 ? Math.round(altMSL * 1000) + 'מ\'' : altMSL.toFixed(1) + 'ק"מ';
+      const altTxt = t.label + ' · ' + altStr;
       ctx.font = `bold ${Math.round(8 * aS)}px monospace`;
       ctx.textAlign = 'center';
       ctx.lineWidth = 2.5;
