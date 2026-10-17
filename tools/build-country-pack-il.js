@@ -247,7 +247,7 @@ const targets = [
   T('Tel Aviv', 'תל אביב', 32.0853, 34.7818, 3),
   T('Haifa', 'חיפה', 32.7940, 34.9896, 3),
   T('Beer Sheva', 'באר שבע', 31.2518, 34.7913, 2),
-  T('Nevatim Airbase', 'בסיס נבטים', 31.2083, 34.6828, 4, { airbase: true })
+  T('Nevatim Airbase', 'בסיס נבטים', 31.2083, 35.0117, 4, { airbase: true })
 ];
 for (const t of targets) {
   console.log(t.name, t.x, t.y, 'inside:', pointInPoly(t.x, t.y, home));
