@@ -80,19 +80,19 @@ const CATALOG = {
   // Each pair carries 4 interceptors in total, shared by both aircraft.
   f16: {
     kind: 'aircraft', name: 'F-16', short: 'F16',
-    detectionNm: 30, interceptNm: 10,
-    detection: 30 * 1.852, interceptRange: 10 * 1.852,
+    detectionNm: 50, interceptNm: 20,
+    detection: 50 * 1.852, interceptRange: 20 * 1.852,
     color: '#7dd3fc', missiles: 4, hitRate: 0.75,
-    reactionTime: 1, reload: 1, missileSpeed: 480,
-    desc: '4th-generation fighter pair on combat air patrol: 30 NM radar, 10 NM interceptors'
+    reactionTime: 0, reload: 0, missileSpeed: 2400,
+    desc: '4th-generation fighter pair on combat air patrol: 50 NM radar, 20 NM interceptors'
   },
   f35: {
     kind: 'aircraft', name: 'F-35', short: 'F35',
-    detectionNm: 80, interceptNm: 20,
-    detection: 80 * 1.852, interceptRange: 20 * 1.852,
+    detectionNm: 100, interceptNm: 30,
+    detection: 100 * 1.852, interceptRange: 30 * 1.852,
     color: '#bef264', missiles: 4, hitRate: 0.85,
-    reactionTime: 1, reload: 1, missileSpeed: 480,
-    desc: '5th-generation fighter pair on combat air patrol: 80 NM radar, 20 NM interceptors'
+    reactionTime: 0, reload: 0, missileSpeed: 2400,
+    desc: '5th-generation fighter pair on combat air patrol: 100 NM radar, 30 NM interceptors'
   },
   // ---- Threats ----
   uav: {
@@ -2380,8 +2380,9 @@ function showInfoModal(key) {
       <tr><td>טווח יירוט</td><td><b>${c.interceptNm} NM = ${c.interceptRange.toFixed(1)} ק"מ</b> לכל סוגי המטרות</td></tr>
       <tr><td>שיעור פגיעה (PK)</td><td><b style="color:#5fa86b;font-size:15px">${(c.hitRate * 100).toFixed(0)}%</b></td></tr>
       <tr><td>חימוש</td><td>${c.missiles} טילים לזוג, משותפים לשני המטוסים</td></tr>
-      <tr><td>זמן תגובה (RT)</td><td>${c.reactionTime} שניות</td></tr>
-      <tr><td>פטרול</td><td>קו של 15 NM (27.8 ק"מ) לאורך האזימוט, בגובה 7 ק"מ, במחצית ממהירות מטוס קרב של האויב. שני המטוסים טסים בכיוונים מנוגדים.</td></tr>
+      <tr><td>ירי</td><td>מיידי, ברגע שמטרה שגולתה נכנסת לטווח היירוט. אין השהיה בין טיל לטיל.</td></tr>
+      <tr><td>מהירות טיל</td><td>פי 5 ממיירט קרקעי (Barak)</td></tr>
+      <tr><td>פטרול</td><td>קו של 15 NM (27.8 ק"מ) לאורך האזימוט, בגובה 7 ק"מ, ברבע ממהירות מטוס קרב של האויב. שני המטוסים טסים בכיוונים מנוגדים.</td></tr>
     `;
   } else if (c.kind === 'battery') {
     // Per-threat-type effective range (RCS-adjusted)
@@ -3557,8 +3558,8 @@ const TUTORIAL_STEPS = [
       <p>זוג מטוסי יירוט מפטרל על קו קבוע שאתה קובע, מגלה איומים במכ"ם מוטס ומיירט אותם בטילי אוויר-אוויר. היתרון שלו: <b>המכ"ם בגובה 7 ק"מ ורואה מעל רכסים</b> שמסתירים את הסוללות והמכ"מים על הקרקע.</p>
       <table>
         <tr><th>דגם</th><th>גילוי (מטוס / כטב"ם)</th><th>יירוט</th><th>PK</th><th>טילים</th></tr>
-        <tr><td><span class="swatch" style="background:#7dd3fc"></span> F-16</td><td>30 NM = 56 ק"מ / 31 ק"מ</td><td>10 NM = 18.5 ק"מ</td><td class="key">75%</td><td>4 לזוג</td></tr>
-        <tr><td><span class="swatch" style="background:#bef264"></span> F-35</td><td>80 NM = 148 ק"מ / 83 ק"מ</td><td>20 NM = 37 ק"מ</td><td class="key">85%</td><td>4 לזוג</td></tr>
+        <tr><td><span class="swatch" style="background:#7dd3fc"></span> F-16</td><td>50 NM = 93 ק"מ / 52 ק"מ</td><td>20 NM = 37 ק"מ</td><td class="key">75%</td><td>4 לזוג</td></tr>
+        <tr><td><span class="swatch" style="background:#bef264"></span> F-35</td><td>100 NM = 185 ק"מ / 104 ק"מ</td><td>30 NM = 55.6 ק"מ</td><td class="key">85%</td><td>4 לזוג</td></tr>
       </table>
       <p style="font-size:12px;color:#7e91a8">במצב המבצעי כל מדינה מציגה את המטוסים שלה, עם אותם נתונים: צרפת Mirage 2000 / Rafale, גרמניה Eurofighter / F-35, אוקראינה MiG-29 / Su-27.</p>
       <h4>איך מציבים:</h4>
@@ -3589,6 +3590,7 @@ const TUTORIAL_STEPS = [
       <ul>
         <li><b>כוון את הקו אל ציר האיום הצפוי.</b> איום שמגיע מהצד, בניצב לקו, עובר בשטח המת.</li>
         <li>המטוסים <b>לא יוצאים למרדף</b>: הם מגלים ומיירטים רק מהקו שלהם.</li>
+        <li>הזוג <b>יורה מיד</b> כשאיום שגולה נכנס לטווח היירוט, בלי השהיה בין טיל לטיל. הטיל מהיר פי 5 ממיירט קרקעי.</li>
         <li>לזוג יש <b>4 טילים בסך הכל</b>. כשהם נגמרים הזוג ממשיך לפטרל אבל לא מיירט.</li>
         <li>מותר להציב כמה זוגות על אותו אזור, למשל מול ציר שצפויות בו חדירות רבות.</li>
         <li>במשימות הגנה, כל זוג מחליף סוללה בתקציב: זוג F-16 במקום סוללה קצרת טווח, זוג F-35 במקום סוללה ארוכת טווח.</li>
@@ -7979,8 +7981,8 @@ function aircraftShort(key) {
   const loc = WORLD.mode === 'real' && AIRCRAFT_LOCAL[WORLD.countryId || 'il'];
   return (loc && loc[key]) ? loc[key][1] : CATALOG[key].short;
 }
-// Half the enemy fighter's speed, so the patrol reads as a calm orbit
-function aircraftSpeed() { return threatSpeedOf(CATALOG.fighter) * 0.5; }
+// A quarter of the enemy fighter's speed, so the patrol reads as a calm orbit
+function aircraftSpeed() { return threatSpeedOf(CATALOG.fighter) * 0.25; }
 function aircraftTier(key) { return key === 'f16' ? 'a' : 'b'; }
 
 // Compass azimuth (degrees, 0 = north, clockwise) ↔ world unit vector
@@ -8082,14 +8084,15 @@ function aircraftSees(pos, c, t) {
   return hasLOS(pos.x, pos.y, t.x, t.y, getThreatAltMSL(t), PATROL_ALT);
 }
 
-// Intercept must land inside the fixed interceptor range and before the
-// threat reaches its target. Returns the solution or null.
-function aircraftShotViable(t, pos, c, launchDelay) {
+// The pair fires the moment a tracked threat is inside interceptor range;
+// the missile is fast enough that only the threat reaching its target
+// first can spoil the shot. Returns the intercept solution or null.
+function aircraftShotViable(t, pos, c) {
   const tc = CATALOG[t.key];
-  const sol = computeIntercept(t, pos, c, tc, launchDelay);
-  if (Math.hypot(sol.ipx - pos.x, sol.ipy - pos.y) > c.interceptRange) return null;
+  if (Math.hypot(t.x - pos.x, t.y - pos.y) > c.interceptRange) return null;
+  const sol = computeIntercept(t, pos, c, tc, 0);
   const remaining = Math.hypot(t.tx - t.x, t.ty - t.y) / threatSpeedOf(tc);
-  if (launchDelay + sol.T > remaining) return null;
+  if (sol.T > remaining) return null;
   return sol;
 }
 
@@ -8098,7 +8101,7 @@ function pickAircraftTarget(pos, c) {
   for (const t of state.threats) {
     if (t.status !== 'inflight' || alreadyEngaged(t)) continue;
     if (!aircraftSees(pos, c, t)) continue;
-    if (!aircraftShotViable(t, pos, c, c.reactionTime)) continue;
+    if (!aircraftShotViable(t, pos, c)) continue;
     const target = TARGETS.find(x => x.name === t.target);
     const value = target ? target.value : 1;
     const score = value * 100 - Math.hypot(t.tx - t.x, t.ty - t.y) * 0.1 - Math.hypot(t.x - pos.x, t.y - pos.y) * 0.05;
@@ -8107,13 +8110,9 @@ function pickAircraftTarget(pos, c) {
   return best;
 }
 
-// Launch after the reaction time. The aircraft kept flying meanwhile, so
-// re-check the track from where it is now; a target that slid out of the
-// cone during a turn is dropped without spending a missile.
 function fireAircraftMissile(p, t, pos) {
   const c = CATALOG[p.key];
-  if (!aircraftSees(pos, c, t)) return false;
-  const sol = aircraftShotViable(t, pos, c, 0);
+  const sol = aircraftShotViable(t, pos, c);
   if (!sol) return false;
   p.ammo--; t.firedAt++;
   p.stats.fired++;
@@ -8140,22 +8139,14 @@ function tickPatrols(dt) {
   const now = state.simElapsed;
   for (const p of state.patrols) {
     const c = CATALOG[p.key];
-    for (let i = 0; i < 2; i++) {
-      const sh = p.shooters[i];
-      if (sh.cd > 0) sh.cd -= dt;
+    // No reaction time and no delay between shots: each aircraft fires at
+    // every tracked threat inside its range, one missile per threat,
+    // until the pair's shared magazine runs dry.
+    for (let i = 0; i < 2 && p.ammo > 0; i++) {
       const pos = patrolAircraftPos(p, i, now);
-      if (sh.prepareTarget != null && now >= sh.prepareUntil) {
-        const t = state.threats.find(x => x.id === sh.prepareTarget);
-        sh.prepareTarget = null; sh.prepareUntil = 0;
-        if (t && t.status === 'inflight' && p.ammo > 0 && fireAircraftMissile(p, t, pos)) sh.cd = c.reload;
-      }
-      if (sh.prepareTarget == null && sh.cd <= 0 && p.ammo > 0) {
-        // The wingman may already be holding the pair's last missile
-        const reserved = p.shooters.filter(s => s !== sh && s.prepareTarget != null).length;
-        if (p.ammo > reserved) {
-          const t = pickAircraftTarget(pos, c);
-          if (t) { sh.prepareTarget = t.id; sh.prepareUntil = now + c.reactionTime; }
-        }
+      while (p.ammo > 0) {
+        const t = pickAircraftTarget(pos, c);
+        if (!t || !fireAircraftMissile(p, t, pos)) break;
       }
     }
   }
