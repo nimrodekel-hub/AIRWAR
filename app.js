@@ -73,6 +73,27 @@ const CATALOG = {
     detection: 100, color: '#0891b2',
     desc: '100 km detection, sees small low-altitude targets'
   },
+  // ---- Defensive fighter aircraft (patrolling pairs) ----
+  // Ranges are specified in nautical miles (1 NM = 1.852 km): detection
+  // is the maximum against a fighter-size target (RCS 1.0) and shrinks
+  // with RCS like every radar; intercept range is fixed for all targets.
+  // Each pair carries 4 interceptors in total, shared by both aircraft.
+  f16: {
+    kind: 'aircraft', name: 'F-16', short: 'F16',
+    detectionNm: 30, interceptNm: 10,
+    detection: 30 * 1.852, interceptRange: 10 * 1.852,
+    color: '#7dd3fc', missiles: 4, hitRate: 0.75,
+    reactionTime: 1, reload: 1, missileSpeed: 480,
+    desc: '4th-generation fighter pair on combat air patrol: 30 NM radar, 10 NM interceptors'
+  },
+  f35: {
+    kind: 'aircraft', name: 'F-35', short: 'F35',
+    detectionNm: 80, interceptNm: 20,
+    detection: 80 * 1.852, interceptRange: 20 * 1.852,
+    color: '#bef264', missiles: 4, hitRate: 0.85,
+    reactionTime: 1, reload: 1, missileSpeed: 480,
+    desc: '5th-generation fighter pair on combat air patrol: 80 NM radar, 20 NM interceptors'
+  },
   // ---- Threats ----
   uav: {
     kind: 'threat', name: 'Attack UAV', short: 'UAV',
@@ -97,6 +118,60 @@ const CATALOG = {
 const BATTERY_KEYS = ['ironDome', 'sa8', 'barak8', 'patriot', 'davidsSling'];
 const RADAR_KEYS = ['longRadar', 'medRadar', 'shortRadar'];
 const THREAT_KEYS = ['uav', 'fighter', 'helicopter'];
+const AIRCRAFT_KEYS = ['f16', 'f35'];
+
+// Patrol geometry: the pair flies a racetrack centred on the patrol point,
+// long axis along the azimuth, the two aircraft half a lap apart so one
+// always faces each end of the axis.
+const PATROL_LEG_KM = 15 * 1.852;      // 15 NM racetrack leg
+const PATROL_TURN_R = 3;               // km — turn radius at each end
+const PATROL_ALT = 7;                  // km MSL — the radar looks from here
+const PATROL_CONE_COS = Math.cos(Math.PI / 3);   // 120° cone → ±60° off the nose
+const PATROL_SEA_REACH = 60;           // km offshore a patrol may sit
+
+// Countries that fly other types show their own aircraft names; the two
+// tiers keep exactly the F-16 / F-35 performance figures.
+const AIRCRAFT_LOCAL = {
+  fr: { f16: ['Mirage 2000', 'M2K'], f35: ['Rafale', 'RAF'] },
+  de: { f16: ['Eurofighter', 'EF'],  f35: ['F-35', 'F35'] },
+  ua: { f16: ['MiG-29', 'MIG'],      f35: ['Su-27', 'SU27'] }
+};
+
+// Real fighter bases for the operational packs (x/y in the pack's km
+// frame, projected from public coordinates). types: a = F-16 tier,
+// b = F-35 tier.
+const REAL_AIRBASES = {
+  il: [
+    { id: 'ramat-david', nameHe: 'רמת דוד', x: 617, y: 282, types: 'a' },
+    { id: 'hatzor',      nameHe: 'חצור',    x: 574, y: 382, types: 'a' },
+    { id: 'nevatim',     nameHe: 'נבטים',   x: 601, y: 443, types: 'b' },
+    { id: 'ramon',       nameHe: 'רמון',    x: 568, y: 491, types: 'a' }
+  ],
+  fr: [
+    { id: 'st-dizier',      nameHe: 'סן-דיזייה',   x: 776, y: 175, types: 'b' },
+    { id: 'luxeuil',        nameHe: 'לוקסיי',      x: 888, y: 269, types: 'a' },
+    { id: 'orange',         nameHe: "אורנז'",      x: 773, y: 672, types: 'a' },
+    { id: 'mont-de-marsan', nameHe: 'מון-דה-מרסן', x: 362, y: 697, types: 'b' }
+  ],
+  de: [
+    { id: 'wittmund',  nameHe: 'ויטמונד', x: 211, y: 286, types: 'a' },
+    { id: 'laage',     nameHe: 'לאגה',    x: 524, y: 245, types: 'a' },
+    { id: 'norvenich', nameHe: 'נרווניך', x: 143, y: 587, types: 'a' },
+    { id: 'buchel',    nameHe: 'בוכל',    x: 170, y: 659, types: 'b' }
+  ],
+  pl: [
+    { id: 'malbork',   nameHe: 'מלבורק',         x: 472, y: 201, types: 'a' },
+    { id: 'krzesiny',  nameHe: 'קשזיני',         x: 324, y: 389, types: 'a' },
+    { id: 'lask',      nameHe: 'לאסק',           x: 475, y: 475, types: 'ab' },
+    { id: 'minsk-maz', nameHe: 'מינסק מזוביצקי', x: 644, y: 404, types: 'a' }
+  ],
+  ua: [
+    { id: 'ivano-frankivsk',   nameHe: 'איבאנו-פרנקיבסק',  x: 186, y: 573, types: 'a' },
+    { id: 'starokostiantyniv', nameHe: 'סטרוקוסטיאנטיניב', x: 357, y: 478, types: 'a' },
+    { id: 'vasylkiv',          nameHe: 'וסילקיב',          x: 584, y: 424, types: 'a' },
+    { id: 'myrhorod',          nameHe: 'מירגורוד',         x: 821, y: 457, types: 'b' }
+  ]
+};
 
 // ---- Strategic targets - base templates and live (regenerated) array ----
 const BASE_TARGETS = [
@@ -135,6 +210,7 @@ const WORLD = {
   zoneCenter: null,     // active zone centroid (biases threat spawn)
   neighbors: [],   // [{name, hostile, poly, bbox, centroid, arcMid, labelX, labelY}]
   lakes: [],       // [{poly, cx, cy}]
+  airbases: [],    // [{id, nameHe, x, y, types}] — fighter bases ('a' F-16 tier, 'b' F-35 tier)
   center: { x: 620, y: 400 },
   R0: 250          // home-country base radius (advanced mode)
 };
@@ -935,6 +1011,7 @@ function loadRealWorld(difficulty) {
 
   PEAK_LABELS.length = 0;
   for (const p of pack.peaks) PEAK_LABELS.push({ x: p.x, y: p.y, alt: p.alt });
+  computeAirbases();
 }
 
 function distToSegment(px, py, x1, y1, x2, y2) {
@@ -1140,8 +1217,10 @@ function getThreatAltMSL(t) {
   return threatAglOf(t.key) + getTerrainAlt(t.x, t.y);
 }
 
-function hasLOS(ax, ay, bx, by, tgtAltMSL) {
-  const obsAlt = getTerrainAlt(ax, ay);
+// obsAltMSL: observer altitude override (an airborne radar); ground
+// sensors default to the terrain height at their position.
+function hasLOS(ax, ay, bx, by, tgtAltMSL, obsAltMSL) {
+  const obsAlt = obsAltMSL != null ? obsAltMSL : getTerrainAlt(ax, ay);
   // ~3km sampling so 200m terrain-hugging flight can't slip between
   // ridge samples on long rays (was a fixed 24 steps)
   const steps = Math.min(96, Math.max(24, Math.ceil(Math.hypot(bx - ax, by - ay) / 3)));
@@ -1203,6 +1282,9 @@ function regenerateMountains(difficulty) {
     }
     PEAK_LABELS.push(best);
   }
+  // Targets may have just moved off the mountains — place the fighter
+  // bases against the final layout.
+  computeAirbases();
 }
 
 // A city can sit on a low hill, but the capital and the airbase must
@@ -1561,8 +1643,10 @@ const DEFENSE_DIFFICULTY = {
     label: 'קל',
     countMin: 8, countMax: 11,
     jitterX: 150, jitterY: 350, baseY: 200,
-    budget: { ironDome: 4, sa8: 3, barak8: 3, patriot: 2, davidsSling: 2,
-              longRadar: 2, medRadar: 3, shortRadar: 3 },
+    // Fighter pairs (f16/f35) each replace one battery: an F-16 pair a
+    // short-range system, an F-35 pair a long-range one.
+    budget: { ironDome: 4, sa8: 2, barak8: 3, patriot: 1, davidsSling: 2,
+              longRadar: 2, medRadar: 3, shortRadar: 3, f16: 1, f35: 1 },
     objective: {
       text: 'הגן על <b>היעד הראשי ⭐</b> ואל תאפשר פגיעה ב-<b>3 יעדים אחרים או יותר</b>',
       check: (hits) => !hits.has(capitalName()) && nonCapitalHits(hits) < 3
@@ -1572,8 +1656,8 @@ const DEFENSE_DIFFICULTY = {
     label: 'בינוני',
     countMin: 14, countMax: 19,
     jitterX: 230, jitterY: 550, baseY: 100,
-    budget: { ironDome: 3, sa8: 2, barak8: 2, patriot: 1, davidsSling: 1,
-              longRadar: 1, medRadar: 2, shortRadar: 2 },
+    budget: { ironDome: 3, sa8: 1, barak8: 1, patriot: 1, davidsSling: 1,
+              longRadar: 1, medRadar: 2, shortRadar: 2, f16: 1, f35: 1 },
     objective: {
       text: 'הגן על <b>היעד הראשי ⭐</b> ואל תאפשר פגיעה ב-<b>2 יעדים אחרים או יותר</b>',
       check: (hits) => !hits.has(capitalName()) && nonCapitalHits(hits) < 2
@@ -1583,8 +1667,8 @@ const DEFENSE_DIFFICULTY = {
     label: 'קשה',
     countMin: 22, countMax: 29,
     jitterX: 320, jitterY: 700, baseY: 30,
-    budget: { ironDome: 2, sa8: 1, barak8: 1, patriot: 1, davidsSling: 1,
-              longRadar: 1, medRadar: 1, shortRadar: 1 },
+    budget: { ironDome: 1, sa8: 1, barak8: 1, patriot: 1, davidsSling: 1,
+              longRadar: 1, medRadar: 1, shortRadar: 1, f16: 1 },
     objective: {
       text: 'הגן על <b>היעד הראשי ⭐</b> ואל תאפשר אף פגיעה ביעד נוסף',
       check: (hits) => !hits.has(capitalName()) && nonCapitalHits(hits) < 1
@@ -1598,8 +1682,8 @@ const DEFENSE_DIFFICULTY = {
     noIntel: true,
     countMin: 22, countMax: 29,
     jitterX: 320, jitterY: 700, baseY: 30,
-    budget: { ironDome: 2, sa8: 1, barak8: 1, patriot: 1, davidsSling: 1,
-              longRadar: 1, medRadar: 1, shortRadar: 1 },
+    budget: { ironDome: 1, sa8: 1, barak8: 1, patriot: 1, davidsSling: 1,
+              longRadar: 1, medRadar: 1, shortRadar: 1, f16: 1 },
     objective: {
       text: 'הגן על <b>היעד הראשי ⭐</b> ואל תאפשר אף פגיעה ביעד נוסף — <span style="color:#dc2626">ההתקפה נסתרת!</span>',
       check: (hits) => !hits.has(capitalName()) && nonCapitalHits(hits) < 1
@@ -1613,8 +1697,8 @@ const DEFENSE_DIFFICULTY = {
 // a minimal second-front kit, deliberately less than double, so the
 // mission stays harder than classic even with the extra hardware.
 const ADVANCED_DEFENSE_EXTRA = {
-  easy:    { ironDome: 1, sa8: 1, barak8: 1, patriot: 1, medRadar: 1, shortRadar: 1 },
-  medium:  { ironDome: 1, sa8: 1, barak8: 1, medRadar: 1, shortRadar: 1 },
+  easy:    { ironDome: 1, barak8: 1, patriot: 1, medRadar: 1, shortRadar: 1, f16: 1 },
+  medium:  { ironDome: 1, barak8: 1, medRadar: 1, shortRadar: 1, f16: 1 },
   hard:    { ironDome: 1, sa8: 1, medRadar: 1 },
   extreme: { ironDome: 1, sa8: 1, medRadar: 1 }
 };
@@ -1716,7 +1800,11 @@ const REASON_LABEL = {
   'altitude':              'מחוץ למעטפת הגובה של הסוללה',
   'los-blocked':           'בטווח, אך קו הראיה חסום ע"י טופוגרפיה — שקול הצבה חשופה יותר',
   'ammo-depleted':         'בתוך מעטפת סוללה, גמר מיירטים',
-  'engagement-saturation': 'סוללה תפוסה ביירוט אחר (רוויה)'
+  'engagement-saturation': 'סוללה תפוסה ביירוט אחר (רוויה)',
+  'fighter-ammo':          'בטווח מטוס יירוט, אך לזוג נגמרו הטילים',
+  'fighter-cone':          'בטווח מטוס יירוט, אך מחוץ לקונוס המכ"ם (מצד הקו)',
+  'fighter-placement':     'מיקום פטרול לא מיטבי: האיום עבר קרוב, מחוץ לטווח היירוט',
+  'fighter-gap':           'פער גילוי: אף חיישן לא ראה את האיום ברוב הנתיב'
 };
 
 // ---- מצב כללי ----
@@ -1732,6 +1820,12 @@ const state = {
   intelRevealed: false,   // flips to true when the user presses ▶ to start the sim
   side: 'blue',
   defenses: [],
+  patrols: [],            // fighter pairs on patrol: {id, key, baseId, x, y, az, label, ammo, shooters, stats}
+  airInventory: null,     // null = free play (unlimited); {baseId: {f16, f35}} pairs on alert per base
+  placeBase: null,        // base the selected aircraft pair takes off from
+  patrolDraft: null,      // {x, y, az, sx, sy} — patrol point pressed, azimuth being dragged
+  patrolEdit: null,       // {patrol, mode: 'move'|'rotate', ox, oy, x0, y0, az0, moved}
+  detSampleT: 0,
   threats: [],
   missiles: [],
   explosions: [],
@@ -2266,12 +2360,30 @@ function makeBtn(k) {
 
 function showInfoModal(key) {
   const c = CATALOG[key];
-  document.getElementById('info-title').textContent = c.name;
+  document.getElementById('info-title').textContent = c.kind === 'aircraft' ? aircraftName(key) : c.name;
   const body = document.getElementById('info-body');
 
   let rows = `<tr><td>תיאור</td><td>${c.desc}</td></tr>`;
 
-  if (c.kind === 'battery') {
+  if (c.kind === 'aircraft') {
+    const det = (rcs) => `${Math.round(c.detection * rcsRangeFactor(rcs))} ק"מ`;
+    const local = aircraftName(key) !== c.name ? ` (נתוני ${c.name})` : '';
+    rows += `
+      <tr><td>סוג</td><td>זוג מטוסי יירוט בפטרול${local}</td></tr>
+      <tr><td>טווח גילוי (מכ"ם מוטס)</td><td style="font-size:11px;line-height:1.6">
+        Fighter (RCS 1.0): <b>${c.detectionNm} NM = ${det(1.0)}</b><br>
+        Helicopter (RCS 0.7): <b>${det(0.7)}</b><br>
+        UAV (RCS 0.1): <b>${det(0.1)}</b>
+        <div style="color:#7e91a8;margin-top:4px">range ∝ RCS<sup>¼</sup>, קו ראייה מגובה 7 ק"מ</div>
+      </td></tr>
+      <tr><td>קונוס מכ"ם</td><td>120° סביב כיוון הטיסה של כל מטוס</td></tr>
+      <tr><td>טווח יירוט</td><td><b>${c.interceptNm} NM = ${c.interceptRange.toFixed(1)} ק"מ</b> לכל סוגי המטרות</td></tr>
+      <tr><td>שיעור פגיעה (PK)</td><td><b style="color:#5fa86b;font-size:15px">${(c.hitRate * 100).toFixed(0)}%</b></td></tr>
+      <tr><td>חימוש</td><td>${c.missiles} טילים לזוג, משותפים לשני המטוסים</td></tr>
+      <tr><td>זמן תגובה (RT)</td><td>${c.reactionTime} שניות</td></tr>
+      <tr><td>פטרול</td><td>קו של 15 NM (27.8 ק"מ) לאורך האזימוט, בגובה 7 ק"מ, במחצית ממהירות מטוס קרב של האויב. שני המטוסים טסים בכיוונים מנוגדים.</td></tr>
+    `;
+  } else if (c.kind === 'battery') {
     // Per-threat-type effective range (RCS-adjusted)
     const fmtEff = (rcs) => `${Math.round(c.maxRange * battRangeFactor(c, { rcs }))} ק"מ`;
     rows += `
@@ -2318,7 +2430,29 @@ function showInfoModal(key) {
     </div>
   `;
 
-  if (c.kind === 'battery') {
+  if (c.kind === 'aircraft') {
+    html += `
+      <div class="info-failure-list">
+        <h4>סיבות אפשריות לכשלון של זוג (קטגוריות התחקיר):</h4>
+        <ul>
+          <li><b>מיקום פטרול לא מיטבי</b>: האיום עבר קרוב לפטרול, אבל מחוץ לטווח היירוט (${c.interceptNm} NM)</li>
+          <li><b>מחוץ לקונוס המכ"ם</b>: האיום נכנס לטווח מהצד, בניצב לקו, שם אף מטוס לא מסתכל</li>
+          <li><b>לזוג נגמרו הטילים</b>: כל ${c.missiles} הטילים כבר נורו על איומים קודמים</li>
+          <li><b>פער גילוי</b>: אף חיישן לא ראה את האיום ברוב הנתיב, ופטרול יכול היה לסגור את הפער</li>
+          <li><b>החטאה סטטיסטית</b>: הטיל נורה והגרלת ה-PK נכשלה</li>
+        </ul>
+      </div>
+      <div class="info-failure-list" style="border-color:rgba(125,211,252,0.4);background:rgba(125,211,252,0.06)">
+        <h4 style="color:#7dd3fc">✈ איך מציבים</h4>
+        <ul>
+          <li>בחר בסיס ודגם, <b>לחץ על נקודת הפטרול וגרור לכיוון הפטרול</b>. כיוון הגרירה קובע את האזימוט.</li>
+          <li>מותר לפטרל רק מעל שטח המדינה שלך או מעל הים שלה.</li>
+          <li>אחרי ההצבה: גרור את המרכז כדי להזיז, ואת הידית בקצה הקו כדי לשנות כיוון.</li>
+          <li>כוון את הקו אל ציר האיום הצפוי: מהצדדים של הקו יש שטח מת.</li>
+        </ul>
+      </div>
+    `;
+  } else if (c.kind === 'battery') {
     html += `
       <div class="info-failure-list">
         <h4>9 סיבות אפשריות לכשלון יירוט (קטגוריות מסך הסיכום):</h4>
@@ -2369,6 +2503,7 @@ function iconFor(k) {
   const c = CATALOG[k];
   if (c.kind === 'battery') return '⛨';
   if (c.kind === 'radar') return '⊙';
+  if (c.kind === 'aircraft') return '✈';
   return c.icon;
 }
 
@@ -2494,7 +2629,11 @@ function startDuelCreate(difficulty) {
   for (const k of BATTERY_KEYS) numBudgetBatteries += (missionBudget[k] || 0);
   state.autoAmmo = {};
   for (const k of BATTERY_KEYS) state.autoAmmo[k] = calcAutoAmmo(k, totalThreats, numBudgetBatteries);
+  // Duel links encode ground units only — no fighter pairs in duels
+  missionBudget = { ...missionBudget };
+  for (const k of AIRCRAFT_KEYS) delete missionBudget[k];
   state.budget = missionBudget;
+  state.airInventory = {};
 
   switchSide('blue');
   setSimulateLabel(true);
@@ -2558,6 +2697,7 @@ function enterDuelAttack(p) {
   resetView();
 
   state.duel = { stage: 'attack', seed: p.w, difficulty: p.d, worldMode: WORLD.mode, defense: p.D };
+  state.airInventory = {};
   state.attackChallenge = true;
   state.challengeMode = 'attack-challenge';
   state.challengeDifficulty = p.d;
@@ -2650,6 +2790,7 @@ function enterDuelReview(p, rawPayload) {
   resetView();
 
   state.duel = { stage: 'review', seed: p.w, difficulty: p.d, worldMode: WORLD.mode };
+  state.airInventory = {};
   state.challengeMode = 'defense-challenge';
   state.challengeDifficulty = p.d;
 
@@ -3411,6 +3552,51 @@ const TUTORIAL_STEPS = [
     `
   },
   {
+    title: '🛩 מטוסי יירוט בפטרול',
+    html: () => `
+      <p>זוג מטוסי יירוט מפטרל על קו קבוע שאתה קובע, מגלה איומים במכ"ם מוטס ומיירט אותם בטילי אוויר-אוויר. היתרון שלו: <b>המכ"ם בגובה 7 ק"מ ורואה מעל רכסים</b> שמסתירים את הסוללות והמכ"מים על הקרקע.</p>
+      <table>
+        <tr><th>דגם</th><th>גילוי (מטוס / כטב"ם)</th><th>יירוט</th><th>PK</th><th>טילים</th></tr>
+        <tr><td><span class="swatch" style="background:#7dd3fc"></span> F-16</td><td>30 NM = 56 ק"מ / 31 ק"מ</td><td>10 NM = 18.5 ק"מ</td><td class="key">75%</td><td>4 לזוג</td></tr>
+        <tr><td><span class="swatch" style="background:#bef264"></span> F-35</td><td>80 NM = 148 ק"מ / 83 ק"מ</td><td>20 NM = 37 ק"מ</td><td class="key">85%</td><td>4 לזוג</td></tr>
+      </table>
+      <p style="font-size:12px;color:#7e91a8">במצב המבצעי כל מדינה מציגה את המטוסים שלה, עם אותם נתונים: צרפת Mirage 2000 / Rafale, גרמניה Eurofighter / F-35, אוקראינה MiG-29 / Su-27.</p>
+      <h4>איך מציבים:</h4>
+      <ol>
+        <li>בפאנל "✈ מטוסי יירוט" בחר בסיס ודגם. ליד כל דגם מופיע כמה זוגות בכוננות נשארו בבסיס.</li>
+        <li><b>לחץ על נקודת הפטרול וגרור לכיוון הפטרול</b>. כיוון הגרירה קובע את האזימוט (למשל 030), והוא מוצג תוך כדי גרירה.</li>
+        <li>מותר לפטרל רק מעל שטח המדינה שלך או מעל הים שלה.</li>
+        <li>אחרי ההצבה: גרור את מרכז הפטרול כדי להזיז אותו, ואת הידית בקצה הקו כדי לשנות כיוון.</li>
+      </ol>
+      <div class="tutorial-figure">
+        <svg viewBox="0 0 460 250" xmlns="http://www.w3.org/2000/svg">
+          <rect width="460" height="250" fill="#0a1628"/>
+          <path d="M248 98 L224.7 11.1 A90 90 0 0 1 334.9 121.3 Z" fill="rgba(125,211,252,0.12)" stroke="#7dd3fc" stroke-width="1"/>
+          <path d="M212 132 L235.3 218.9 A90 90 0 0 1 125.1 108.7 Z" fill="rgba(125,211,252,0.12)" stroke="#7dd3fc" stroke-width="1"/>
+          <line x1="205" y1="140" x2="255" y2="90" stroke="#7dd3fc" stroke-width="2"/>
+          <circle cx="230" cy="115" r="4" fill="#0a1628" stroke="#7dd3fc" stroke-width="1.5"/>
+          <polygon points="252,93 243,95 249,101" fill="#7dd3fc"/>
+          <polygon points="208,137 217,135 211,129" fill="#7dd3fc"/>
+          <text x="300" y="70" text-anchor="middle" fill="#7dd3fc" font-size="10" font-weight="bold">מטוס א' טס ל-045</text>
+          <text x="160" y="175" text-anchor="middle" fill="#7dd3fc" font-size="10" font-weight="bold">מטוס ב' טס ל-225</text>
+          <text x="340" y="160" text-anchor="middle" fill="#dc2626" font-size="10" font-weight="bold">שטח מת</text>
+          <text x="120" y="70" text-anchor="middle" fill="#dc2626" font-size="10" font-weight="bold">שטח מת</text>
+          <text x="230" y="243" text-anchor="middle" fill="#7e91a8" font-size="9">קו של 15 NM · קונוס 120° לכל מטוס · שני המטוסים בכיוונים מנוגדים</text>
+        </svg>
+        <div class="caption">שני המטוסים טסים הלוך וחזור על הקו בכיוונים מנוגדים, כך שתמיד אחד מהם מסתכל לכל קצה של הציר. מהצדדים של הקו יש שטח מת.</div>
+      </div>
+      <h4>מה חשוב לדעת:</h4>
+      <ul>
+        <li><b>כוון את הקו אל ציר האיום הצפוי.</b> איום שמגיע מהצד, בניצב לקו, עובר בשטח המת.</li>
+        <li>המטוסים <b>לא יוצאים למרדף</b>: הם מגלים ומיירטים רק מהקו שלהם.</li>
+        <li>לזוג יש <b>4 טילים בסך הכל</b>. כשהם נגמרים הזוג ממשיך לפטרל אבל לא מיירט.</li>
+        <li>מותר להציב כמה זוגות על אותו אזור, למשל מול ציר שצפויות בו חדירות רבות.</li>
+        <li>במשימות הגנה, כל זוג מחליף סוללה בתקציב: זוג F-16 במקום סוללה קצרת טווח, זוג F-35 במקום סוללה ארוכת טווח.</li>
+      </ul>
+      <div class="tip">📋 <b>בתחקיר:</b> יופיעו סיבות כמו "מיקום פטרול לא מיטבי" (עם המרחק שחסר), "מחוץ לקונוס המכ"ם" (עם האזימוט המומלץ), "לזוג נגמרו הטילים" ו"פער גילוי", וגם טבלת ביצועים לכל זוג.</div>
+    `
+  },
+  {
     title: '✈ איומים אוויריים',
     html: () => `
       <p>שלושה סוגי איומים, כל אחד עם תכונות ייחודיות שמשפיעות על איזו סוללה תוכל לטפל בו:</p>
@@ -3871,6 +4057,10 @@ function captureSnapshot() {
       prepareTarget: d.prepareTarget,
       prepareUntil: d.prepareUntil,
       cd: d.cd
+    })),
+    patrols: state.patrols.map(p => ({
+      ammo: p.ammo,
+      shooters: p.shooters.map(s => ({ prepareTarget: s.prepareTarget, prepareUntil: s.prepareUntil }))
     }))
   };
 }
@@ -3921,7 +4111,7 @@ function updateStepGuide() {
   let steps;
 
   if (state.challengeMode === 'defense-challenge') {
-    const hasBatteries = state.defenses.some(d => CATALOG[d.key].kind === 'battery');
+    const hasBatteries = state.defenses.some(d => CATALOG[d.key].kind === 'battery') || state.patrols.length > 0;
     const hasRadars = state.defenses.some(d => CATALOG[d.key].kind === 'radar');
     steps = [
       { label: '1️⃣ פרוס סוללות הגנה על המפה', done: hasBatteries, current: !hasBatteries },
@@ -3949,6 +4139,7 @@ function updateStepGuide() {
 function selectPlace(key) {
   const c = CATALOG[key];
   if (isSimActive()) return;
+  if (c.kind === 'aircraft') { selectAircraft(key, null); return; }
 
   // Defense budget enforcement
   if (state.budget && c.kind !== 'threat') {
@@ -3988,7 +4179,8 @@ function selectPlace(key) {
 
 function refreshButtonStates() {
   document.querySelectorAll('.btn-grid button[data-key]').forEach(b => {
-    b.classList.toggle('active', state.mode === 'placing' && b.dataset.key === state.placeKey);
+    b.classList.toggle('active', state.mode === 'placing' && b.dataset.key === state.placeKey &&
+      (!b.dataset.base || b.dataset.base === state.placeBase));
   });
   canvas.classList.toggle('placing', state.mode === 'placing');
   canvas.classList.toggle('deleting', state.mode === 'deleting');
@@ -4024,6 +4216,8 @@ function bindCanvas() {
   canvas.addEventListener('mouseup', onMouseUp);
   canvas.addEventListener('mouseleave', () => {
     tooltip.style.display = 'none';
+    state.patrolDraft = null;
+    if (state.patrolEdit) onMouseUp();
     if (state.pan) { state.pan = null; canvas.classList.remove('panning'); }
   });
   canvas.addEventListener('wheel', onWheel, { passive: false });
@@ -4062,6 +4256,13 @@ function onCanvasClick(ev) {
 
   if (state.mode === 'placing') {
     const c = CATALOG[state.placeKey];
+
+    // Aircraft are placed by press-and-drag (onMouseDown/onMouseUp); a
+    // click reaching here means the press was outside our airspace.
+    if (c.kind === 'aircraft') {
+      flashStatus('⚠ נקודת הפטרול חייבת להיות מעל שטח המדינה או מעל הים שלה');
+      return;
+    }
 
     // Three-click attack-challenge threat placement
     if (state.attackChallenge && c.kind === 'threat') {
@@ -4118,6 +4319,8 @@ function onCanvasClick(ev) {
       }
     }
   } else if (state.mode === 'deleting') {
+    const ph = findPatrolHit(p.x, p.y);
+    if (ph) { deletePatrol(ph.patrol); return; }
     const ent = findEntityAt(p.x, p.y);
     if (ent) deleteEntity(ent);
   }
@@ -4149,6 +4352,16 @@ function onMouseDown(ev) {
   // set (which happens when state.pan.moved becomes true during the drag),
   // so a real tap still places the item while a drag pans the map.
   if (state.mode === 'placing') {
+    // Aircraft: press on the patrol point, then drag toward the patrol
+    // direction (released in onMouseUp). Presses outside our airspace
+    // fall through to panning.
+    if (CATALOG[state.placeKey].kind === 'aircraft') {
+      const p = getPos(ev);
+      if (isValidPatrolPoint(p.x, p.y)) {
+        state.patrolDraft = { x: p.x, y: p.y, az: defaultPatrolAz(p.x, p.y), sx: ev.clientX, sy: ev.clientY };
+        return;
+      }
+    }
     state.pan = {
       sx: ev.clientX, sy: ev.clientY,
       ox: state.viewport.offsetX, oy: state.viewport.offsetY,
@@ -4159,6 +4372,14 @@ function onMouseDown(ev) {
   }
 
   const p = getPos(ev);
+  if (!isSimActive() && state.mode !== 'deleting') {
+    const ph = findPatrolHit(p.x, p.y);
+    if (ph) {
+      const pt = ph.patrol;
+      state.patrolEdit = { patrol: pt, mode: ph.mode, ox: p.x - pt.x, oy: p.y - pt.y, x0: pt.x, y0: pt.y, az0: pt.az, moved: false };
+      return;
+    }
+  }
   let ent = null;
   if (!isSimActive() && state.mode !== 'deleting') {
     ent = findEntityAt(p.x, p.y);
@@ -4181,6 +4402,24 @@ function onMouseDown(ev) {
 }
 
 function onMouseMove(ev) {
+  // Aiming a new patrol: the drag direction from the patrol point sets the
+  // azimuth (a few pixels of jitter keep the default bearing)
+  if (state.patrolDraft) {
+    const p = getPos(ev);
+    state.mouseX = p.x; state.mouseY = p.y;
+    const d = state.patrolDraft;
+    if (Math.hypot(ev.clientX - d.sx, ev.clientY - d.sy) > 8) d.az = vecAz(p.x - d.x, p.y - d.y);
+    return;
+  }
+  if (state.patrolEdit) {
+    const p = getPos(ev);
+    const e = state.patrolEdit;
+    if (e.mode === 'move') { e.patrol.x = p.x - e.ox; e.patrol.y = p.y - e.oy; }
+    else e.patrol.az = vecAz(p.x - e.patrol.x, p.y - e.patrol.y);
+    e.moved = true;
+    canvas.classList.add('dragging');
+    return;
+  }
   // Pan-drag takes priority - convert screen delta to viewport offset shift
   if (state.pan) {
     const dx = ev.clientX - state.pan.sx;
@@ -4224,7 +4463,16 @@ function onMouseMove(ev) {
     tooltip.style.left = (ev.clientX - pr.left + 14) + 'px';
     tooltip.style.top  = (ev.clientY - pr.top  + 14) + 'px';
   } else {
-    tooltip.style.display = 'none';
+    const ph = findPatrolHit(p.x, p.y);
+    if (ph) {
+      tooltip.innerHTML = patrolTooltip(ph.patrol);
+      tooltip.style.display = 'block';
+      const pr = canvas.parentElement.getBoundingClientRect();
+      tooltip.style.left = (ev.clientX - pr.left + 14) + 'px';
+      tooltip.style.top  = (ev.clientY - pr.top  + 14) + 'px';
+    } else {
+      tooltip.style.display = 'none';
+    }
   }
 }
 
@@ -4264,6 +4512,28 @@ function endDrag() {
 }
 
 function onMouseUp() {
+  if (state.patrolDraft) {
+    const d = state.patrolDraft;
+    state.patrolDraft = null;
+    placePatrol(d.x, d.y, d.az);
+    state._suppressNextClick = true;   // the release must not also count as a click
+    return;
+  }
+  if (state.patrolEdit) {
+    const e = state.patrolEdit;
+    state.patrolEdit = null;
+    canvas.classList.remove('dragging');
+    if (e.moved) {
+      state._suppressNextClick = true;
+      if (e.mode === 'move' && !isValidPatrolPoint(e.patrol.x, e.patrol.y)) {
+        e.patrol.x = e.x0; e.patrol.y = e.y0;
+        flashStatus('⚠ נקודת הפטרול חייבת להיות מעל שטח המדינה או מעל הים שלה');
+      } else if (e.mode === 'rotate') {
+        setStatus(`${e.patrol.label}: אזימוט ${fmtAz(e.patrol.az)}`);
+      }
+    }
+    return;
+  }
   endDrag();
   if (state.pan) {
     if (state.pan.moved) state._suppressNextClick = true;
@@ -4292,6 +4562,7 @@ function _touchDist(t1, t2) {
 function onTouchStart(ev) {
   ev.preventDefault();
   if (ev.touches.length === 2) {
+    state.patrolDraft = null;   // a second finger means pinch, not aiming
     endDrag();
     if (state.pan) { state.pan = null; canvas.classList.remove('panning'); }
     const t1 = ev.touches[0], t2 = ev.touches[1];
@@ -4476,6 +4747,8 @@ function clearThreats() {
 
 function resetAll() {
   state.defenses = []; state.threats = []; state.missiles = []; state.explosions = []; state.targetHits = [];
+  state.patrols = []; state.airInventory = null; state.placeBase = null;
+  state.patrolDraft = null; state.patrolEdit = null;
   state.killLabels = []; state.leakerFlashT = -1;
   state.history = [];
   state.scrubTime = null;
@@ -4574,6 +4847,7 @@ function draw() {
   drawMountains();
   drawZoneAOR();
   drawTargets();
+  drawAirbases();
 
   // When scrubbing, swap dynamic arrays and expose snapshot defense fields via
   // the module-level _scrubDef variable (read by drawDefenses/drawCoverage).
@@ -4594,10 +4868,12 @@ function draw() {
       state.targetHits = snap.targetHits;
       state.simElapsed = state.scrubTime;
       _scrubDef        = snap.defenses || null;
+      _scrubPat        = snap.patrols || null;
     }
   }
 
   drawCoverage();
+  drawPatrols();
   drawDefenses();
   drawThreatPaths();
   drawThreats();
@@ -4608,6 +4884,7 @@ function draw() {
 
   state.simElapsed = _scrubSavedElapsed;
   _scrubDef = null;
+  _scrubPat = null;
   if (_scrubSaved) {
     state.threats    = _scrubSaved.threats;
     state.missiles   = _scrubSaved.missiles;
@@ -4738,6 +5015,19 @@ function drawPlacementGuide() {
   if (state.mode !== 'placing') return;
   const c = CATALOG[state.placeKey];
   if (!c) return;
+
+  if (c.kind === 'aircraft') {
+    const d = state.patrolDraft;
+    if (d) {
+      const preview = { key: state.placeKey, x: d.x, y: d.y, az: d.az };
+      drawPatrolShape(preview, 0, { ammo: c.missiles }, { preview: true, handles: true });
+    } else {
+      drawValidityRing(state.mouseX, state.mouseY,
+        isValidPatrolPoint(state.mouseX, state.mouseY),
+        null, '✗ מחוץ למרחב האווירי שלך');
+    }
+    return;
+  }
 
   if (c.kind === 'battery' || c.kind === 'radar') {
     drawValidityRing(state.mouseX, state.mouseY,
@@ -6268,7 +6558,11 @@ function startSim() {
   for (const t of state.threats) {
     t.x = t.sx; t.y = t.sy; t.status = 'inflight'; t.hitBy = null;
     t.firedAt = 0; t.missedBy = []; t.depletedEnvelope = []; t.saturatedBatteries = [];
+    t.fNear = {}; t.liveSamples = 0; t.seenSamples = 0;
   }
+  for (const p of state.patrols) resetPatrolForSim(p);
+  state.patrolDraft = null; state.patrolEdit = null;
+  state.detSampleT = 0;
   for (const d of state.defenses) {
     const c = CATALOG[d.key];
     d.ammo = d.initialAmmo !== undefined ? d.initialAmmo : c.ammo; d.cd = 0;
@@ -6381,6 +6675,9 @@ function tick(dt) {
     }
   }
 
+  // 3d. Fighter pairs on patrol (engagements + debrief bookkeeping)
+  tickPatrols(dt);
+
   // 4. Update missiles
   for (const m of state.missiles) {
     m.t += dt;
@@ -6404,6 +6701,10 @@ function tick(dt) {
           // Miss confirmation — symmetric to SPLASH so the player can see
           // which engagements went wrong, not just which succeeded.
           state.killLabels.push({ kind: 'miss', x: m.x, y: m.y, t: 0, dur: 1.2, battery: m.battery, threat: target.label });
+        }
+        if (m.patrolId) {
+          const pp = state.patrols.find(x => x.id === m.patrolId);
+          if (pp) pp.stats[m.hit ? 'hits' : 'misses']++;
         }
       }
     }
@@ -6588,6 +6889,7 @@ function isTangentShot(t, d, c, tc) {
 function alreadyEngaged(t) {
   if (state.missiles.some(m => m.threatId === t.id && !m.resolved)) return true;
   if (state.defenses.some(d => d.prepareTarget === t.id)) return true;
+  if (state.patrols.some(p => p.shooters.some(s => s.prepareTarget === t.id))) return true;
   return false;
 }
 
@@ -6796,6 +7098,27 @@ function showResultsModal() {
     killRows = `<tr><td colspan="4" style="text-align:center;color:#d35f5f;padding:14px">לא יורט אף איום</td></tr>`;
   }
 
+  // Per-pair performance (defense side, only when pairs were deployed)
+  let patrolHtml = '';
+  if (!isAttack && r.patrols && r.patrols.length) {
+    const rows = r.patrols.map(p => `
+      <tr>
+        <td><span class="serial">${p.label}</span></td>
+        <td>${p.name}</td>
+        <td>${p.base} · ${p.az}°</td>
+        <td>${p.fired}/${p.max}</td>
+        <td style="color:#5fa86b">${p.hits}</td>
+        <td style="color:#d35f5f">${p.misses}</td>
+        <td>${p.emptyAt != null ? `נגמרו ב-${p.emptyAt.toFixed(1)} ש׳` : `נותרו ${p.left}`}</td>
+      </tr>`).join('');
+    patrolHtml = `
+      <div class="results-section-title" style="color:#7dd3fc">✈ ביצועי זוגות היירוט (${r.patrols.length})</div>
+      <table class="results-table">
+        <thead><tr><th>זוג</th><th>דגם</th><th>בסיס · אזימוט</th><th>ירי</th><th>פגיעות</th><th>החטאות</th><th>טילים</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
   const recs = generateRecommendations(r);
   let recsHtml = '';
   for (const rec of recs) {
@@ -6953,11 +7276,12 @@ function showResultsModal() {
           <th>מס׳ סידורי</th>
           <th>סוג איום</th>
           <th>יעד מקורי</th>
-          <th>סוללה מיירטת</th>
+          <th>${!isAttack && r.patrols && r.patrols.length ? 'מיירט (סוללה / זוג)' : 'סוללה מיירטת'}</th>
         </tr>
       </thead>
       <tbody>${killRows}</tbody>
     </table>
+    ${patrolHtml}
 
     <div class="results-section-title" style="color:#fbbf24">💡 ${recsTitle}</div>
     <ul class="recommendations">${recsHtml}</ul>
@@ -7098,6 +7422,22 @@ function generateDefenseRecommendations(r) {
   if (counts['engagement-saturation'] > 0) {
     const tgts = [...new Set(targetsPerReason['engagement-saturation'])].join(', ');
     recs.push(`🔁 <b>${counts['engagement-saturation']} איומים חלפו בעוד הסוללה עסוקה ביירוט אחר</b> (יעדים: ${tgts}). מצב של רוויה — הסוללה לא הספיקה לטפל בכמה איומים בו-זמנית בשל זמן תגובה / cooldown. <b>פתרון:</b> פזר את העומס — סוללה נוספת באותו אזור, או סוללה עם reactionTime קצר יותר (SA-8 = 0.5s, Barak = 0.5s) כדי לקצר את זמן הטיפול בכל איום.`);
+  }
+
+  if (counts['fighter-placement'] > 0) {
+    recs.push(`✈ <b>${counts['fighter-placement']} איומים עברו ליד פטרול, אבל מחוץ לטווח היירוט שלו.</b> הזוג היה קרוב לציר, לא מספיק. <b>פתרון:</b> גרור את מרכז הפטרול לכיוון נתיב החדירה. המרחק שחסר לכל איום מופיע בסיבת החדירה שלו.`);
+  }
+
+  if (counts['fighter-cone'] > 0) {
+    recs.push(`🧭 <b>${counts['fighter-cone']} איומים נכנסו לטווח של מטוס מהצד, מחוץ לקונוס המכ"ם.</b> זוג מכסה רק לאורך האזימוט שלו, ובניצב לקו יש שטח מת. <b>פתרון:</b> גרור את ידית הכיוון כך שהקו יצביע אל ציר האיום. האזימוט המומלץ מופיע בסיבת החדירה.`);
+  }
+
+  if (counts['fighter-ammo'] > 0) {
+    recs.push(`📦 <b>${counts['fighter-ammo']} איומים עברו דרך פטרול שירה כבר את כל 4 הטילים.</b> <b>פתרון:</b> הצב זוג נוסף על אותו ציר, או סוללה שתספוג חלק מהעומס לפני שהאיומים מגיעים לפטרול.`);
+  }
+
+  if (counts['fighter-gap'] > 0) {
+    recs.push(`📡 <b>${counts['fighter-gap']} איומים עברו את רוב הנתיב בלי שאף חיישן גילה אותם.</b> <b>פתרון:</b> מקם פטרול מעל הקטע העיוור. מכ"ם מוטס בגובה 7 ק"מ רואה מעל רכסים שמסתירים את המכ"מים והסוללות על הקרקע.`);
   }
 
   // Target-specific hotspot
@@ -7253,7 +7593,15 @@ function computeResults() {
       reason: t.status === 'reached' ? diagnoseFailure(t) : null,
       firedAt: t.firedAt,
       missedBy: t.missedBy
-    }))
+    })),
+    patrols: state.patrols.map(p => {
+      const base = WORLD.airbases.find(b => b.id === p.baseId);
+      return {
+        label: p.label, name: aircraftName(p.key), base: base ? base.nameHe : '-',
+        az: fmtAz(p.az), fired: p.stats.fired, hits: p.stats.hits, misses: p.stats.misses,
+        left: p.ammo, max: CATALOG[p.key].missiles, emptyAt: p.stats.emptyAt
+      };
+    })
   };
 }
 
@@ -7263,7 +7611,8 @@ function computeResults() {
 function diagnoseFailure(t) {
   const tc = CATALOG[t.key];
   const batteries = state.defenses.filter(d => CATALOG[d.key].kind === 'battery');
-  if (!batteries.length) {
+  const fighterFindings = diagnoseFighters(t);
+  if (!batteries.length && !state.patrols.length && !fighterFindings.length) {
     return `<b>אין סוללות הגנה במפה</b>`;
   }
 
@@ -7284,10 +7633,12 @@ function diagnoseFailure(t) {
   for (const d of batteries) {
     const c = CATALOG[d.key];
     let reason;
-    if (fired[c.short]) {
+    // Missiles record the battery's full name; older entries used the short code
+    const firedHere = fired[c.name] || fired[c.short];
+    if (firedHere) {
       // Pick the most common reason this battery missed for (usually one)
       const counts = {};
-      for (const r of fired[c.short]) counts[r] = (counts[r] || 0) + 1;
+      for (const r of firedHere) counts[r] = (counts[r] || 0) + 1;
       reason = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
     } else if (depleted.has(c.short)) {
       reason = 'ammo-depleted';
@@ -7300,12 +7651,25 @@ function diagnoseFailure(t) {
     byReason[reason].push(c.short);
   }
 
+  // Fighter pairs: a pair that fired and missed reports its miss; the
+  // patrol-geometry findings come from the per-tick bookkeeping.
+  for (const p of state.patrols) {
+    if (!fired[p.label]) continue;
+    if (!byReason.statistical) byReason.statistical = [];
+    byReason.statistical.push(p.label);
+  }
+  for (const f of fighterFindings) {
+    if (!byReason[f.reason]) byReason[f.reason] = [];
+    byReason[f.reason].push(...f.names);
+  }
+
   // Report from "closest to a viable engagement" → "structural blocker" so
   // the most informative diagnosis appears first.
   const priority = [
     'statistical', 'tangent', 'flight-time',
-    'engagement-saturation', 'ammo-depleted',
-    'los-blocked', 'rcs-shrunk', 'altitude', 'out-of-range'
+    'fighter-ammo', 'fighter-cone',
+    'engagement-saturation', 'ammo-depleted', 'fighter-placement',
+    'los-blocked', 'rcs-shrunk', 'altitude', 'out-of-range', 'fighter-gap'
   ];
   const parts = [];
   for (const p of priority) {
@@ -7321,9 +7685,10 @@ function diagnoseFailure(t) {
     parts.push(`<b>${REASON_LABEL[p] || p}</b> [${batNames}]`);
   }
 
+  const who = state.patrols.length ? 'סוללה ומטוס' : 'סוללה';
   const lead = t.firedAt > 0
-    ? `נורו ${t.firedAt} מיירטים והאיום חדר. סיכום סיבות לכל סוללה:`
-    : `לא נורה אף מיירט. סיכום לכל סוללה:`;
+    ? `נורו ${t.firedAt} מיירטים והאיום חדר. סיכום סיבות לכל ${who}:`
+    : `לא נורה אף מיירט. סיכום לכל ${who}:`;
   return `${lead} ${parts.join(' • ')}`;
 }
 
@@ -7482,6 +7847,7 @@ function startAttackChallenge(difficulty) {
   state.attackChallenge = true;
   state.challengeMode = 'attack-challenge';
   state.challengeDifficulty = difficulty;
+  state.airInventory = {};   // the system-deployed defense flies no patrols
   // Terrain complexity scales with difficulty; in the advanced world the
   // hostile-front layout is difficulty-driven too, so regenerate it all.
   if (WORLD.mode !== 'classic') regenerateGeography(difficulty);
@@ -7598,6 +7964,617 @@ function generateAutoAttack() {
 }
 
 // =============================================================
+// ✈ מטוסי יירוט — זוגות בפטרול (CAP)
+// A pair flies a racetrack centred on a player-chosen point, long axis
+// along the player's azimuth. Each aircraft carries its own radar cone
+// (120° about its nose); the pair shares 4 interceptors. Aircraft never
+// leave the racetrack: they detect and engage only from where they fly.
+// =============================================================
+
+function aircraftName(key) {
+  const loc = WORLD.mode === 'real' && AIRCRAFT_LOCAL[WORLD.countryId || 'il'];
+  return (loc && loc[key]) ? loc[key][0] : CATALOG[key].name;
+}
+function aircraftShort(key) {
+  const loc = WORLD.mode === 'real' && AIRCRAFT_LOCAL[WORLD.countryId || 'il'];
+  return (loc && loc[key]) ? loc[key][1] : CATALOG[key].short;
+}
+// Half the enemy fighter's speed, so the patrol reads as a calm orbit
+function aircraftSpeed() { return threatSpeedOf(CATALOG.fighter) * 0.5; }
+function aircraftTier(key) { return key === 'f16' ? 'a' : 'b'; }
+
+// Compass azimuth (degrees, 0 = north, clockwise) ↔ world unit vector
+function azVec(az) { const r = az * Math.PI / 180; return { x: Math.sin(r), y: -Math.cos(r) }; }
+function vecAz(dx, dy) { return ((Math.atan2(dx, -dy) * 180 / Math.PI) + 360) % 360; }
+function fmtAz(az) { return String(Math.round(az) % 360).padStart(3, '0'); }
+
+function computeAirbases() {
+  WORLD.airbases = [];
+  if (WORLD.mode === 'real') {
+    for (const b of (REAL_AIRBASES[WORLD.countryId || 'il'] || [])) {
+      if (pointInPolygon(b.x, b.y, LAND_POLYGON)) WORLD.airbases.push({ ...b });
+    }
+    if (WORLD.airbases.length) return;
+  }
+  // Fictional maps: the strategic airbase (if any) hosts both tiers, plus
+  // dispersal fields spread as far apart as the interior allows. A fixed
+  // grid search (no randomness) keeps duel geographies reproducible.
+  const ab = TARGETS.find(t => t.airbase);
+  if (ab) WORLD.airbases.push({ id: 'main', nameHe: ab.name, x: ab.x, y: ab.y, types: 'ab' });
+  const bb = polyBBox(LAND_POLYGON);
+  const cands = [];
+  for (let x = bb.x0; x <= bb.x1; x += 25) {
+    for (let y = bb.y0; y <= bb.y1; y += 25) {
+      if (!isInsideCountry(x, y) || distToHomeBorder(x, y) < 40) continue;
+      if (distToHostileBorder(x, y) < 60) continue;
+      cands.push({ x, y });
+    }
+  }
+  const dirWord = (x, y) => ['צפון', 'מזרח', 'דרום', 'מערב'][Math.round(vecAz(x - WORLD.center.x, y - WORLD.center.y) / 90) % 4];
+  while (WORLD.airbases.length < 3 && cands.length) {
+    let best = null, bestD = -Infinity;
+    for (const c of cands) {
+      let d = Infinity;
+      for (const b of WORLD.airbases) d = Math.min(d, Math.hypot(b.x - c.x, b.y - c.y));
+      if (!WORLD.airbases.length) d = -Math.hypot(c.x - WORLD.center.x, c.y - WORLD.center.y);
+      if (d > bestD) { bestD = d; best = c; }
+    }
+    let nameHe = 'בסיס ' + dirWord(best.x, best.y);
+    if (WORLD.airbases.some(b => b.nameHe === nameHe)) nameHe += ' 2';
+    WORLD.airbases.push({
+      id: 'b' + WORLD.airbases.length, nameHe, x: Math.round(best.x), y: Math.round(best.y),
+      types: WORLD.airbases.length ? 'a' : 'ab'
+    });
+  }
+}
+
+// Patrol points: over the home country (lakes included) or its coastal
+// waters — never over a neighbouring country or the hostile strip.
+function isValidPatrolPoint(x, y) {
+  if (pointInPolygon(x, y, LAND_POLYGON)) return true;
+  if (x < 0 || x > 1200 || y < 0 || y > 800) return false;
+  if (isInsideRedZone(x, y)) return false;
+  for (const nb of WORLD.neighbors) if (pointInPolygon(x, y, nb.poly)) return false;
+  return distToHomeBorder(x, y) <= PATROL_SEA_REACH;
+}
+
+// A tap without a drag points the patrol at the nearest hostile front
+function defaultPatrolAz(x, y) {
+  let best = null, bd = Infinity;
+  for (const nb of hostileNeighbors()) {
+    const c = nb.centroid || { x: (nb.bbox.x0 + nb.bbox.x1) / 2, y: (nb.bbox.y0 + nb.bbox.y1) / 2 };
+    const d = Math.hypot(c.x - x, c.y - y);
+    if (d < bd) { bd = d; best = c; }
+  }
+  return best ? vecAz(best.x - x, best.y - y) : 270;   // classic: the red strip lies west
+}
+
+// Position + heading of aircraft i (0/1) of pair p at sim time t. The
+// racetrack: leg out along the azimuth, half-turn, leg back, half-turn.
+// Aircraft 1 flies half a lap behind aircraft 0, so the two always face
+// opposite ends of the axis.
+function patrolAircraftPos(p, i, t) {
+  const L = PATROL_LEG_KM, r = PATROL_TURN_R, lap = 2 * L + 2 * Math.PI * r;
+  const u = azVec(p.az), n = { x: -u.y, y: u.x };
+  // Start near the far end of the outbound leg (the wingman near the
+  // other end), clear of the label at the patrol centre
+  let s = (aircraftSpeed() * t + 0.85 * L + i * lap / 2) % lap;
+  let ox, oy, hx, hy;   // offsets along (u, n) and heading in (u, n)
+  if (s < L) { ox = -L / 2 + s; oy = -r; hx = 1; hy = 0; }
+  else if ((s -= L) < Math.PI * r) { const f = s / r; ox = L / 2 + r * Math.sin(f); oy = -r * Math.cos(f); hx = Math.cos(f); hy = Math.sin(f); }
+  else if ((s -= Math.PI * r) < L) { ox = L / 2 - s; oy = r; hx = -1; hy = 0; }
+  else { const f = (s - L) / r; ox = -L / 2 - r * Math.sin(f); oy = r * Math.cos(f); hx = -Math.cos(f); hy = -Math.sin(f); }
+  return {
+    x: p.x + ox * u.x + oy * n.x, y: p.y + ox * u.y + oy * n.y,
+    hx: hx * u.x + hy * n.x, hy: hx * u.y + hy * n.y
+  };
+}
+
+function inAircraftCone(pos, x, y) {
+  const dx = x - pos.x, dy = y - pos.y, d = Math.hypot(dx, dy) || 1e-6;
+  return (dx * pos.hx + dy * pos.hy) / d >= PATROL_CONE_COS;
+}
+
+// Airborne radar: cone + RCS-scaled range + line of sight from 7 km up
+function aircraftSees(pos, c, t) {
+  if (!inAircraftCone(pos, t.x, t.y)) return false;
+  if (Math.hypot(t.x - pos.x, t.y - pos.y) > c.detection * rcsRangeFactor(CATALOG[t.key].rcs)) return false;
+  return hasLOS(pos.x, pos.y, t.x, t.y, getThreatAltMSL(t), PATROL_ALT);
+}
+
+// Intercept must land inside the fixed interceptor range and before the
+// threat reaches its target. Returns the solution or null.
+function aircraftShotViable(t, pos, c, launchDelay) {
+  const tc = CATALOG[t.key];
+  const sol = computeIntercept(t, pos, c, tc, launchDelay);
+  if (Math.hypot(sol.ipx - pos.x, sol.ipy - pos.y) > c.interceptRange) return null;
+  const remaining = Math.hypot(t.tx - t.x, t.ty - t.y) / threatSpeedOf(tc);
+  if (launchDelay + sol.T > remaining) return null;
+  return sol;
+}
+
+function pickAircraftTarget(pos, c) {
+  let best = null, bestScore = -Infinity;
+  for (const t of state.threats) {
+    if (t.status !== 'inflight' || alreadyEngaged(t)) continue;
+    if (!aircraftSees(pos, c, t)) continue;
+    if (!aircraftShotViable(t, pos, c, c.reactionTime)) continue;
+    const target = TARGETS.find(x => x.name === t.target);
+    const value = target ? target.value : 1;
+    const score = value * 100 - Math.hypot(t.tx - t.x, t.ty - t.y) * 0.1 - Math.hypot(t.x - pos.x, t.y - pos.y) * 0.05;
+    if (score > bestScore) { bestScore = score; best = t; }
+  }
+  return best;
+}
+
+// Launch after the reaction time. The aircraft kept flying meanwhile, so
+// re-check the track from where it is now; a target that slid out of the
+// cone during a turn is dropped without spending a missile.
+function fireAircraftMissile(p, t, pos) {
+  const c = CATALOG[p.key];
+  if (!aircraftSees(pos, c, t)) return false;
+  const sol = aircraftShotViable(t, pos, c, 0);
+  if (!sol) return false;
+  p.ammo--; t.firedAt++;
+  p.stats.fired++;
+  if (p.ammo === 0) p.stats.emptyAt = state.simElapsed;
+  const hit = Math.random() < c.hitRate;
+  state.missiles.push({
+    sx: pos.x, sy: pos.y, x: pos.x, y: pos.y,
+    tx: sol.ipx, ty: sol.ipy, t: 0, dur: Math.max(0.4, sol.T),
+    hit, reason: hit ? 'hit' : 'statistical',
+    threatId: t.id, battery: p.label, patrolId: p.id, resolved: false
+  });
+  return true;
+}
+
+function newPatrolShooter() { return { prepareTarget: null, prepareUntil: 0, cd: 0 }; }
+
+function resetPatrolForSim(p) {
+  p.ammo = CATALOG[p.key].missiles;
+  p.shooters = [newPatrolShooter(), newPatrolShooter()];
+  p.stats = { fired: 0, hits: 0, misses: 0, emptyAt: null };
+}
+
+function tickPatrols(dt) {
+  const now = state.simElapsed;
+  for (const p of state.patrols) {
+    const c = CATALOG[p.key];
+    for (let i = 0; i < 2; i++) {
+      const sh = p.shooters[i];
+      if (sh.cd > 0) sh.cd -= dt;
+      const pos = patrolAircraftPos(p, i, now);
+      if (sh.prepareTarget != null && now >= sh.prepareUntil) {
+        const t = state.threats.find(x => x.id === sh.prepareTarget);
+        sh.prepareTarget = null; sh.prepareUntil = 0;
+        if (t && t.status === 'inflight' && p.ammo > 0 && fireAircraftMissile(p, t, pos)) sh.cd = c.reload;
+      }
+      if (sh.prepareTarget == null && sh.cd <= 0 && p.ammo > 0) {
+        // The wingman may already be holding the pair's last missile
+        const reserved = p.shooters.filter(s => s !== sh && s.prepareTarget != null).length;
+        if (p.ammo > reserved) {
+          const t = pickAircraftTarget(pos, c);
+          if (t) { sh.prepareTarget = t.id; sh.prepareUntil = now + c.reactionTime; }
+        }
+      }
+    }
+  }
+
+  // Debrief bookkeeping: how close each threat came to each pair, whether
+  // it crossed an aircraft's intercept range outside the radar cone or
+  // after the pair ran dry.
+  for (const t of state.threats) {
+    if (t.status !== 'inflight') continue;
+    for (const p of state.patrols) {
+      const c = CATALOG[p.key];
+      const rec = t.fNear[p.id] || (t.fNear[p.id] = { min: Infinity, inRange: false, coneMiss: false, empty: false });
+      for (let i = 0; i < 2; i++) {
+        const pos = patrolAircraftPos(p, i, now);
+        const d = Math.hypot(t.x - pos.x, t.y - pos.y);
+        if (d < rec.min) rec.min = d;
+        if (d > c.interceptRange) continue;
+        rec.inRange = true;
+        if (p.ammo === 0) rec.empty = true;
+        else if (!inAircraftCone(pos, t.x, t.y)) rec.coneMiss = true;
+      }
+    }
+  }
+
+  // Sensor-coverage sampling (4 Hz): share of each threat's flight that
+  // any sensor saw — feeds the "detection gap" diagnosis.
+  if (!state.patrols.length && !aircraftLeft()) return;
+  state.detSampleT = (state.detSampleT || 0) + dt;
+  if (state.detSampleT < 0.25) return;
+  state.detSampleT = 0;
+  for (const t of state.threats) {
+    if (t.status !== 'inflight') continue;
+    t.liveSamples++;
+    if (threatSeenByAny(t)) t.seenSamples++;
+  }
+}
+
+function threatSeenByAny(t) {
+  const tc = CATALOG[t.key];
+  const alt = getThreatAltMSL(t);
+  for (const d of state.defenses) {
+    const c = CATALOG[d.key];
+    const range = c.kind === 'radar' ? c.detection * rcsRangeFactor(tc.rcs) : c.maxRange * battRangeFactor(c, tc);
+    if (Math.hypot(t.x - d.x, t.y - d.y) <= range && hasLOS(d.x, d.y, t.x, t.y, alt)) return true;
+  }
+  for (const p of state.patrols) {
+    const c = CATALOG[p.key];
+    for (let i = 0; i < 2; i++) if (aircraftSees(patrolAircraftPos(p, i, state.simElapsed), c, t)) return true;
+  }
+  return false;
+}
+
+// ---- Inventory: pairs on alert at each base ----
+// state.airInventory: null = free play (unlimited, each base flies the
+// tiers it hosts); otherwise {baseId: {f16, f35}} fixed by the mission.
+function allocateAirInventory(budget) {
+  const inv = {};
+  for (const b of WORLD.airbases) inv[b.id] = { f16: 0, f35: 0 };
+  const dc = WORLD.zoneCenter || (TARGETS.length
+    ? { x: TARGETS.reduce((s, t) => s + t.x, 0) / TARGETS.length, y: TARGETS.reduce((s, t) => s + t.y, 0) / TARGETS.length }
+    : WORLD.center);
+  const sorted = WORLD.airbases.slice().sort((a, b) =>
+    Math.hypot(a.x - dc.x, a.y - dc.y) - Math.hypot(b.x - dc.x, b.y - dc.y));
+  for (const key of AIRCRAFT_KEYS) {
+    let hosts = sorted.filter(b => b.types.includes(aircraftTier(key)));
+    if (!hosts.length) hosts = sorted;
+    for (let i = 0; i < (budget[key] || 0) && hosts.length; i++) inv[hosts[i % hosts.length].id][key]++;
+  }
+  return inv;
+}
+
+function airRemaining(baseId, key) {
+  const used = state.patrols.filter(p => p.baseId === baseId && p.key === key).length;
+  if (state.airInventory === null) {
+    const b = WORLD.airbases.find(x => x.id === baseId);
+    return b && b.types.includes(aircraftTier(key)) ? Infinity : 0;
+  }
+  const slot = state.airInventory[baseId];
+  return (slot ? slot[key] || 0 : 0) - used;
+}
+
+function aircraftLeft() {
+  return WORLD.airbases.some(b => AIRCRAFT_KEYS.some(k => airRemaining(b.id, k) > 0));
+}
+
+function selectAircraft(key, baseId) {
+  if (isSimActive()) return;
+  if (!baseId) {
+    const b = WORLD.airbases.find(x => airRemaining(x.id, key) > 0);
+    if (!b) { setStatus(`אין זוגות ${aircraftName(key)} זמינים`); return; }
+    baseId = b.id;
+  }
+  if (airRemaining(baseId, key) <= 0) {
+    setStatus(`אין זוגות ${aircraftName(key)} זמינים בבסיס הזה`);
+    return;
+  }
+  state.mode = 'placing';
+  state.placeKey = key;
+  state.placeBase = baseId;
+  state.placeStep = null;
+  setStatus(`${aircraftName(key)}: לחץ על נקודת הפטרול וגרור לכיוון הפטרול`);
+  refreshButtonStates();
+  updateStepGuide();
+  closeMobileSidebar();
+}
+
+function placePatrol(x, y, az) {
+  const key = state.placeKey, baseId = state.placeBase;
+  const serial = 1 + state.patrols.filter(p => p.key === key).reduce((m, p) => Math.max(m, p.serial), 0);
+  const p = { id: nextId++, key, baseId, x, y, az, serial, label: `${aircraftShort(key)}-${serial}` };
+  resetPatrolForSim(p);
+  state.patrols.push(p);
+  if (airRemaining(baseId, key) <= 0) {
+    state.mode = 'idle'; state.placeKey = null; state.placeBase = null;
+    refreshButtonStates();
+    setStatus(`${p.label} בפטרול, אזימוט ${fmtAz(az)}. אין עוד זוגות מהסוג הזה בבסיס.`);
+  } else {
+    setStatus(`${p.label} בפטרול, אזימוט ${fmtAz(az)}. אפשר להציב זוג נוסף או לבחור אמצעי אחר.`);
+  }
+  renderAircraftPanel();
+  renderMobileBudgetPill();
+  updateStepGuide();
+}
+
+// Grab handles on a placed patrol: the centre moves it, the knob at the
+// azimuth end re-aims it. Radii are in screen pixels.
+function findPatrolHit(x, y) {
+  const rr = 14 / state.viewport.scale;
+  for (let k = state.patrols.length - 1; k >= 0; k--) {
+    const p = state.patrols[k];
+    const h = patrolHandlePos(p);
+    if (Math.hypot(h.x - x, h.y - y) <= rr) return { patrol: p, mode: 'rotate' };
+    if (Math.hypot(p.x - x, p.y - y) <= rr) return { patrol: p, mode: 'move' };
+  }
+  return null;
+}
+function patrolHandlePos(p) {
+  const u = azVec(p.az), d = PATROL_LEG_KM / 2 + PATROL_TURN_R + 8;
+  return { x: p.x + u.x * d, y: p.y + u.y * d };
+}
+
+function deletePatrol(p) {
+  state.patrols = state.patrols.filter(x => x !== p);
+  renderAircraftPanel();
+  renderMobileBudgetPill();
+  updateStepGuide();
+}
+
+function patrolTooltip(p) {
+  const c = CATALOG[p.key];
+  const base = WORLD.airbases.find(b => b.id === p.baseId);
+  return [
+    `<b>${aircraftName(p.key)} <span style="color:#fbbf24">[${p.label}]</span></b>`,
+    base ? `בסיס: ${base.nameHe}` : '',
+    `אזימוט פטרול: ${fmtAz(p.az)}°`,
+    `גילוי: ${c.detectionNm} NM (${Math.round(c.detection)} ק"מ) • מול כטב"ם ${Math.round(c.detection * rcsRangeFactor(CATALOG.uav.rcs))} ק"מ`,
+    `יירוט: ${c.interceptNm} NM (${c.interceptRange.toFixed(1)} ק"מ)`,
+    `טילים לזוג: ${p.ammo}/${c.missiles}`,
+    isSimActive() ? '' : '<span style="color:#7e91a8">גרור את המרכז להזזה, את הידית לכיוון</span>'
+  ].filter(Boolean).join('<br>');
+}
+
+// Side panel: one row per base, one button per tier on alert there
+function renderAircraftPanel() {
+  const wrap = document.getElementById('aircraft-btns');
+  if (!wrap) return;
+  const head = document.getElementById('aircraft-head');
+  const inv = state.airInventory;
+  const anyStock = inv === null || Object.values(inv).some(v => v.f16 + v.f35 > 0);
+  const show = WORLD.airbases.length > 0 && anyStock;
+  wrap.style.display = show ? '' : 'none';
+  if (head) head.style.display = show ? '' : 'none';
+  wrap.innerHTML = '';
+  if (!show) return;
+  for (const b of WORLD.airbases) {
+    const keys = AIRCRAFT_KEYS.filter(k => inv ? (inv[b.id] && inv[b.id][k] > 0) : b.types.includes(aircraftTier(k)));
+    if (!keys.length) continue;
+    const row = document.createElement('div');
+    row.className = 'airbase-row';
+    const title = document.createElement('div');
+    title.className = 'airbase-name';
+    title.textContent = `🛫 ${b.nameHe}`;
+    row.appendChild(title);
+    for (const k of keys) {
+      const c = CATALOG[k];
+      const wrapper = document.createElement('div');
+      wrapper.className = 'btn-row';
+      const btn = document.createElement('button');
+      btn.dataset.key = k;
+      btn.dataset.base = b.id;
+      btn.innerHTML = `
+        <span class="icon" style="color:${c.color}">✈</span>
+        <span class="info">
+          <span class="name">${aircraftName(k)}</span>
+          <span class="range">גילוי ${c.detectionNm} NM • יירוט ${c.interceptNm} NM • 4 טילים לזוג</span>
+        </span>`;
+      btn.title = c.desc;
+      if (inv) {
+        const max = inv[b.id][k], rem = airRemaining(b.id, k);
+        const badge = document.createElement('span');
+        badge.className = 'budget-badge';
+        badge.style.cssText = 'background:#fbbf24;color:#0a0e14;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;margin-right:4px';
+        badge.textContent = `${max - rem}/${max}`;
+        btn.appendChild(badge);
+        btn.style.opacity = rem <= 0 ? '0.5' : '1';
+      }
+      btn.addEventListener('click', () => selectAircraft(k, b.id));
+      const info = document.createElement('button');
+      info.className = 'info-btn';
+      info.innerHTML = 'ⓘ';
+      info.title = 'פרטי מערכת';
+      info.addEventListener('click', (ev) => { ev.stopPropagation(); showInfoModal(k); });
+      wrapper.appendChild(btn);
+      wrapper.appendChild(info);
+      row.appendChild(wrapper);
+    }
+    wrap.appendChild(row);
+  }
+  refreshButtonStates();
+}
+
+// ---- Map drawing ----
+function drawAirbases() {
+  if (!WORLD.airbases.length) return;
+  const zc = iconZoomComp(), lS = labelScale();
+  for (const b of WORLD.airbases) {
+    ctx.save();
+    ctx.translate(b.x, b.y); ctx.scale(zc, zc);
+    ctx.rotate(-Math.PI / 6);
+    ctx.fillStyle = 'rgba(12, 20, 32, 0.9)';
+    ctx.strokeStyle = 'rgba(148, 197, 230, 0.95)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.rect(-10, -2.4, 20, 4.8); ctx.fill(); ctx.stroke();
+    ctx.setLineDash([2, 2]);
+    ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(8, 0); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.rotate(Math.PI / 6);
+    // A strategic target at the same spot already carries the name
+    if (!TARGETS.some(t => Math.hypot(t.x - b.x, t.y - b.y) < 8)) {
+      ctx.font = `${Math.round(9 * lS)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(5, 10, 18, 0.85)';
+      ctx.strokeText('✈ ' + b.nameHe, 0, 15 * lS);
+      ctx.fillStyle = 'rgba(148, 197, 230, 0.95)';
+      ctx.fillText('✈ ' + b.nameHe, 0, 15 * lS);
+    }
+    ctx.restore();
+  }
+}
+
+// One pair: intercept envelope around the racetrack, the racetrack, a
+// radar cone per aircraft (solid edge = fighter-size target, dashed arc
+// = UAV), the two aircraft and a label pill. `sp` carries the ammo and
+// reaction-time state (live or from a scrub snapshot).
+function drawPatrolShape(p, now, sp, opts) {
+  const c = CATALOG[p.key];
+  const u = azVec(p.az), angU = Math.atan2(u.y, u.x);
+  const L = PATROL_LEG_KM, r = PATROL_TURN_R;
+  const fx = p.x + u.x * L / 2, fy = p.y + u.y * L / 2;
+  const bx = p.x - u.x * L / 2, by = p.y - u.y * L / 2;
+  const zc = iconZoomComp(), lS = labelScale();
+  const empty = sp.ammo <= 0;
+  ctx.save();
+  if (empty) ctx.globalAlpha = 0.4;
+
+  // Intercept envelope (stadium around the racetrack)
+  const R = c.interceptRange + r;
+  ctx.beginPath();
+  ctx.arc(fx, fy, R, angU - Math.PI / 2, angU + Math.PI / 2);
+  ctx.arc(bx, by, R, angU + Math.PI / 2, angU + 3 * Math.PI / 2);
+  ctx.closePath();
+  ctx.fillStyle = c.color + '16';
+  ctx.fill();
+  ctx.setLineDash([6, 5]);
+  ctx.strokeStyle = c.color + '80';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Radar cones
+  const D = c.detection, Du = D * rcsRangeFactor(CATALOG.uav.rcs);
+  const poses = [patrolAircraftPos(p, 0, now), patrolAircraftPos(p, 1, now)];
+  for (const pos of poses) {
+    const h = Math.atan2(pos.hy, pos.hx);
+    ctx.beginPath();
+    ctx.moveTo(pos.x, pos.y);
+    ctx.arc(pos.x, pos.y, D, h - Math.PI / 3, h + Math.PI / 3);
+    ctx.closePath();
+    ctx.fillStyle = c.color + '10';
+    ctx.fill();
+    ctx.strokeStyle = c.color + '55';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, Du, h - Math.PI / 3, h + Math.PI / 3);
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = c.color + '90';
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Racetrack
+  ctx.beginPath();
+  ctx.arc(fx, fy, r, angU - Math.PI / 2, angU + Math.PI / 2);
+  ctx.arc(bx, by, r, angU + Math.PI / 2, angU + 3 * Math.PI / 2);
+  ctx.closePath();
+  ctx.strokeStyle = c.color + 'cc';
+  ctx.lineWidth = 1.4;
+  ctx.stroke();
+
+  // Aircraft + reaction-time ring while a shot is being prepared
+  poses.forEach((pos, i) => {
+    const sh = sp.shooters && sp.shooters[i];
+    if (sh && sh.prepareTarget != null && now < sh.prepareUntil) {
+      const prog = 1 - (sh.prepareUntil - now) / c.reactionTime;
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, 13 * zc, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * prog);
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 3 * zc;
+      ctx.stroke();
+      const tgt = state.threats.find(x => x.id === sh.prepareTarget);
+      if (tgt) {
+        ctx.beginPath(); ctx.moveTo(pos.x, pos.y); ctx.lineTo(tgt.x, tgt.y);
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = 'rgba(251, 191, 36, 0.6)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+    ctx.save();
+    ctx.translate(pos.x, pos.y);
+    ctx.scale(zc * 1.6, zc * 1.6);
+    ctx.rotate(Math.atan2(pos.hy, pos.hx));
+    ctx.fillStyle = c.color;
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.75)';
+    ctx.lineWidth = 0.5;
+    drawFighter();
+    ctx.restore();
+  });
+
+  // Label pill at the patrol centre
+  const txt = opts.preview ? `${aircraftShort(p.key)} · ${fmtAz(p.az)}°`
+    : `${p.label} · ${empty ? 'EMPTY' : `▮ ${sp.ammo}/${c.missiles}`}`;
+  ctx.save();
+  ctx.translate(p.x, p.y); ctx.scale(zc, zc);
+  ctx.font = `bold ${Math.round(10 * lS)}px ui-monospace, monospace`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const tw = ctx.measureText(txt).width;
+  const ph = 14 * lS, py = 12 * lS;
+  ctx.fillStyle = empty ? '#6b1e2a' : 'rgba(8, 14, 24, 0.9)';
+  ctx.strokeStyle = empty ? '#fca5a5' : c.color;
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(-tw / 2 - 6, py, tw + 12, ph, 7); else ctx.rect(-tw / 2 - 6, py, tw + 12, ph);
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle = empty ? '#fca5a5' : c.color;
+  ctx.fillText(txt, 0, py + ph / 2);
+  ctx.restore();
+
+  // Planning handles: centre (move) and azimuth knob (re-aim)
+  if (opts.handles) {
+    const h = patrolHandlePos(p);
+    ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(h.x, h.y);
+    ctx.strokeStyle = c.color; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.beginPath(); ctx.arc(h.x, h.y, 5 * zc, 0, Math.PI * 2);
+    ctx.fillStyle = c.color; ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.stroke();
+    ctx.beginPath(); ctx.arc(p.x, p.y, 4.5 * zc, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(8, 14, 24, 0.9)'; ctx.fill();
+    ctx.strokeStyle = c.color; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.save();
+    ctx.translate(h.x, h.y); ctx.scale(zc, zc);
+    ctx.font = `bold ${Math.round(10 * lS)}px ui-monospace, monospace`;
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(5, 10, 18, 0.85)';
+    ctx.strokeText(`${fmtAz(p.az)}°`, 0, -9 * lS);
+    ctx.fillStyle = c.color;
+    ctx.fillText(`${fmtAz(p.az)}°`, 0, -9 * lS);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+let _scrubPat = null;   // per-pair ammo/RT state from the scrub snapshot (set in draw)
+function drawPatrols() {
+  const live = isSimActive() || state.scrubTime != null;
+  const now = live ? state.simElapsed : 0;
+  state.patrols.forEach((p, k) => {
+    const sp = (_scrubPat && _scrubPat[k]) || p;
+    drawPatrolShape(p, now, sp, { handles: !live });
+  });
+}
+
+// ---- Debrief ----
+// Reasons a pair failed to stop a leaking threat, most actionable first.
+function diagnoseFighters(t) {
+  const out = [];
+  const empty = [], cone = [], near = [];
+  for (const p of state.patrols) {
+    const rec = t.fNear && t.fNear[p.id];
+    if (!rec) continue;
+    const c = CATALOG[p.key];
+    if (rec.empty) empty.push(p.label);
+    else if (rec.coneMiss) cone.push(`${p.label}: אזימוט מומלץ ${fmtAz(vecAz(t.sx - p.x, t.sy - p.y))}`);
+    else if (!rec.inRange && rec.min <= 2 * c.interceptRange) near.push(`${p.label}: חסרו ${Math.max(1, Math.round(rec.min - c.interceptRange))} ק"מ`);
+  }
+  if (empty.length) out.push({ reason: 'fighter-ammo', names: empty });
+  if (cone.length) out.push({ reason: 'fighter-cone', names: cone });
+  if (near.length) out.push({ reason: 'fighter-placement', names: near });
+  const seen = t.liveSamples ? t.seenSamples / t.liveSamples : 1;
+  if (seen < 0.3 && (state.patrols.length || aircraftLeft())) {
+    out.push({ reason: 'fighter-gap', names: [state.patrols.length ? 'הפטרולים לא כיסו את הנתיב' : 'זוגות בכוננות לא נוצלו'] });
+  }
+  return out;
+}
+
+// =============================================================
 // אתגר הגנה
 // =============================================================
 function calcAutoAmmo(key, totalThreats, numBatteries) {
@@ -7697,6 +8674,8 @@ function startDefenseChallenge(difficulty = 'medium') {
   for (const k of BATTERY_KEYS) state.autoAmmo[k] = calcAutoAmmo(k, attackSize, numBudgetBatteries);
 
   state.budget = missionBudget;
+  // Fighter pairs go on alert at the bases nearest the defended area
+  state.airInventory = allocateAirInventory(missionBudget);
   switchSide('blue');
   const statusMsg = state.noIntel
     ? `משימת הגנה ${profile.label} (ללא מודיעין) - תכנן הגנה רב-שכבתית`
@@ -7769,6 +8748,7 @@ function renderBudget() {
       b.style.opacity = '1';
     }
   });
+  renderAircraftPanel();
   renderMobileBudgetPill();
 }
 
@@ -7788,6 +8768,15 @@ function renderMobileBudgetPill() {
       if (max === 0) continue;
       const used = state.defenses.filter(d => d.key === k).length;
       items.push({ key: k, remain: max - used, max });
+    }
+    // Fighter pairs: totals across all bases
+    if (state.airInventory) {
+      for (const k of AIRCRAFT_KEYS) {
+        const max = Object.values(state.airInventory).reduce((s, v) => s + (v[k] || 0), 0);
+        if (max === 0) continue;
+        const used = state.patrols.filter(p => p.key === k).length;
+        items.push({ key: k, remain: max - used, max, name: aircraftShort(k) });
+      }
     }
   } else if (state.threatBudget) {
     for (const k of THREAT_KEYS) {
@@ -7815,7 +8804,7 @@ function renderMobileBudgetPill() {
     const depleted = it.remain <= 0;
     const cls = `budget-chip${depleted ? ' depleted' : ''}${state.placeKey === it.key ? ' active' : ''}`;
     return `<div class="${cls}" data-key="${it.key}" style="border-color:${c.color};color:${c.color}">`
-         + `<span class="budget-chip-name">${c.short}</span>`
+         + `<span class="budget-chip-name">${it.name || c.short}</span>`
          + `<span class="budget-chip-count">${Math.max(0, it.remain)}/${it.max}</span>`
          + `</div>`;
   }).join('');
