@@ -8473,7 +8473,7 @@ function drawPatrolShape(p, now, sp, opts) {
     if (sh && sh.prepareTarget != null && now < sh.prepareUntil) {
       const prog = 1 - (sh.prepareUntil - now) / c.reactionTime;
       ctx.beginPath();
-      ctx.arc(pos.x, pos.y, 13 * zc, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * prog);
+      ctx.arc(pos.x, pos.y, 19 * zc, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * prog);
       ctx.strokeStyle = '#fbbf24';
       ctx.lineWidth = 3 * zc;
       ctx.stroke();
@@ -8489,7 +8489,7 @@ function drawPatrolShape(p, now, sp, opts) {
     }
     ctx.save();
     ctx.translate(pos.x, pos.y);
-    ctx.scale(zc * 1.6, zc * 1.6);
+    ctx.scale(zc * 2.6, zc * 2.6);
     ctx.rotate(Math.atan2(pos.hy, pos.hx));
     ctx.fillStyle = c.color;
     ctx.strokeStyle = 'rgba(0, 0, 0, 0.75)';
