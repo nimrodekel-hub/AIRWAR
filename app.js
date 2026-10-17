@@ -2381,8 +2381,9 @@ function showInfoModal(key) {
       <tr><td>שיעור פגיעה (PK)</td><td><b style="color:#5fa86b;font-size:15px">${(c.hitRate * 100).toFixed(0)}%</b></td></tr>
       <tr><td>חימוש</td><td>${c.missiles} טילים לזוג, משותפים לשני המטוסים</td></tr>
       <tr><td>ירי</td><td>מיידי, ברגע שמטרה שגולתה נכנסת לטווח היירוט. אין השהיה בין טיל לטיל.</td></tr>
+      <tr><td>תמונה משותפת</td><td>שני המטוסים חולקים את תמונת המכ"ם: איום שאחד מהם רואה, המטוס שבטווח יורה עליו, לא משנה לאן הוא טס.</td></tr>
       <tr><td>מהירות טיל</td><td>פי 5 ממיירט קרקעי (Barak)</td></tr>
-      <tr><td>פטרול</td><td>קו של 15 NM (27.8 ק"מ) לאורך האזימוט, בגובה 7 ק"מ, ברבע ממהירות מטוס קרב של האויב. שני המטוסים טסים בכיוונים מנוגדים.</td></tr>
+      <tr><td>פטרול</td><td>קו של 15 NM (27.8 ק"מ) לאורך האזימוט, בגובה 7 ק"מ, בעשירית ממהירות מטוס קרב של האויב. שני המטוסים טסים בכיוונים מנוגדים.</td></tr>
     `;
   } else if (c.kind === 'battery') {
     // Per-threat-type effective range (RCS-adjusted)
@@ -3591,6 +3592,7 @@ const TUTORIAL_STEPS = [
         <li><b>כוון את הקו אל ציר האיום הצפוי.</b> איום שמגיע מהצד, בניצב לקו, עובר בשטח המת.</li>
         <li>המטוסים <b>לא יוצאים למרדף</b>: הם מגלים ומיירטים רק מהקו שלהם.</li>
         <li>הזוג <b>יורה מיד</b> כשאיום שגולה נכנס לטווח היירוט, בלי השהיה בין טיל לטיל. הטיל מהיר פי 5 ממיירט קרקעי.</li>
+        <li>שני המטוסים <b>חולקים תמונת מכ"ם</b>: איום שאחד מהם רואה, המטוס שקרוב אליו יורה, גם אם הוא טס לכיוון השני.</li>
         <li>לזוג יש <b>4 טילים בסך הכל</b>. כשהם נגמרים הזוג ממשיך לפטרל אבל לא מיירט.</li>
         <li>מותר להציב כמה זוגות על אותו אזור, למשל מול ציר שצפויות בו חדירות רבות.</li>
         <li>במשימות הגנה, כל זוג מחליף סוללה בתקציב: זוג F-16 במקום סוללה קצרת טווח, זוג F-35 במקום סוללה ארוכת טווח.</li>
@@ -6628,7 +6630,10 @@ function tick(dt) {
     if (d.prepareTarget == null) continue;
     if (state.simElapsed < d.prepareUntil) continue;
     const target = state.threats.find(t => t.id === d.prepareTarget);
-    if (target && target.status === 'inflight') {
+    // A fighter pair may have fired at it during the reaction time — then
+    // the battery stands down instead of spending a second interceptor.
+    const airShot = target && state.missiles.some(m => m.patrolId && m.threatId === target.id && !m.resolved);
+    if (target && target.status === 'inflight' && !airShot) {
       fireMissile(d, target);
     }
     // If threat reached its target during preparation, the diagnose engine
@@ -7981,8 +7986,9 @@ function aircraftShort(key) {
   const loc = WORLD.mode === 'real' && AIRCRAFT_LOCAL[WORLD.countryId || 'il'];
   return (loc && loc[key]) ? loc[key][1] : CATALOG[key].short;
 }
-// A quarter of the enemy fighter's speed, so the patrol reads as a calm orbit
-function aircraftSpeed() { return threatSpeedOf(CATALOG.fighter) * 0.25; }
+// A tenth of the enemy fighter's speed: the pair holds its station and
+// the patrol reads as a slow orbit
+function aircraftSpeed() { return threatSpeedOf(CATALOG.fighter) * 0.1; }
 function aircraftTier(key) { return key === 'f16' ? 'a' : 'b'; }
 
 // Compass azimuth (degrees, 0 = north, clockwise) ↔ world unit vector
@@ -8096,16 +8102,29 @@ function aircraftShotViable(t, pos, c) {
   return sol;
 }
 
-function pickAircraftTarget(pos, c) {
+// The pair shares one radar picture (datalink): a threat either aircraft
+// sees can be engaged by whichever aircraft has it in range, whatever its
+// heading. Only a missile already in flight at the threat holds the pair
+// back — a battery still in its reaction time does not.
+function pairSees(c, t, poses) {
+  return poses.some(pos => aircraftSees(pos, c, t));
+}
+
+function pickAircraftTarget(c, poses) {
   let best = null, bestScore = -Infinity;
   for (const t of state.threats) {
-    if (t.status !== 'inflight' || alreadyEngaged(t)) continue;
-    if (!aircraftSees(pos, c, t)) continue;
-    if (!aircraftShotViable(t, pos, c)) continue;
+    if (t.status !== 'inflight') continue;
+    if (state.missiles.some(m => m.threatId === t.id && !m.resolved)) continue;
+    let shooter = null;
+    for (const pos of poses) {
+      if (!aircraftShotViable(t, pos, c)) continue;
+      if (!shooter || Math.hypot(t.x - pos.x, t.y - pos.y) < Math.hypot(t.x - shooter.x, t.y - shooter.y)) shooter = pos;
+    }
+    if (!shooter || !pairSees(c, t, poses)) continue;
     const target = TARGETS.find(x => x.name === t.target);
     const value = target ? target.value : 1;
-    const score = value * 100 - Math.hypot(t.tx - t.x, t.ty - t.y) * 0.1 - Math.hypot(t.x - pos.x, t.y - pos.y) * 0.05;
-    if (score > bestScore) { bestScore = score; best = t; }
+    const score = value * 100 - Math.hypot(t.tx - t.x, t.ty - t.y) * 0.1;
+    if (score > bestScore) { bestScore = score; best = { t, pos: shooter }; }
   }
   return best;
 }
@@ -8120,7 +8139,7 @@ function fireAircraftMissile(p, t, pos) {
   const hit = Math.random() < c.hitRate;
   state.missiles.push({
     sx: pos.x, sy: pos.y, x: pos.x, y: pos.y,
-    tx: sol.ipx, ty: sol.ipy, t: 0, dur: Math.max(0.4, sol.T),
+    tx: sol.ipx, ty: sol.ipy, t: 0, dur: Math.max(0.15, sol.T),
     hit, reason: hit ? 'hit' : 'statistical',
     threatId: t.id, battery: p.label, patrolId: p.id, resolved: false
   });
@@ -8142,12 +8161,11 @@ function tickPatrols(dt) {
     // No reaction time and no delay between shots: each aircraft fires at
     // every tracked threat inside its range, one missile per threat,
     // until the pair's shared magazine runs dry.
-    for (let i = 0; i < 2 && p.ammo > 0; i++) {
-      const pos = patrolAircraftPos(p, i, now);
-      while (p.ammo > 0) {
-        const t = pickAircraftTarget(pos, c);
-        if (!t || !fireAircraftMissile(p, t, pos)) break;
-      }
+    if (p.ammo <= 0) continue;
+    const poses = [patrolAircraftPos(p, 0, now), patrolAircraftPos(p, 1, now)];
+    while (p.ammo > 0) {
+      const pick = pickAircraftTarget(c, poses);
+      if (!pick || !fireAircraftMissile(p, pick.t, pick.pos)) break;
     }
   }
 
@@ -8159,14 +8177,15 @@ function tickPatrols(dt) {
     for (const p of state.patrols) {
       const c = CATALOG[p.key];
       const rec = t.fNear[p.id] || (t.fNear[p.id] = { min: Infinity, inRange: false, coneMiss: false, empty: false });
-      for (let i = 0; i < 2; i++) {
-        const pos = patrolAircraftPos(p, i, now);
+      const poses = [patrolAircraftPos(p, 0, now), patrolAircraftPos(p, 1, now)];
+      for (const pos of poses) {
         const d = Math.hypot(t.x - pos.x, t.y - pos.y);
         if (d < rec.min) rec.min = d;
         if (d > c.interceptRange) continue;
         rec.inRange = true;
         if (p.ammo === 0) rec.empty = true;
-        else if (!inAircraftCone(pos, t.x, t.y)) rec.coneMiss = true;
+        // Shared picture: a blind spot only if neither cone covers the threat
+        else if (!poses.some(q => inAircraftCone(q, t.x, t.y))) rec.coneMiss = true;
       }
     }
   }
